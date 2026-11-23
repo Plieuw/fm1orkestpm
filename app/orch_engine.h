@@ -43,6 +43,9 @@ void orch_seq_set_part(unsigned part);
 unsigned orch_active_voices(void);
 
 /* Introspection for the panel and the host tests. */
+#ifdef FM1_HOST_TEST
+uint32_t orch_test_loop_gain_per_sample_q23(unsigned trip_gain_q15, unsigned samples);
+#endif
 const struct orch_intent *orch_last_intent(unsigned part);
 
 #endif
