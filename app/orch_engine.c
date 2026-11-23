@@ -29,8 +29,9 @@ static uint8_t pattern_count[ORCH_SEQ_STEPS];
 static uint8_t seq_note[ORCH_STEP_NOTES], seq_active[ORCH_STEP_NOTES];
 static uint32_t seq_off_at[ORCH_STEP_NOTES];
 static uint32_t age_counter, sample_counter, step_start;
-static uint16_t tempo = 120U;
-static uint8_t seq_enabled, seq_started, current_step;
+static volatile uint16_t tempo = 120U;
+static volatile uint8_t seq_enabled, seq_stop_pending;
+static uint8_t seq_started, current_step;
 static enum orch_model selected_model;
 static uint32_t rng = 0x6d2b79f5U;
 
@@ -132,7 +133,7 @@ void orch_init(void) {
     for (unsigned i=0;i<ORCH_MAX_VOICES;i++) voices[i].active=0U;
     event_read=event_write=0U;
     for (unsigned c=0;c<16U;c++) sustain[c]=0U;
-    orch_seq_clear(); tempo=120U; seq_enabled=seq_started=0U;
+    orch_seq_clear(); tempo=120U; seq_enabled=seq_started=seq_stop_pending=0U;
     current_step=0U; sample_counter=step_start=0U;
     for (unsigned n=0;n<ORCH_STEP_NOTES;n++) { seq_active[n]=0U; seq_off_at[n]=0U; seq_note[n]=0U; }
     selected_model=ORCH_MODEL_WAVEGUIDE_STRING;
@@ -141,6 +142,7 @@ void orch_seq_set_tempo(uint16_t bpm) {
     if (bpm<30U) bpm=30U; if (bpm>300U) bpm=300U; tempo=bpm;
 }
 void orch_seq_set_enabled(unsigned enabled) {
+    if (seq_enabled && !enabled) seq_stop_pending=1U;
     seq_enabled=enabled?1U:0U; seq_started=0U;
 }
 int orch_seq_set_step(unsigned step,unsigned slot,const struct orch_step_note *n) {
@@ -162,7 +164,15 @@ unsigned orch_active_voices(void) {
 }
 static ORCH_AUDIO void seq_tick(void) {
     uint32_t step_samples=(ORCH_SAMPLE_RATE*60U)/((uint32_t)tempo*4U);
-    if (!seq_enabled) return;
+    if (!seq_enabled) {
+        if (seq_stop_pending) {
+            for (unsigned n=0;n<ORCH_STEP_NOTES;n++) if (seq_active[n]) {
+                release_voice(16U,seq_note[n]); seq_active[n]=0U;
+            }
+            seq_stop_pending=0U;
+        }
+        return;
+    }
     if (!seq_started) { seq_started=1U; current_step=15U; step_start=sample_counter-step_samples; }
     for (unsigned n=0;n<ORCH_STEP_NOTES;n++) {
         if (seq_active[n] && (int32_t)(sample_counter-seq_off_at[n])>=0) {
