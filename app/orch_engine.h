@@ -26,6 +26,7 @@ void orch_panic(void);
 
 /* Parts: channel routing, family, articulation and divisi ceiling. */
 int orch_engine_configure_part(unsigned part, unsigned family, uint16_t channels);
+int orch_engine_set_instrument(unsigned part, unsigned instrument);
 int orch_engine_set_articulation(unsigned part, unsigned articulation);
 int orch_engine_set_player_cap(unsigned part, unsigned cap);
 int orch_engine_set_voice_ceiling(unsigned part, unsigned voices);
