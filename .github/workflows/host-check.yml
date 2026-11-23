@@ -30,3 +30,7 @@ jobs:
           done
       - name: Run host tests
         run: FM1_CORE="$PWD/fm1-core" sh tests/run_tests.sh
+      - name: Measurements
+        run: |
+          FM1_CORE="$PWD/fm1-core" sh tests/run_measure.sh
+          FM1_CORE="$PWD/fm1-core" sh tests/run_measure.sh repeat

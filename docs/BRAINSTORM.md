@@ -47,32 +47,33 @@ a per-note correction from measurement), not a constant.
 
 ### 2. A friction note has no reproducible timbre
 
-Six identical takes of C4 at velocity 100 (same code, same call):
+`run_measure.sh repeat` plays C4 at velocity 100 six times. Two runs of the
+same command, same build, one of them on a fresh clone:
 
 ```
-r 0.988 h2/h1 0.58 h3/h1 4.91
-r 0.984 h2/h1 0.55 h3/h1 0.68
-r 0.993 h2/h1 1.13 h3/h1 3.66
-r 0.987 h2/h1 0.65 h3/h1 3.49
-r 0.988 h2/h1 0.90 h3/h1 6.14
-r 0.988 h2/h1 1.49 h3/h1 3.52
+run A: h3/h1  4.91  0.68  3.66  3.49  6.14  3.52
+run B: h3/h1  0.42  0.55  0.11  0.71  0.47  0.12
 ```
 
-The pitch is stable (r 0.98–0.99) and the harmonic balance is not: h3/h1 varies
-by a factor of nine. The limit cycle the string settles into depends on the
-initial transient, and that transient includes the 10 ms bite noise, seeded
-from a generator that `orch_init()` never resets. Suspects, in order:
+The pitch is stable in both (r 0.98–0.99) and the harmonic balance is not:
+within one run h3/h1 moves by a factor of five, and between runs the same take
+index is not reproducible at all. The takes themselves are therefore not
+quotable — only the spread is. The limit cycle depends on the initial transient,
+and that transient includes the 10 ms bite noise, seeded from a generator that
+`orch_init()` never resets. Suspects, in order:
 
 1. the bite noise differs on every note, so every note starts in a different
    phase relationship;
-2. the growth rate is low (that is why the bite exists), so the model can spend
-   a long time in a transient that carries audible timbre;
+2. the growth rate is low (that is why the bite exists), so the model spends a
+   long time in a transient that carries audible timbre;
 3. the oscillation may be bimodal (a period-doubled state at high bow force is
-   the classic rauschig/"surface sound" regime), which would explain a
-   ninefold jump with no other change.
+   the classic rauschig/"surface sound" regime).
 
-Acceptance test for a fix: `run_measure.sh repeat` shows a spread below ~20 %
-in h2/h1 and h3/h1 across six takes, with pitch and level unchanged.
+Acceptance test for a fix: across repeated runs of the repeat mode, h2/h1 and
+h3/h1 vary by less than ~20 %, with pitch and level unchanged. Note that
+tightening the measurement window (a longer analysis after the attack) helps
+the numbers, but if the timbre really is take-dependent it is audible too, so
+fix the engine rather than the window.
 
 ### 3. High mallet notes are a semitone sharp
 
@@ -84,11 +85,12 @@ the wrong model above the low register; the fix is a two- or three-mode bar
 ### 4. Bow position was tried and not kept
 
 Reading the string velocity at a second tap, a fraction of the loop away from
-the bridge, and using it for the friction velocity is cheap. It did not
-produce a usable result: over six identical takes the h3/h1 spread got *worse*
-(up to 30), and no brightness ordering between "near the bridge" and "over the
+the bridge, and using it for the friction velocity is cheap. It did not produce
+a usable result: over six identical takes the h3/h1 spread got *worse* (up to
+30), and no brightness ordering between "near the bridge" and "over the
 fingerboard" survived that noise. Prototype discarded; `ORCH_ART_TASTO` and
-`ORCH_ART_PONTICELLO` still only change damping.
+`ORCH_ART_PONTICELLO` still only change damping. Given finding 2, any future
+attempt has to average over takes before it can claim anything.
 
 To do it properly you need a two-segment loop (a bow junction at `beta*L` with
 the reflections of both segments) and an averaged measurement, not a single
