@@ -135,7 +135,7 @@ static unsigned family_excite(unsigned family)
  * These are the FM1 equivalents of Himalia's STR_ARTIC table, in fixed point. */
 struct artic_profile {
     uint8_t excite;      /* EXC_* unless overridden, 0xFF = family */
-    uint8_t damp;        /* loop filter shift, larger = darker */
+    uint8_t damp;        /* damping profile: 1 dark, 4 bright */
     uint8_t attack_ms;
     uint16_t release_ms;
     uint16_t stroke_ms;  /* 0 = as long as the gate */
@@ -288,7 +288,7 @@ static unsigned pick_voice(unsigned part)
     unsigned owned = 0U;
     int quietest = -1, oldest = -1;
     int32_t quiet_env = 0x7fffffff;
-    uint32_t oldest_age = 0U;
+    uint32_t oldest_age = UINT32_MAX;
 
     for (unsigned i = 0; i < ORCH_MAX_VOICES; ++i)
         if (voices[i].active && voices[i].part == part) ++owned;
@@ -299,7 +299,7 @@ static unsigned pick_voice(unsigned part)
             voice_t *v = &voices[i];
             if (!v->active || v->part != part) continue;
             if (v->releasing && v->env < quiet_env) { quiet_env = v->env; quietest = (int)i; }
-            if (!v->releasing && v->age >= oldest_age) { oldest_age = v->age; oldest = (int)i; }
+            if (!v->releasing && v->age < oldest_age) { oldest_age = v->age; oldest = (int)i; }
         }
         if (quietest >= 0) return (unsigned)quietest;
         if (oldest >= 0) return (unsigned)oldest;
@@ -309,11 +309,11 @@ static unsigned pick_voice(unsigned part)
         if (!voices[i].active) return i;
     }
     /* the pool is full: releasing first, otherwise the oldest note */
-    quietest = -1; oldest = -1; quiet_env = 0x7fffffff; oldest_age = 0U;
+    quietest = -1; oldest = -1; quiet_env = 0x7fffffff; oldest_age = UINT32_MAX;
     for (unsigned i = 0; i < ORCH_MAX_VOICES; ++i) {
         voice_t *v = &voices[i];
         if (v->releasing && v->env < quiet_env) { quiet_env = v->env; quietest = (int)i; }
-        if (!v->releasing && v->age >= oldest_age) { oldest_age = v->age; oldest = (int)i; }
+        if (!v->releasing && v->age < oldest_age) { oldest_age = v->age; oldest = (int)i; }
     }
     if (quietest >= 0) return (unsigned)quietest;
     return (oldest >= 0) ? (unsigned)oldest : 0U;
@@ -377,6 +377,7 @@ static void voice_start(unsigned part, unsigned note, unsigned velocity,
     if (target < (8U << 16)) target = 8U << 16;
 
     uint32_t start = target;
+    v->glide_left = 0U;
     if (in->connected && in->glide_ms && runtime[part].last_len_q16) {
         start = runtime[part].last_len_q16;
         v->glide_left = ((uint32_t)in->glide_ms * ORCH_SAMPLE_RATE) / 1000U;
@@ -761,7 +762,7 @@ static void voice_tick(voice_t *v)
         } else {
             v->vib_phase = (uint16_t)(v->vib_phase + v->vib_inc);
             if (v->vib_depth < v->vib_depth_max) {
-                v->vib_depth = (uint16_t)(v->vib_depth + v->vib_ramp);
+                v->vib_depth += v->vib_ramp;
                 if (v->vib_depth > v->vib_depth_max) v->vib_depth = v->vib_depth_max;
             }
         }
