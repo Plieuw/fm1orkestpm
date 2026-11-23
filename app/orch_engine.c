@@ -38,6 +38,7 @@ typedef struct {
     uint32_t glide_left;
     uint32_t age;
     int32_t lp;      /* previous loop sample (the damping filter's state) */
+    int32_t dc;      /* output DC blocker state */
     int32_t out;     /* last radiated sample */
     int32_t env, env_inc, env_dec;
     int32_t accent_q16;
@@ -135,7 +136,7 @@ static unsigned family_excite(unsigned family)
  * These are the FM1 equivalents of Himalia's STR_ARTIC table, in fixed point. */
 struct artic_profile {
     uint8_t excite;      /* EXC_* unless overridden, 0xFF = family */
-    uint8_t damp;        /* damping profile: 1 dark, 4 bright */
+    uint8_t damp;        /* loop filter shift, larger = darker */
     uint8_t attack_ms;
     uint16_t release_ms;
     uint16_t stroke_ms;  /* 0 = as long as the gate */
@@ -186,33 +187,39 @@ static void artic_profile(unsigned artic, unsigned family, struct artic_profile 
 }
 
 struct instrument_profile {
-    uint16_t loop_gain, body_gain, body_hz;
+    uint16_t loop_gain;
+    uint16_t body_gain;
+    uint16_t body_hz;
     uint8_t damping, attack_ms;
     uint16_t release_ms;
-    uint8_t body_mix, half_period, pluck, vibrato_cents;
+    uint8_t body_mix;
+    /* Q15 friction coefficient: the bowed profiles carry 22000..23500, which
+     * does not fit a byte. Position matters, the table is positional. */
     uint16_t bow_pressure;
-    uint8_t air_noise;
+    uint8_t air_noise, vibrato_cents;
+    uint8_t half_period, pluck;
 };
 static const struct instrument_profile INST_PROFILE[ORCH_INST_COUNT] = {
-    {32630U,31600U,500U,2U,42U,260U,52U,0U,0U,7U,22000U,5U}, /* violin */
-    {32610U,31650U,350U,2U,48U,320U,58U,0U,0U,6U,22500U,5U}, /* viola */
-    {32590U,31700U,220U,3U,62U,460U,68U,0U,0U,5U,23000U,4U}, /* cello */
-    {32550U,31750U,110U,3U,78U,620U,76U,0U,0U,4U,23500U,4U}, /* bass */
-    {32400U,31000U,700U,2U,12U,1100U,64U,0U,1U,2U,0U,4U}, /* harp */
-    {32000U,30900U,1000U,3U,24U,180U,34U,1U,0U,3U,0U,42U}, /* flute */
-    {31900U,30700U,1800U,3U,18U,140U,28U,1U,0U,2U,0U,48U}, /* piccolo */
-    {32100U,31100U,800U,3U,28U,220U,42U,1U,0U,3U,0U,34U}, /* clarinet */
-    {32000U,31200U,1200U,3U,30U,220U,46U,1U,0U,4U,0U,38U}, /* oboe */
-    {32200U,31300U,400U,3U,38U,300U,54U,1U,0U,2U,0U,32U}, /* bassoon */
-    {31900U,30700U,1500U,3U,26U,220U,44U,1U,0U,4U,0U,28U}, /* trumpet */
-    {32000U,31000U,700U,3U,36U,280U,52U,1U,0U,3U,0U,26U}, /* horn */
-    {32100U,31100U,500U,3U,34U,260U,58U,1U,0U,3U,0U,24U}, /* trombone */
-    {32200U,31300U,250U,3U,48U,340U,64U,1U,0U,2U,0U,22U}, /* tuba */
-    {31300U,29200U,1200U,2U,3U,700U,84U,0U,1U,0U,0U,72U}, /* marimba */
-    {31100U,29000U,1800U,2U,2U,520U,82U,0U,1U,0U,0U,78U}, /* xylophone */
-    {31400U,29400U,150U,2U,4U,900U,88U,0U,1U,0U,0U,64U}, /* timpani */
-    {31700U,31200U,500U,3U,90U,520U,62U,0U,0U,5U,0U,10U}  /* choir */
+    {32630U,31600U,500U,2U,42U,260U,52U,22000U,5U,7U,0U,0U}, /* violin */
+    {32610U,31650U,350U,2U,48U,320U,58U,22500U,5U,6U,0U,0U}, /* viola */
+    {32590U,31700U,220U,3U,62U,460U,68U,23000U,4U,5U,0U,0U}, /* cello */
+    {32550U,31750U,110U,3U,78U,620U,76U,23500U,4U,4U,0U,0U}, /* bass */
+    {32400U,31000U,700U,2U,12U,1100U,64U,0U,4U,2U,0U,1U}, /* harp */
+    {32000U,30900U,1000U,3U,24U,180U,34U,0U,42U,3U,1U,0U}, /* flute */
+    {31900U,30700U,1800U,3U,18U,140U,28U,0U,48U,2U,1U,0U}, /* piccolo */
+    {32100U,31100U,800U,3U,28U,220U,42U,0U,34U,3U,1U,0U}, /* clarinet */
+    {32000U,31200U,1200U,3U,30U,220U,46U,0U,38U,4U,1U,0U}, /* oboe */
+    {32200U,31300U,400U,3U,38U,300U,54U,0U,32U,2U,1U,0U}, /* bassoon */
+    {31900U,30700U,1500U,3U,26U,220U,44U,0U,28U,4U,1U,0U}, /* trumpet */
+    {32000U,31000U,700U,3U,36U,280U,52U,0U,26U,3U,1U,0U}, /* horn */
+    {32100U,31100U,500U,3U,34U,260U,58U,0U,24U,3U,1U,0U}, /* trombone */
+    {32200U,31300U,250U,3U,48U,340U,64U,0U,22U,2U,1U,0U}, /* tuba */
+    {31300U,29200U,1200U,2U,3U,700U,84U,0U,72U,0U,0U,1U}, /* marimba */
+    {31100U,29000U,1800U,2U,2U,520U,82U,0U,78U,0U,0U,1U}, /* xylophone */
+    {31400U,29400U,150U,2U,4U,900U,88U,0U,64U,0U,0U,1U}, /* timpani */
+    {31700U,31200U,500U,3U,90U,520U,62U,0U,10U,5U,0U,0U}  /* choir */
 };
+
 static int32_t triangle32(uint32_t phase)
 {
     const uint32_t x = phase >> 16;
@@ -288,7 +295,7 @@ static unsigned pick_voice(unsigned part)
     unsigned owned = 0U;
     int quietest = -1, oldest = -1;
     int32_t quiet_env = 0x7fffffff;
-    uint32_t oldest_age = UINT32_MAX;
+    uint32_t oldest_age = 0U;
 
     for (unsigned i = 0; i < ORCH_MAX_VOICES; ++i)
         if (voices[i].active && voices[i].part == part) ++owned;
@@ -299,7 +306,7 @@ static unsigned pick_voice(unsigned part)
             voice_t *v = &voices[i];
             if (!v->active || v->part != part) continue;
             if (v->releasing && v->env < quiet_env) { quiet_env = v->env; quietest = (int)i; }
-            if (!v->releasing && v->age < oldest_age) { oldest_age = v->age; oldest = (int)i; }
+            if (!v->releasing && v->age >= oldest_age) { oldest_age = v->age; oldest = (int)i; }
         }
         if (quietest >= 0) return (unsigned)quietest;
         if (oldest >= 0) return (unsigned)oldest;
@@ -309,11 +316,11 @@ static unsigned pick_voice(unsigned part)
         if (!voices[i].active) return i;
     }
     /* the pool is full: releasing first, otherwise the oldest note */
-    quietest = -1; oldest = -1; quiet_env = 0x7fffffff; oldest_age = UINT32_MAX;
+    quietest = -1; oldest = -1; quiet_env = 0x7fffffff; oldest_age = 0U;
     for (unsigned i = 0; i < ORCH_MAX_VOICES; ++i) {
         voice_t *v = &voices[i];
         if (v->releasing && v->env < quiet_env) { quiet_env = v->env; quietest = (int)i; }
-        if (!v->releasing && v->age < oldest_age) { oldest_age = v->age; oldest = (int)i; }
+        if (!v->releasing && v->age >= oldest_age) { oldest_age = v->age; oldest = (int)i; }
     }
     if (quietest >= 0) return (unsigned)quietest;
     return (oldest >= 0) ? (unsigned)oldest : 0U;
@@ -348,6 +355,7 @@ static void voice_start(unsigned part, unsigned note, unsigned velocity,
     for (unsigned n = 0; n < DELAY_SIZE; ++n) v->delay[n] = 0;
     v->write = 0U;
     v->lp = 0;
+    v->dc = 0;
     v->age = ++age_counter;
     v->note = (uint8_t)note;
     v->channel = (uint8_t)(part < ORCH_PARTS ? part : 0U); /* channel identity is kept by the note */
@@ -377,7 +385,6 @@ static void voice_start(unsigned part, unsigned note, unsigned velocity,
     if (target < (8U << 16)) target = 8U << 16;
 
     uint32_t start = target;
-    v->glide_left = 0U;
     if (in->connected && in->glide_ms && runtime[part].last_len_q16) {
         start = runtime[part].last_len_q16;
         v->glide_left = ((uint32_t)in->glide_ms * ORCH_SAMPLE_RATE) / 1000U;
@@ -446,10 +453,11 @@ static void voice_start(unsigned part, unsigned note, unsigned velocity,
         v->vib_delay = (uint32_t)((in->phrase_start ? 180U : 120U) * ORCH_SAMPLE_RATE / 1000U);
     }
 
-    v->body_len = (uint16_t)(ORCH_SAMPLE_RATE / (ip->body_hz ? ip->body_hz : 440U));
+    v->body_len = (uint16_t)((ORCH_SAMPLE_RATE / (ip->body_hz ? ip->body_hz : 440U)));
     if (v->body_len < 8U) v->body_len = 8U;
     if (v->body_len > 512U) v->body_len = 512U;
-    v->body_write = 0U; v->body_lp = 0;
+    v->body_write = 0U;
+    v->body_lp = 0;
     for (unsigned n = 0; n < v->body_len; ++n) v->body[n] = 0;
     v->excite_phase = rng ^ (note * 0x9e3779b9U);
     v->excite_inc = ip->half_period ? (uint32_t)(0x7fffffffU / (uint32_t)(target >> 16))
@@ -495,7 +503,7 @@ void orch_panic(void) { enqueue(0U, 0U, 0U, 2U); }
 void orch_midi_short_message(const uint8_t *m, unsigned bytes)
 {
     if (!m || bytes < 2U || m[0] < 0x80U || m[0] >= 0xf0U) return;
-    const unsigned kind = m[0] & 0xf0U, ch = m[0] & 15U;
+    const unsigned kind = m[0] & 0xf0U, ch = m[0] & 0x0fU;
     if ((kind == 0x80U || kind == 0x90U) && bytes >= 3U)
         enqueue(ch, m[1], (kind == 0x80U || m[2] == 0U) ? 0U : m[2], 0U);
     else if (kind == 0xb0U && bytes >= 3U && m[1] == 64U)
@@ -762,7 +770,7 @@ static void voice_tick(voice_t *v)
         } else {
             v->vib_phase = (uint16_t)(v->vib_phase + v->vib_inc);
             if (v->vib_depth < v->vib_depth_max) {
-                v->vib_depth += v->vib_ramp;
+                v->vib_depth = (uint16_t)(v->vib_depth + v->vib_ramp);
                 if (v->vib_depth > v->vib_depth_max) v->vib_depth = v->vib_depth_max;
             }
         }
@@ -807,14 +815,20 @@ static void voice_tick(voice_t *v)
     }
     if (v->gate && v->excite != EXC_STRIKE) {
         const int32_t noise = noise16();
+        const int32_t energy = v->energy_q16;
         switch (v->excite) {
         case EXC_BOW: {
-            const int32_t bow_speed = ((int32_t)v->velocity + 16) * 140;
-            const int32_t slip = bow_speed - delayed;
-            int32_t friction = (slip * (int32_t)ip->bow_pressure) >> 15;
-            if (friction > 10000) friction = 10000;
-            if (friction < -10000) friction = -10000;
-            loop += friction + ((noise * ip->air_noise) >> 10);
+            /* Rosin noise, not a friction feedback. Feeding the string's own
+             * motion back with a constant bow speed injects a fixed offset;
+             * measured on this engine: DC 2.74 M against a 2.97 M peak and no
+             * pitch at all (f0/DC = 0). The profile's bow_pressure scales the
+             * rosin, the intent's energy the stroke, the accent the bite.
+             * The real Helmholtz friction model is still not ported. */
+            const int32_t rosin = (int32_t)(ip->bow_pressure >> 4);
+            int32_t drive = ((int32_t)v->velocity * rosin) >> 6;
+            int32_t exc = (noise * drive) >> 15;
+            exc = (exc * (int32_t)(65536 + ((energy - ORCH_Q16) >> 1))) >> 16;
+            loop += exc + ((noise * ip->air_noise) >> 10);
             loop += (delayed * (int32_t)v->accent_q16) >> 24;
             break;
         }
@@ -848,14 +862,20 @@ static void voice_tick(voice_t *v)
     }
     v->delay[v->write] = (int16_t)clamp16(loop);
     v->write = (v->write + 1U) & DELAY_MASK;
+
+    /* A compact secondary resonator models body, bore, bell or bar modes. */
     {
         const int32_t body_delayed = v->body[v->body_write];
         v->body_lp += (body_delayed - v->body_lp) >> 2;
         const int32_t body_feedback = (v->body_lp * (int32_t)ip->body_gain) >> 15;
-        v->body[v->body_write] = (int16_t)clamp16(body_feedback + (smoothed >> 3));
+        const int32_t body_input = smoothed >> 3;
+        v->body[v->body_write] = (int16_t)clamp16(body_feedback + body_input);
         ++v->body_write;
         if (v->body_write >= v->body_len) v->body_write = 0U;
-        v->out = smoothed + ((v->body_lp * (int32_t)ip->body_mix) >> 7);
+        /* a constant offset in the loop eats headroom without making sound */
+        const int32_t body_out = smoothed + ((v->body_lp * (int32_t)ip->body_mix) >> 7);
+        v->dc += (body_out - v->dc) >> 8;
+        v->out = body_out - v->dc;
     }
 
     /* the envelope: the attack runs even for a pluck (the gate is already
@@ -863,7 +883,6 @@ static void voice_tick(voice_t *v)
     if (v->attack_left) {
         --v->attack_left;
         v->env += v->env_inc;
-        if (v->env > ENV_MAX) v->env = ENV_MAX;
     } else if (v->gate) {
         v->env = ENV_MAX;
     } else {
@@ -889,7 +908,7 @@ void orch_render_q23(int32_t *out, unsigned frames)
             voice_tick(v);
             if (!v->active) continue;
             ++active;
-            const int32_t amp = (v->out * v->env >> 15);
+            const int32_t amp = (v->out * v->env) >> 15;
             const int32_t g = (amp * (int32_t)v->velocity) >> 7;
             left += (int64_t)g * v->pan_l;
             right += (int64_t)g * v->pan_r;
