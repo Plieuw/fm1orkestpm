@@ -39,6 +39,7 @@ typedef struct {
     uint32_t age;
     int32_t lp;      /* previous loop sample (the damping filter's state) */
     int32_t dc;      /* output DC blocker state */
+    int32_t exc_dc;  /* running mean of the friction force */
     int32_t out;     /* last radiated sample */
     int32_t env, env_inc, env_dec;
     int32_t accent_q16;
@@ -49,6 +50,7 @@ typedef struct {
     uint32_t stroke_left;
     uint32_t attack_left;
     uint16_t strike_left;
+    uint16_t bow_gain;   /* Q8 force scale, proportional to the string length */
     int16_t pan_l, pan_r;
     uint8_t note, channel, part, family, instrument, artic, player, excite, damp;
     uint8_t velocity, gate, active, releasing, struck;
@@ -214,6 +216,33 @@ static const struct instrument_profile INST_PROFILE[ORCH_INST_COUNT] = {
     {31400U,29400U,150U,2U,4U,900U,88U,0U,1U,0U,0U,64U}, /* timpani */
     {31700U,31200U,500U,3U,90U,520U,62U,0U,0U,5U,0U,10U}  /* choir */
 };
+
+/* Helmholtz friction curve. While the bow and string surfaces stick they move
+ * together; once the string slips faster than the rosin can hold it, the
+ * coefficient falls. That falling mu(|v_rel|) is what makes a bowed string
+ * self-oscillate and what limits its amplitude: the loop is driven where the
+ * slope is steep and released where the curve flattens.
+ *
+ * mu(v) = mu_s / (1 + |v|/v0), tabulated in Q15 over 0..15*2048 and linearly
+ * interpolated. A nearest-entry table would add audible distortion because the
+ * force is a nonlinear function of the string's own velocity.
+ */
+static const uint16_t FRIC_Q15[16] = {
+    32767U, 19460U, 13860U, 10748U, 8782U, 7438U, 6423U, 5669U,
+     5079U,  4587U,  4194U,  3866U, 3572U, 3343U, 3136U, 2949U
+};
+
+static int32_t friction_q15(int32_t v)
+{
+    int32_t a = v < 0 ? -v : v;
+    if (a > 32767) a = 32767;
+    const unsigned idx = (unsigned)(a >> 11);
+    const int32_t frac = a & 2047;
+    const int32_t lo = (int32_t)FRIC_Q15[idx];
+    const int32_t hi = (int32_t)FRIC_Q15[idx < 15U ? idx + 1U : 15U];
+    return lo + (((hi - lo) * frac) >> 11);
+}
+
 static int32_t triangle32(uint32_t phase)
 {
     const uint32_t x = phase >> 16;
@@ -350,6 +379,7 @@ static void voice_start(unsigned part, unsigned note, unsigned velocity,
     v->write = 0U;
     v->lp = 0;
     v->dc = 0;
+    v->exc_dc = 0;
     v->age = ++age_counter;
     v->note = (uint8_t)note;
     v->channel = (uint8_t)(part < ORCH_PARTS ? part : 0U); /* channel identity is kept by the note */
@@ -448,6 +478,19 @@ static void voice_start(unsigned part, unsigned note, unsigned velocity,
         v->vib_delay = (uint32_t)((in->phrase_start ? 180U : 120U) * ORCH_SAMPLE_RATE / 1000U);
     }
 
+    /* A short, light string has a low mechanical impedance, so the same bow
+     * force drives a high note harder than a low one and breaks the motion.
+     * Scale the force with the loop length; a 400-sample string (A2) is the
+     * reference. */
+    {
+        uint32_t ref = target >> 16;
+        if (ref < 16U) ref = 16U;
+        uint32_t g = (ref * 256U) / 400U;
+        if (g < 64U) g = 64U;
+        if (g > 2048U) g = 2048U;
+        v->bow_gain = (uint16_t)g;
+    }
+
     v->body_len = (uint16_t)(ORCH_SAMPLE_RATE / (ip->body_hz ? ip->body_hz : 440U));
     if (v->body_len < 8U) v->body_len = 8U;
     if (v->body_len > 512U) v->body_len = 512U;
@@ -461,6 +504,16 @@ static void voice_start(unsigned part, unsigned note, unsigned velocity,
     v->stroke_left = prof.stroke_ms
                          ? (uint32_t)prof.stroke_ms * ORCH_SAMPLE_RATE / 1000U
                          : 0U;
+
+    /* the bow bite: a few milliseconds of rosin to set the string in motion,
+     * after which the friction holds it. Measured without it, a bowed note
+     * swells for nearly a second before it reaches its level. */
+    if (excite == EXC_BOW) {
+        v->strike_left = (uint16_t)((10U * ORCH_SAMPLE_RATE) / 1000U);
+        const int32_t bite = (int32_t)velocity * 90;
+        for (unsigned n = 0; n < 24U && n < DELAY_SIZE; ++n)
+            v->delay[n] = (int16_t)clamp16((noise16() * bite) >> 8);
+    }
 
     /* the strike: a short noise burst through the bridge */
     if (excite == EXC_STRIKE || prof.pluck) {
@@ -811,17 +864,37 @@ static void voice_tick(voice_t *v)
         const int32_t noise = noise16();
         switch (v->excite) {
         case EXC_BOW: {
-            /* Rosin noise, not a friction feedback. Feeding the string's own
-             * motion back with a constant bow speed injects a fixed offset;
-             * measured on this engine: DC 2.74 M against a 2.97 M peak and no
-             * pitch at all (f0/DC = 0). The profile's bow_pressure scales the
-             * rosin, the intent's energy the stroke, the accent the bite.
-             * The real Helmholtz friction model is still not ported. */
-            const int32_t rosin = (int32_t)(ip->bow_pressure >> 4);
-            const int32_t drive = ((int32_t)v->velocity * rosin) >> 6;
-            int32_t exc = (noise * drive) >> 15;
-            exc = (exc * (int32_t)(65536 + ((v->energy_q16 - ORCH_Q16) >> 1))) >> 16;
-            loop += exc + ((noise * ip->air_noise) >> 10);
+            /* Helmholtz friction, added to the string's velocity loop. The
+             * force depends on the relative velocity at the contact,
+             * v_bow - v_string: the string is dragged while it sticks and
+             * released when it slips, which is what produces the sawtooth and
+             * the pitch. Two measured traps are handled here:
+             *
+             * - the friction force has a mean, and a near-lossless loop
+             *   integrates a mean into a huge offset (2.74 M of DC and no
+             *   pitch on the first attempt). Only the fluctuation enters, so
+             *   the running mean of the force is subtracted. The loop itself is
+             *   not filtered: a filter in the loop shifts the pitch.
+             * - soft playing is a light, slightly faster stroke rather than a
+             *   slow drag; below the minimum bow force the motion degrades into
+             *   surface noise instead of a tone.
+             */
+            const int32_t soft = (v->velocity < 64U)
+                                     ? (int32_t)(64U - v->velocity) * 110
+                                     : 0;
+            const int32_t bow = ((int32_t)v->velocity + 12) * 150 + soft;
+            const int32_t vrel = bow - delayed;   /* + = bow leads the string */
+            const int32_t mu = friction_q15(vrel);
+            /* bow force rises with bow speed squared, as a player's does */
+            const int32_t vsq = (int32_t)v->velocity * (int32_t)v->velocity;
+            const int32_t fmax = ((int32_t)ip->bow_pressure * (48 + (vsq >> 6))) >> 7;
+            int32_t force = (mu * fmax) >> 15;    /* magnitude */
+            force = vrel < 0 ? -force : force;    /* direction follows the slip */
+            v->exc_dc += (force - v->exc_dc) >> 10;   /* ~7 Hz: the DC term */
+            int32_t exc = force - v->exc_dc;
+            exc = (exc * (int32_t)v->bow_gain) >> 8;
+            loop += exc >> 3;
+            loop += (noise * ip->air_noise) >> 12;    /* rosin hiss, very low */
             loop += (delayed * (int32_t)v->accent_q16) >> 24;
             break;
         }
