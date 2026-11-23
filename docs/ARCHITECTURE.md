@@ -30,7 +30,7 @@ Divisi is rendered, not merely planned: the planner assigns chord notes to up to
 
 All four parts share a fixed 12-voice pool. Each part has a configurable voice ceiling; each Divisi part has a player cap. The allocator prefers releasing/quiet voices and then steals the oldest voice only when necessary. The 12-voice limit is provisional: target-device timing and RAM measurements are still required before raising it.
 
-The per-player model uses one 2048-sample primary delay and a 512-sample secondary resonator. Static allocation avoids heap use in the audio callback. Instrument loop loss is specified per round trip and converted once to a Q23 per-sample gain at note start; this prevents pitch register from changing decay time. The conversion has a one-step minimum loss so the delay loop is never marginally lossless.
+The per-player model uses one 2048-sample primary delay and a 512-sample secondary resonator. Static allocation avoids heap use in the audio callback. The scalar instrument loop-gain component is specified per nominal round trip and converted once to a Q23 per-sample gain at note start, with a one-step minimum loss. This corrects scalar gain scaling across delay lengths; the per-sample two-tap damping filter still has pitch-dependent spectral loss, so total decay is not yet register-invariant.
 
 ## Remaining work
 

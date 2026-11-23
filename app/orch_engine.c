@@ -99,13 +99,13 @@ static uint32_t loop_gain_per_sample_q23(unsigned trip_gain_q15, unsigned sample
 {
     if (!samples) samples = 1U;
     if (trip_gain_q15 > 32767U) trip_gain_q15 = 32767U;
-    /* For small losses, (1-loss)^(1/N) ~= 1-loss/N. Keep the loss
-     * independent of pitch while avoiding powf/logf in the audio path. */
-    uint64_t loss_q23 = (uint64_t)(32768U - trip_gain_q15) * Q23_ONE;
-    loss_q23 /= (uint64_t)32768U * samples;
+    /* For small losses, (1-loss)^(1/N) ~= 1-loss/N.
+     * Q15 -> Q23 contributes a factor 2^8, so the numerator fits uint32_t:
+     * avoid a 64-bit divide on the real-time note-on path. */
+    uint32_t loss_q23 = ((32768U - trip_gain_q15) << 8) / samples;
     if (!loss_q23) loss_q23 = 1U; /* never permit a marginal, lossless loop */
     if (loss_q23 >= Q23_ONE) loss_q23 = Q23_ONE - 1U;
-    return Q23_ONE - (uint32_t)loss_q23;
+    return Q23_ONE - loss_q23;
 }
 
 #ifdef FM1_HOST_TEST
