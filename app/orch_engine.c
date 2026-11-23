@@ -209,7 +209,8 @@ ORCH_AUDIO void orch_render_q23(int32_t *out,unsigned frames) {
         int64_t sum=0;
         unsigned active=0U;
         for (unsigned i=0;i<ORCH_MAX_VOICES;i++) {
-            voice_t *v=&voices[i]; if (!v->active) continue;\n            ++active;
+            voice_t *v=&voices[i]; if (!v->active) continue;
+            ++active;
             int32_t delayed=v->delay[v->index];
             v->filter+=(delayed-v->filter)>>3;
             int32_t loop=v->filter-(v->filter>>15);
