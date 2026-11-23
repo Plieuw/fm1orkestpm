@@ -59,12 +59,22 @@ gate.
 *GLOBAL* — tempo, transpose, scale, volume and the save state, with the shortcuts
 of the buttons that are not page specific.
 
-Screens rendered by `tests/panel_preview.c` (no board attached, so these show
-the layout the code draws, not the ST7789):
+To look at a page without a board, render it on the host:
 
-![PARTS page](panel-parts.png)
-![ARP page](panel-arp.png)
-![SEQUENCER page](panel-seq.png)
+```sh
+cc -std=c11 -O2 -DFM1_HOST_TEST -I../fm1-core/include -Iapp \
+   tests/panel_preview.c app/orch_ui.c app/orch_engine.c \
+   app/orch_adaptive.c app/orch_divisi.c app/orch_part.c -o /tmp/panel_preview -lm
+/tmp/panel_preview /tmp/p
+python3 tools/panel_png.py /tmp/p-parts.ppm /tmp/p-parts.png
+python3 tools/panel_png.py /tmp/p-arp.ppm   /tmp/p-arp.png
+python3 tools/panel_png.py /tmp/p-seq.ppm   /tmp/p-seq.png
+```
+
+`panel_preview` writes the three pages as PPM: the PARTS page with a four-part
+chord sounding, the ARP page with three held keys, and the SEQUENCER page with
+three recorded steps and the playing step marked. The PNGs are not committed,
+because they are output of that command and would go stale.
 
 ## Arpeggiator
 
