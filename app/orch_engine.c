@@ -26,6 +26,8 @@ static volatile uint8_t event_write, event_read;
 static uint8_t sustain[ORCH_MIDI_CHANNELS];
 static struct orch_step_note pattern[ORCH_SEQ_STEPS][ORCH_STEP_NOTES];
 static uint8_t pattern_count[ORCH_SEQ_STEPS];
+static uint8_t seq_note[ORCH_STEP_NOTES], seq_active[ORCH_STEP_NOTES];
+static uint32_t seq_off_at[ORCH_STEP_NOTES];
 static uint32_t age_counter, sample_counter, step_start;
 static uint16_t tempo = 120U;
 static uint8_t seq_enabled, seq_started, current_step;
@@ -105,7 +107,7 @@ static ORCH_AUDIO void release_voice(unsigned ch, unsigned note) {
         voice_t *v=&voices[i];
         if (v->active && v->channel==ch && v->note==note) {
             v->gate=0U;
-            if (!sustain[ch]) v->releasing=1U;
+            if (ch >= ORCH_MIDI_CHANNELS || !sustain[ch]) v->releasing=1U;
         }
     }
 }
@@ -132,6 +134,7 @@ void orch_init(void) {
     for (unsigned c=0;c<16U;c++) sustain[c]=0U;
     orch_seq_clear(); tempo=120U; seq_enabled=seq_started=0U;
     current_step=0U; sample_counter=step_start=0U;
+    for (unsigned n=0;n<ORCH_STEP_NOTES;n++) { seq_active[n]=0U; seq_off_at[n]=0U; seq_note[n]=0U; }
     selected_model=ORCH_MODEL_WAVEGUIDE_STRING;
 }
 void orch_seq_set_tempo(uint16_t bpm) {
@@ -161,11 +164,23 @@ static ORCH_AUDIO void seq_tick(void) {
     uint32_t step_samples=(ORCH_SAMPLE_RATE*60U)/((uint32_t)tempo*4U);
     if (!seq_enabled) return;
     if (!seq_started) { seq_started=1U; current_step=15U; step_start=sample_counter-step_samples; }
+    for (unsigned n=0;n<ORCH_STEP_NOTES;n++) {
+        if (seq_active[n] && (int32_t)(sample_counter-seq_off_at[n])>=0) {
+            release_voice(16U,seq_note[n]);
+            seq_active[n]=0U;
+        }
+    }
     if ((uint32_t)(sample_counter-step_start)>=step_samples) {
         step_start+=step_samples; current_step=(uint8_t)((current_step+1U)&15U);
-        for (unsigned n=0;n<pattern_count[current_step];n++) {
+        for (unsigned n=0;n<ORCH_STEP_NOTES;n++) {
             struct orch_step_note *p=&pattern[current_step][n];
-            if (p->velocity) start_voice(16U,p->note,p->velocity);
+            if (p->velocity) {
+                start_voice(16U,p->note,p->velocity);
+                seq_note[n]=p->note;
+                seq_active[n]=1U;
+                uint32_t gate=(p->gate_percent>100U?100U:p->gate_percent);
+                seq_off_at[n]=sample_counter+(step_samples*gate)/100U;
+            }
         }
     }
 }
