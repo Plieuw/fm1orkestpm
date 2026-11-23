@@ -68,6 +68,32 @@ static void test_round_trip_loss(void)
     CHECK(low_note < 8388608U && high_note < 8388608U);
 }
 
+/* Measure the bowed-string fundamental with autocorrelation rather than
+ * choosing the strongest spectral partial (which may be the second harmonic). */
+static void test_string_pitch_autocorrelation(void)
+{
+    static int32_t captured[8192];
+    solo_part(ORCH_FAM_STRINGS);
+    midi(0x90U, 45U, 100U); /* A2 = 110 Hz */
+    for (unsigned b = 0; b < 64U; ++b) {
+        memset(block, 0, sizeof block);
+        orch_render_q23(block, 128U);
+        for (unsigned i = 0; i < 128U; ++i)
+            captured[b * 128U + i] = block[i * 2U] >> 8;
+    }
+
+    int64_t best_score = INT64_MIN;
+    unsigned best_lag = 0U;
+    for (unsigned lag = 360U; lag <= 440U; ++lag) {
+        int64_t score = 0;
+        for (unsigned n = 2048U; n < 8192U - lag; ++n)
+            score += (int64_t)captured[n] * captured[n - lag];
+        if (score > best_score) { best_score = score; best_lag = lag; }
+    }
+    CHECK(best_lag >= 390U && best_lag <= 410U);
+    orch_init();
+}
+
 static void test_routing(void)
 {
     orch_init();
@@ -235,6 +261,7 @@ static void test_articulation(void)
 int main(void)
 {
     test_round_trip_loss();
+    test_string_pitch_autocorrelation();
     test_routing();
     test_families();
     test_instruments();
