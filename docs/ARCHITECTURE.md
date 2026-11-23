@@ -11,7 +11,7 @@ MIDI / sequencer -> part routing -> Adaptive Playing -> Divisi planner -> per-pl
 
 The instrument layer now distinguishes violin, viola, cello, double bass, harp, flute, piccolo, clarinet, oboe, bassoon, trumpet, French horn, trombone, tuba, marimba, xylophone, timpani and choir. Each profile has its own loop gain, damping, attack/release, body resonance, excitation and vibrato behaviour.
 
-- Bowed strings are driven by rosin noise scaled by the instrument's bow pressure and the adaptive energy, with a per-voice DC blocker. A friction feedback was measured to pump DC and is deliberately not used; the Helmholtz bow/string contact curve is still to be implemented.
+- Bowed strings use a Helmholtz friction law: a falling coefficient `mu(v_rel)` multiplied by the bow force, injected into the string's velocity loop with its DC term removed, scaled by the string length, and started with a short rosin bite.
 - Harp and pizzicato use one-shot plucked/struck excitation and natural ring.
 - Woodwinds use a half-period inverted-reflection air-column approximation with pitch-locked jet excitation.
 - Brass uses a half-period bore approximation with pitch-locked lip-pressure excitation.
@@ -35,7 +35,7 @@ The per-player model uses one 2048-sample primary delay and a 512-sample seconda
 ## Remaining work
 
 - Calibrate instrument profiles by listening and measurement on FM1 hardware.
-- Improve string bridge/body coupling, dispersion and independent player bow behaviour, and implement the Helmholtz friction contact.
+- Improve string bridge/body coupling, dispersion and independent player bow behaviour, and move from a static friction law with no hysteresis to a contact model with bow position, bow force history and rosin state.
 - Improve reed, tone-hole, register and brass bell/lip modelling.
 - Expand choir formants and percussion modal banks.
 - Add panel/program-change mapping for instrument and articulation selection.

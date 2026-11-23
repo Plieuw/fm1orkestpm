@@ -27,7 +27,7 @@ Each note/player owns:
 
 ## Instrument-specific behaviour
 
-- **Violin / viola / cello / double bass:** rosin-noise excitation scaled by the instrument's bow pressure and the adaptive energy, a per-voice DC blocker, and a different body-mode resonance for each instrument. Their loop gains and damping differ so the lower instruments sustain more darkly. A friction feedback is deliberately not used; see the validation section.
+- **Violin / viola / cello / double bass:** Helmholtz friction excitation. The bow force is a function of the relative velocity at the contact, `v_rel = v_bow - v_string`, through a falling coefficient `mu(v) = mu_s / (1 + |v|/v0)`. The falling slope is the negative damping that makes the string speak; the flat tail limits the amplitude. Only the fluctuation of the force enters the loop (its running mean is removed, because a mean is a DC term), the force is scaled by the loop length because a short string has a lower impedance, and the note starts with a 10 ms rosin bite.
 - **Harp:** one-shot plucked excitation with a long natural ring; no continuous bow drive.
 - **Flute / piccolo:** half-period, inverted-reflection air-column approximation, pitch-locked jet/edge excitation, and a higher body/bore resonance. Piccolo has a shorter, brighter profile.
 - **Clarinet / oboe / bassoon:** the same compact air-column topology but with different damping, breath-noise, attack and body resonance profiles. These are not yet separate full reed/tone-hole solvers.
@@ -50,7 +50,7 @@ The engine retains the per-part Himalia-inspired phrase interpreter and Divisi p
 ## Limitations
 
 These are first-pass physical-model approximations, not finished acoustic instrument emulations. In particular:
-- Bow/string contact is not solved: the string is driven by rosin noise, and the Helmholtz friction curve, bridge admittance, string dispersion, coupled strings and measured body impulse responses are still missing.
+- The bow/string contact uses a static friction law `mu(v_rel)`. It has no stick-slip hysteresis, no dependence on rosin state, temperature or contact pressure history, no bow position along the string, no bridge admittance and no string dispersion or coupling between strings.
 - Wind and brass use compact single-bore approximations; reed stiffness, lip aperture, tone holes, register holes, bore taper and bell radiation need further work.
 - Choir is a small harmonic/formant model, not a full vocal-tract waveguide.
 - Percussion uses a compact secondary mode, not a multi-mode membrane/plate solver.
@@ -68,24 +68,35 @@ a time, rendered with the same sources the firmware would use:
 
 | Family | Pitch (autocorrelation) | Peak (Q23) | Note |
 |---|---|---|---|
-| strings | 110.0 / 262.5 / 668.2 Hz for A2/C4/E5 | 0.8–2.1 M | r 0.83–0.95 |
+| strings | 110.0 / 262.5 / 668.2 Hz for A2/C4/E5 | 2.7–3.6 M | r 0.95–0.99 |
+| strings, 2 players | 110.2 / 262.5 / 668.2 Hz | 1.9–2.7 M | r 0.94–0.99 |
 | woodwinds | 110.2 / 262.5 / 668.2 Hz | 3.3–4.8 M | r 0.99–1.00 |
 | brass | 110.2 / 262.5 / 668.2 Hz | 3.3–5.1 M | r 0.99–1.00 |
-| mallets | 110.2 / 261.6 / 659.3 Hz | 0.13–0.5 M | decays on its own |
+| mallets | 110.2 / 261.6 / 659.3 Hz | 0.13–0.6 M | decays on its own |
 
 The tuning error is +4 to +23 cents (the loop filter is not phase linear); the
 autocorrelation lag resolution at the top note is about 26 cents, so treat the
 high-register number as an upper bound.
 
-Two defects were found by measurement and fixed:
+A register/velocity sweep is the test that matters for a friction model,
+because the failure mode is not a wrong frequency but a string that stops
+oscillating. C2, A2, C4, E5 and C6 at velocity 20, 40, 80 and 124 (20 points):
+normalized autocorrelation at the expected period is 0.89 or better in every
+case, and the peak grows 20–29× from pp to ff. DC sits at 3–28 k against peaks
+of 0.1–2.8 M.
 
-- The bowed string was a DC generator. The friction force was computed from the
-  string's own output against a constant bow speed, which injects a fixed
-  offset: measured DC 2.74 M against a 2.97 M peak, f0/DC = 0, no pitch at all.
-  Strings are now driven by rosin noise scaled by the profile's bow pressure,
-  and every voice has a DC blocker after the body colouration. After the fix:
-  DC 2.4 k–24 k, pitch 110.0/262.5/668.2 Hz. The Helmholtz friction contact is
-  still not ported, so this is a working excitation, not a solved bow model.
+Three defects were found by measurement and fixed here:
+
+- The first friction attempt injected the force with its DC term into a
+  near-lossless loop: DC 2.74 M against a 2.97 M peak, f0/DC = 0, no pitch.
+  The mean of the force is now removed before injection; the loop is not
+  filtered, since that would shift the pitch.
+- With a force that ignored string length, the high notes broke into noise:
+  a short string has a lower impedance and was over-driven. The force is now
+  scaled with the loop length.
+- With a force that ignored bow speed behaviour, pp on the low strings was
+  surface noise instead of a tone. Soft playing is now a lighter, slightly
+  faster stroke, and the note is seeded with a short rosin bite.
 - `orch_engine.c` was truncated mid-function in the 0.3.0 commit, and the
   instrument profile declared a `uint8_t` for Q15 friction values (22000 did
   not fit). Both are fixed, and `test_strings_are_not_dc` guards the DC case.
