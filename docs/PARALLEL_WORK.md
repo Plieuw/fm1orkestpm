@@ -10,7 +10,7 @@ work mergeable and stop one agent from undoing another's measured fixes.
 | `beta/0.1.0-poly-modeling` | first waveguide prototype, single generic excitation |
 | `beta/0.2.0-divisi-adaptive` | adaptive interpreter, divisi planner, host tests, port docs |
 | `beta/0.3.0-instrument-waveguides` | per-channel families, per-instrument profiles, body resonators |
-| `beta/0.3.1-build-and-host-checks` | 0.3.0 content plus the DC fix, host tests and CI |
+| `beta/0.3.1-build-and-host-checks` | 0.3.0 content plus the friction bow, host tests and CI |
 
 Rules:
 
@@ -34,11 +34,11 @@ Rules:
 (`eeda2ab`, `3fa6354`) and the repairs were applied to the files by hand and
 then verified with `git diff` against `origin/beta/0.3.0-instrument-waveguides`:
 
-- `app/orch_engine.c` — identical except the rosin excitation and the DC
-  blocker. Every other line, including the voice-stealing comparison, the
-  `glide_left` reset and the 32-bit `vib_depth`, comes from the 0.3.0 line.
+- `app/orch_engine.c` — the 0.3.0 engine plus the friction bow. Every other
+  line, including the voice-stealing comparison, the `glide_left` reset and the
+  32-bit `vib_depth`, comes from the 0.3.0 line.
 - `docs/ARCHITECTURE.md` and `docs/INSTRUMENT_WAVEGUIDES.md` — the 0.3.0 text,
-  with the bow bullet corrected and the measurements added.
+  with the bow sections corrected and the measurements added.
 - The added tests, `tests/run_tests.sh`, the workflow that runs them and the
   README status section exist only here; the workflow compiles every `app/*.c`
   and then runs the suites, so it is a superset of the 0.3.0 workflow.
@@ -61,12 +61,22 @@ These were found by measurement on host renders, not by ear:
    accumulates noise until it clips; the clipped noise then sits on the second
    harmonic (110 Hz measured at 221 Hz). Keep a loss floor of at least one
    step.
-4. **A linear friction force fed back from the string output pumps DC.** On
-   this engine it produced DC 2.74 M against a 2.97 M peak and no pitch at
-   all. Strings are driven by rosin noise; the Helmholtz friction model is
-   still not ported. Do not restore the feedback without a measurement that
-   shows f0/DC well above one.
-5. **The second harmonic being stronger than the fundamental is normal** for
+4. **A friction force fed back into a near-lossless loop pumps DC unless its
+   mean is removed.** Measured without that: DC 2.74 M against a 2.97 M peak
+   and no pitch at all. The bowed strings therefore subtract a running mean of
+   the force before injecting it, and the loop itself is never filtered,
+   because a filter inside the loop shifts the pitch. With the mean removed
+   the same model measures 110.0/262.5/668.2 Hz at r 0.95–0.99 and DC 3–28 k.
+5. **Bow force must scale with the string.** A short string has a lower
+   mechanical impedance, so a force that is right for A2 turns E5 into noise.
+   The force is scaled by the loop length (a 400-sample A2 string is the
+   reference).
+6. **Soft playing is a light, faster stroke, not a slow drag.** Below the
+   minimum bow force the string stops oscillating and only hisses; that is why
+   pp on the low strings was periodic only after the bow speed was raised for
+   low velocities. The note also starts with a 10 ms rosin bite, without which
+   the model swells for nearly a second.
+7. **The second harmonic being stronger than the fundamental is normal** for
    bowed strings and reeds. Measure pitch with autocorrelation, not by taking
    the spectral maximum, or you will "discover" octave errors that are not
    there.
