@@ -232,7 +232,7 @@ void orch_plan_divisi(const uint8_t *notes,unsigned note_count,unsigned density,
     for (unsigned i=0;i<6U;i++) { p->semitone_offset[i]=0; p->part_assignment[i]=0U; }
     if (!notes || !note_count) return;
     unsigned count=note_count>6U?6U:note_count;
-    unsigned players=(density<25U && note_count==1U)?4U:(density<55U && note_count<3U)?3U:count;
+    unsigned players=divisi_enabled ? ((density<25U && note_count==1U)?4U:(density<55U && note_count<3U)?3U:count) : count;
     if (players>6U) players=6U;
     p->player_count=(uint8_t)players;
     for (unsigned i=0;i<players;i++) {
@@ -317,7 +317,7 @@ ORCH_AUDIO void orch_render_q23(int32_t *out,unsigned frames) {
                 if (v->envelope<=8) { v->active=0U; v->envelope=0; continue; }
             }
             uint32_t phase=v->vib_phase;
-            int32_t modulation=(vib*(int32_t)v->vib_depth)>>15;
+            int32_t modulation=0;
             int32_t trem=32767-((triangle_lfo(phase>>1)*(int32_t)v->tremolo_depth)>>15);
             int32_t level=(v->filter*v->envelope)>>15;
             level=(level*(32767+modulation/8))>>15;
