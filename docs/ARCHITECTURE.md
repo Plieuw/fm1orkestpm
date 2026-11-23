@@ -2,7 +2,7 @@
 
 ## Core design
 
-The instrument is polyphonic first. One global voice allocator serves all accepted MIDI channels and the internal sequencer. MIDI channel identity is retained per voice so Note Off and sustain can be channel-aware. No voice is permanently reserved for a channel.
+The instrument is polyphonic first. One global voice allocator serves all accepted MIDI channels and the internal sequencer. MIDI channel identity is retained per voice so Note Off can be channel-aware. The internal sequencer uses a separate reserved source identifier, not one of the 16 external MIDI channels. No voice is permanently reserved for a channel.
 
 ## Audio path
 
@@ -32,7 +32,7 @@ The raw FM1 MIDI callback parses channel-voice Note On, Note Off and CC64 sustai
 
 ## Sequencer
 
-The source exposes a 16-step pattern API with up to four notes per step. Sequencer playback is disabled by default. The first timing implementation is deliberately basic: gate-duration scheduling, external MIDI clock, per-pattern length, swing, ratchets, transport and panel editing are still outstanding. The next pass must complete note-off timing before calling this a finished polyphonic sequencer.
+The source exposes a 16-step pattern API with up to four notes per step and per-note gate percentages. Sequencer playback is disabled by default; it uses an internal tempo and releases each sequenced note after its programmed gate. External MIDI clock, per-pattern length, swing, ratchets, MIDI transport sync and panel editing remain outstanding.
 
 ## Validation plan
 
