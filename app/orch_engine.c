@@ -40,7 +40,7 @@ typedef struct {
     uint32_t release_samples;
     uint32_t vib_phase;
     uint32_t vib_step;
-    uint32_t exciter_phase;
+    uint32_t exciter_phase, exciter_step;
     uint16_t vib_depth;
     uint16_t tremolo_depth;
     uint8_t note, channel, velocity, family;
@@ -189,21 +189,21 @@ static ORCH_AUDIO void excite_pluck(voice_t *v, const instrument_profile_t *p) {
     if (burst > 180U) burst = 180U;
     for (unsigned i = 0; i < length; ++i) {
         int32_t x = i < burst ? noise16() : 0;
-        /* A pluck position changes the spectral notches without extra delay lines. */
+        /* A short shaped noise burst approximates the string's initial displacement. */
         int32_t window = i < burst ? (int32_t)(burst - i) : 0;
-        v->delay[i] = (int16_t)clamp16((x * window * p->body_mix) / (32768 * (int32_t)burst));
+        v->delay[i] = (int16_t)clamp16((x * window * p->body_mix) / (128 * (int32_t)burst));
     }
     v->excited = 1U;
 }
 static ORCH_AUDIO void start_voice(unsigned ch, unsigned note, unsigned velocity) {
     unsigned chosen = ORCH_MAX_VOICES, oldest_index = 0U;
     int32_t quietest = 2147483647;
-    uint32_t oldest = 0U;
+    uint32_t oldest = UINT32_MAX;
     for (unsigned i = 0; i < ORCH_MAX_VOICES; ++i) {
         voice_t *v = &voices[i];
         if (!v->active) { chosen = i; break; }
         if (v->releasing && v->envelope < quietest) { quietest = v->envelope; chosen = i; }
-        if (!v->releasing && v->age >= oldest) { oldest = v->age; oldest_index = i; }
+        if (!v->releasing && v->age < oldest) { oldest = v->age; oldest_index = i; }
     }
     if (chosen == ORCH_MAX_VOICES) chosen = oldest_index;
     voice_t *v = &voices[chosen];
@@ -214,21 +214,26 @@ static ORCH_AUDIO void start_voice(unsigned ch, unsigned note, unsigned velocity
     uint16_t vib = p->vibrato_cents, trem = 0U;
     if (ch < ORCH_MIDI_CHANNELS) adaptive_note(ch, note, velocity, &attack_ms, &release_ms, &vib, &trem);
     uint8_t legato = 0U;
+    uint32_t glide_start = (uint32_t)base * Q8_ONE;
+    uint16_t glide_length = base;
+    uint32_t newest_age = 0U;
     if (ch < ORCH_MIDI_CHANNELS) {
-        for (unsigned i = 0; i < ORCH_MAX_VOICES; ++i)
-            if (voices[i].active && voices[i].channel == ch && voices[i].gate) { legato = 1U; break; }
+        for (unsigned i = 0; i < ORCH_MAX_VOICES; ++i) {
+            voice_t *prior = &voices[i];
+            if (prior->active && prior->channel == ch && prior->gate &&
+                prior->age >= newest_age) {
+                newest_age = prior->age;
+                glide_start = prior->delay_q8;
+                glide_length = prior->length;
+                legato = 1U;
+            }
+        }
     }
-    v->length = base;
+    v->length = legato ? glide_length : base;
     v->target_length = base;
-    v->delay_q8 = (uint32_t)base * Q8_ONE;
-    v->target_delay_q8 = v->delay_q8;
-    v->glide_left = 0U;
-    if (legato && v->active) {
-        /* Keep the currently sounding delay and glide toward the new pitch. */
-        v->delay_q8 = v->target_delay_q8;
-        v->target_delay_q8 = (uint32_t)base * Q8_ONE;
-        v->glide_left = ORCH_SAMPLE_RATE / 12U;
-    }
+    v->delay_q8 = glide_start;
+    v->target_delay_q8 = (uint32_t)base * Q8_ONE;
+    v->glide_left = legato ? ORCH_SAMPLE_RATE / 10U : 0U;
     v->age = ++age_counter;
     v->loss_state = v->body_low = v->body_high = v->bore_state = 0;
     v->envelope = 0;
@@ -243,6 +248,7 @@ static ORCH_AUDIO void start_voice(unsigned ch, unsigned note, unsigned velocity
     v->vib_depth = vib;
     v->tremolo_depth = trem;
     v->exciter_phase = rng ^ (note * 7919U);
+    v->exciter_step = (uint32_t)(0xffffffffU / (uint32_t)base);
     v->excited = 0U;
     v->index = 0U;
     for (unsigned i = 0; i < v->length; ++i) v->delay[i] = 0;
@@ -389,7 +395,7 @@ static ORCH_AUDIO int32_t instrument_excitation(voice_t *v, const instrument_pro
                                                   int32_t string_velocity) {
     int32_t n = noise16();
     uint32_t phase = v->exciter_phase;
-    v->exciter_phase += v->vib_step * 3U;
+    v->exciter_phase += v->exciter_step;
     switch ((enum orch_family)v->family) {
     case ORCH_FAMILY_VIOLIN:
     case ORCH_FAMILY_VIOLA:
@@ -466,7 +472,8 @@ static ORCH_AUDIO void render_voice(voice_t *v, int64_t *mix) {
         uint32_t attack = clamp_u32(v->attack_samples, 1U, ORCH_SAMPLE_RATE);
         v->envelope += ENV_MAX / (int32_t)attack;
         if (v->envelope > ENV_MAX) v->envelope = ENV_MAX;
-    } else if (v->releasing || (v->articulation && v->family <= ORCH_FAMILY_BASS)) {
+    } else if (v->releasing || v->family == ORCH_FAMILY_PERCUSSION ||
+               (v->articulation && v->family <= ORCH_FAMILY_BASS)) {
         uint32_t rel = clamp_u32(v->release_samples, 1U, ORCH_SAMPLE_RATE * 4U);
         v->envelope -= v->envelope / (int32_t)rel + 1;
         if (v->envelope <= 8) { v->active = 0U; v->envelope = 0; return; }
@@ -503,6 +510,5 @@ ORCH_AUDIO void orch_render_q23(int32_t *out, unsigned frames) {
         out[f * 2U] = (int32_t)scaled;
         out[f * 2U + 1U] = (int32_t)scaled;
         ++sample_counter;
-        ++age_counter;
     }
 }
