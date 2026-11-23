@@ -24,8 +24,10 @@ typedef struct {
 
 typedef struct {
     int16_t delay[DELAY_SIZE];
+    int16_t resonator[512];
     uint16_t length;
     uint16_t target_length;
+    uint16_t resonator_length, resonator_index, resonator_gain;
     uint16_t index;
     uint32_t delay_q8;
     uint32_t target_delay_q8;
@@ -35,6 +37,7 @@ typedef struct {
     int32_t body_high;
     int32_t envelope;
     int32_t bore_state;
+    int32_t resonator_filter;
     uint32_t age;
     uint32_t attack_samples;
     uint32_t release_samples;
@@ -116,6 +119,38 @@ static ORCH_AUDIO uint16_t note_delay(unsigned note) {
         d <<= shift;
     }
     return (uint16_t)clamp_u32(d, 8U, DELAY_SIZE - 1U);
+}
+static ORCH_AUDIO uint16_t instrument_delay(unsigned note, enum orch_family family) {
+    uint32_t d = note_delay(note);
+    if (family == ORCH_FAMILY_WOODWIND || family == ORCH_FAMILY_BRASS)
+        d = (d + 1U) / 2U;
+    return (uint16_t)clamp_u32(d, 8U, DELAY_SIZE - 1U);
+}
+static ORCH_AUDIO uint16_t body_resonator_length(enum orch_family family, uint16_t pitch_delay) {
+    uint32_t n;
+    switch (family) {
+    case ORCH_FAMILY_VIOLIN: n = 88U; break;
+    case ORCH_FAMILY_VIOLA: n = 126U; break;
+    case ORCH_FAMILY_CELLO: n = 200U; break;
+    case ORCH_FAMILY_BASS: n = 400U; break;
+    case ORCH_FAMILY_WOODWIND: n = pitch_delay / 2U; break;
+    case ORCH_FAMILY_BRASS: n = pitch_delay / 3U; break;
+    case ORCH_FAMILY_CHOIR: n = 70U; break;
+    default: n = (pitch_delay * 3U) / 2U; break;
+    }
+    return (uint16_t)clamp_u32(n, 8U, 511U);
+}
+static ORCH_AUDIO uint16_t body_resonator_gain(enum orch_family family) {
+    switch (family) {
+    case ORCH_FAMILY_VIOLIN: return 31600U;
+    case ORCH_FAMILY_VIOLA: return 31650U;
+    case ORCH_FAMILY_CELLO: return 31700U;
+    case ORCH_FAMILY_BASS: return 31750U;
+    case ORCH_FAMILY_WOODWIND: return 30800U;
+    case ORCH_FAMILY_BRASS: return 30600U;
+    case ORCH_FAMILY_CHOIR: return 31200U;
+    default: return 29200U;
+    }
 }
 static ORCH_AUDIO void enqueue(unsigned ch, unsigned note, unsigned velocity, unsigned type) {
     uint8_t next = (uint8_t)((event_write + 1U) & (EVENT_CAP - 1U));
@@ -209,7 +244,7 @@ static ORCH_AUDIO void start_voice(unsigned ch, unsigned note, unsigned velocity
     voice_t *v = &voices[chosen];
     enum orch_family family = ch < ORCH_MIDI_CHANNELS ? channel_family[ch] : default_family;
     const instrument_profile_t *p = &profiles[family];
-    uint16_t base = note_delay(note);
+    uint16_t base = instrument_delay(note, family);
     uint32_t attack_ms = p->attack_ms, release_ms = p->release_ms;
     uint16_t vib = p->vibrato_cents, trem = 0U;
     if (ch < ORCH_MIDI_CHANNELS) adaptive_note(ch, note, velocity, &attack_ms, &release_ms, &vib, &trem);
@@ -230,6 +265,10 @@ static ORCH_AUDIO void start_voice(unsigned ch, unsigned note, unsigned velocity
         }
     }
     v->length = legato ? glide_length : base;
+    v->resonator_length = body_resonator_length(family, base);
+    v->resonator_index = 0U;
+    v->resonator_gain = body_resonator_gain(family);
+    v->resonator_filter = 0;
     v->target_length = base;
     v->delay_q8 = glide_start;
     v->target_delay_q8 = (uint32_t)base * Q8_ONE;
@@ -248,10 +287,12 @@ static ORCH_AUDIO void start_voice(unsigned ch, unsigned note, unsigned velocity
     v->vib_depth = vib;
     v->tremolo_depth = trem;
     v->exciter_phase = rng ^ (note * 7919U);
-    v->exciter_step = (uint32_t)(0xffffffffU / (uint32_t)base);
+    v->exciter_step = (uint32_t)((family == ORCH_FAMILY_WOODWIND || family == ORCH_FAMILY_BRASS) ?
+        (0x7fffffffU / (uint32_t)base) : (0xffffffffU / (uint32_t)base));
     v->excited = 0U;
     v->index = 0U;
     for (unsigned i = 0; i < v->length; ++i) v->delay[i] = 0;
+    for (unsigned i = 0; i < v->resonator_length; ++i) v->resonator[i] = 0;
     if (v->articulation || family == ORCH_FAMILY_PERCUSSION) excite_pluck(v, p);
 }
 static ORCH_AUDIO void drain_events(void) {
@@ -448,6 +489,7 @@ static ORCH_AUDIO void render_voice(voice_t *v, int64_t *mix) {
     int32_t delayed = read_fractional_delay(v, delay_q8);
     v->loss_state += (delayed - v->loss_state) >> p->damping_shift;
     int32_t loop = (v->loss_state * (int32_t)p->loop_gain) >> 15;
+    if (v->family == ORCH_FAMILY_WOODWIND || v->family == ORCH_FAMILY_BRASS) loop = -loop;
     int32_t excitation = 0;
     if (v->gate && !v->articulation && v->family != ORCH_FAMILY_PERCUSSION)
         excitation = instrument_excitation(v, p, v->loss_state);
@@ -456,6 +498,12 @@ static ORCH_AUDIO void render_voice(voice_t *v, int64_t *mix) {
     loop = clamp16(loop + excitation);
     v->delay[v->index] = (int16_t)loop;
     ++v->index;
+    int32_t body_in = v->loss_state >> 3;
+    int32_t body_fb = (v->resonator_filter * (int32_t)v->resonator_gain) >> 15;
+    v->resonator[v->resonator_index] = (int16_t)clamp16(body_fb + body_in);
+    v->resonator_filter += ((int32_t)v->resonator[v->resonator_index] - v->resonator_filter) >> 2;
+    ++v->resonator_index;
+    if (v->resonator_index >= v->resonator_length) v->resonator_index = 0U;
     if (v->index >= v->length) v->index = 0U;
 
     if (v->glide_left) {
@@ -483,7 +531,8 @@ static ORCH_AUDIO void render_voice(voice_t *v, int64_t *mix) {
     v->body_low += (signal - v->body_low) >> 5;
     v->body_high += ((signal - v->body_low) - v->body_high) >> 3;
     signal = signal + ((v->body_low - signal) * (int32_t)p->body_mix >> 7)
-                   + (v->body_high >> 2);
+                   + (v->body_high >> 2)
+                   + ((v->resonator_filter * (int32_t)p->body_mix) >> 7);
     int32_t trem = 32767 - ((triangle_lfo(v->vib_phase >> 1) *
                               (int32_t)v->tremolo_depth) >> 15);
     signal = (signal * v->envelope) >> 15;
