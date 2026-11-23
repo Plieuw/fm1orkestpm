@@ -10,7 +10,7 @@ Polyphonic physical-modeling firmware for the M-VAVE FM1 (JieLi WL82 / AC791N, P
 - Physical-modeling-first synthesis. The first prototype is a digital-waveguide string voice.
 - No audio-thread allocation, locks, file access, or display calls.
 
-## Status: 0.3.1-beta, host-validated only
+## Status: 0.3.4-beta, host-validated only
 
 **Nothing here has run on hardware.** Every source compiles with `-Werror`
 against the FM1 Core headers and the host tests pass; no `.fwsc` is built or
@@ -31,7 +31,7 @@ The FM1 uses JieLi WL82/AC791N. Himalia firmware targets a different MCU, so Him
 - 16-step polyphonic sequencer pattern, up to four notes per step, with per-note gate and internal tempo.
 - Fixed-point synthesis, one waveguide per player, stereo Q23 output.
 
-The 12-voice ceiling is provisional and must be measured on real FM1 hardware. The goal is the highest stable polyphony that fits the audio interrupt budget.
+The 12-voice ceiling is provisional and must be measured on real FM1 hardware. The goal is the highest stable polyphony that fits the audio interrupt budget. The 0.3.4 branch adds local key input, panel controls and an RGB565 status screen; see [docs/FM1_PANEL.md](docs/FM1_PANEL.md).
 
 ## Host tests
 
@@ -44,6 +44,8 @@ FM1_CORE=../fm1-core sh tests/run_tests.sh
 Covers adaptive classification and velocity reaction, divisi distribution and
 stability, channel routing, per-instrument selection, release, sustain, panic,
 sequencer gates, the Q23 range and a DC regression guard on the bowed strings.
+The host workflow also compiles the FM1 app adapter and panel code against the
+FM1 Core API headers.
 CI compiles every source with `-Werror` and runs the same script.
 
 ## Build prerequisites
@@ -61,4 +63,4 @@ python3 fm1-core/tools/build.py --app fm1orkestpm/app --package
 
 The FM1 Core platform and binary SDK retain their own licenses and redistribution terms. See its THIRD_PARTY.md. This project's GPL-3.0 license remains in force for original application code.
 
-This is source code, not a verified firmware image. Do not flash until it builds cleanly and the generated package is checked. No .fwsc or .uf2 is claimed by this initial source commit.
+This is source code, not a verified firmware image. The panel adapter has not yet been target-built or tested on a physical FM1. Do not flash until the exact JieLi target build succeeds and the generated package is checked. No .fwsc or .uf2 is claimed by this initial source commit.
