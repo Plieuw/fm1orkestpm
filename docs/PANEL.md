@@ -1,133 +1,136 @@
-# Panel: buttons, encoders, keys and screen
+# FM-1 panel
 
-`app/orch_ui.c` turns the FM-1 panel into a control surface for the orchestral
-engine. Everything in this file ran as a host build; **nothing has run on an
-FM-1 yet**, and this machine has no PI32 toolchain, so no `.fwsc` image was
-produced here either. Read the last section before you claim it works.
-
-## Panel map
-
-| control | does |
-|---|---|
-| buttons 1–4 | select part 1–4 |
-| buttons 5–9 | family: strings, woodwinds, brass, mallets, choir |
-| button 10 / 11 | articulation down / up (wraps around `ORCH_ART_COUNT`) |
-| button 12 | sequencer run / stop |
-| button 13 | panic (all notes off) |
-| button 14 | play a four-part C major chord, released after 900 ms |
-| encoder 1 | instrument inside the selected family (wraps) |
-| encoder 2 | divisi players, 1–4 |
-| encoder 3 | voices this part may hold, 1–4 |
-| encoder 4 | tempo, 30–300 in steps of 4 |
-| encoder 5 | select part (wraps) |
-| encoder 6 | family (wraps) |
-| encoder 7 | spare |
-| knob | master volume |
-| LEDs 1–4 | selected part |
-| LEDs 5–9 | family of the selected part |
-| LEDs 10–14 | pressed buttons |
-| key LEDs | pressed keys |
-
-Keys do **not** generate notes here. The platform maps the key matrix to tracks
-and calls `groove_midi_note()`, which forwards to `orch_note_event()`; posting
-notes from the panel scan as well would retrigger every key twice.
-
-## How it is wired
-
-- `groove_screen_init()` starts the engine once (`orch_init()`) and then
-  `orch_ui_init()`: `fm1_controls_init()`, `fm1_screen_init()`, first draw.
-- `groove_screen_control()` calls `orch_ui_control()`, which reads the panel at
-  most every 25 ms (`fm1_millis()`), applies the edits and draws only what
-  changed.
-- Edits use the public engine API only: `orch_engine_configure_part()`,
-  `orch_engine_set_instrument()`, `orch_engine_set_articulation()`,
-  `orch_engine_set_player_cap()`, `orch_engine_set_voice_ceiling()`,
-  `orch_seq_set_tempo()`, `orch_seq_set_enabled()`, `orch_panic()`.
-  `orch_part_configure()` resets a part's instrument to the family default,
-  which is why the family buttons are the only place that calls it.
-- `fm1_app_render()` replaces the SDK's block renderer, so it also owns the
-  master level: `orch_ui_master_q23` is a single volatile word written by the
-  control task and read by the audio interrupt. At unity the multiply is
-  skipped.
-
-## Graphics
-
-The SDK exposes `fm1_screen_fill()` and `fm1_screen_blit()` and no text at all,
-so the file carries its own 5×7 font (41 glyphs) and draws one 8-pixel text
-line into a 240×8 buffer, then blits it in one transfer. The voice meters are
-redrawn as a 228×5 strip when the count changes, so a sounding note stays
-visible without re-sending any text.
-
-Layout: a title bar, four part rows (family, players, instrument, articulation,
-voice meter) and a footer with part, tempo, run state, volume, articulation and
-the button hints.
-
-The layout, as rendered from this drawing code into `docs/panel.png` locally
-(not committed: the publishing path here is text-only, so regenerate it with
-the commands below):
+The panel map below follows the labels **printed on the FM-1 itself** and the
+matrix numbering the board uses, both taken from the M-VAVE reference code
+(`Plieuw/hawk-chua`, `open/app/hc_panel.h` and `firmware/src/panel.c`). Where a
+button has no obvious job, the job chosen here is written down so nothing is
+left dead.
 
 ```
-FM1 ORCHESTRA
-P1 STRINGS            2PL      <- part, family, players
-VIOLIN               AUTO      <- instrument, articulation
-[##########----------------]    <- voices / ceiling
-...
-PART 3  TEMPO 120  STOP
-VOL 80  ART AUTO
+buttons   0 OCT-   1 OCT+   2 FX     3 SCL    4 ENV    5 LFO    6 EDIT
+          7 GLO    8 HOME   9 SAVE  10 ARP   11 SEQ   12 PLAY  13 REC
+encoders  0 SELECT  1 ALGORITHM  2 PRESETS  3 KNOB1  4 KNOB2  5 KNOB3  6 KNOB4
 ```
 
-To look at the screen without hardware:
+## What each control does
 
-```sh
-cc -std=c11 -O2 -DFM1_HOST_TEST -I../fm1-core/include -Iapp \
-   tests/panel_preview.c app/orch_ui.c app/orch_engine.c app/orch_adaptive.c \
-   app/orch_divisi.c app/orch_part.c -o /tmp/panel_preview -lm
-/tmp/panel_preview /tmp/panel.ppm
-python3 tools/panel_png.py /tmp/panel.ppm docs/panel.png
-```
+| Control | Job |
+| --- | --- |
+| `SELECT` | choose the part (1..4, wraps); the LED of the part lights |
+| `ALGORITHM` | family on PARTS; mode on ARP; step on SEQUENCER; scale on GLOBAL |
+| `PRESETS` | next/previous instrument inside the current family, wrapping |
+| `KNOB1` | divisi players 1..4 / arp rate / step velocity |
+| `KNOB2` | voice ceiling / octaves / step gate / semitone transpose |
+| `KNOB3` | tempo in 4 BPM steps / arp gate in 5 % steps |
+| `KNOB4` | semitone transpose / arp mode / clear step / **panic** on GLOBAL |
+| `OCT-` `OCT+` | transpose the part an octave down or up (clamped to ±24) |
+| `FX` | sound check: plays a four-part chord, releases it after 900 ms |
+| `SCL` | cycle the note map: OFF, MAJOR, MINOR, PENTA |
+| `ENV` `LFO` | articulation step down / up |
+| `EDIT` `HOME` | back to the PARTS page |
+| `GLO` | GLOBAL page |
+| `SAVE` | write the settings record to flash; the LED shows it was done |
+| `ARP` | open the ARP page and toggle this part's arpeggiator |
+| `SEQ` | open the SEQUENCER page |
+| `PLAY` | start/stop the sequencer on the selected part |
+| `REC` | arm the keys for step recording (SEQUENCER page only) |
+| panel knob | master level, quadratic, 0..unity; independent of the page |
 
-`tests/panel_preview.c` stubs the board services and paints into a 240×240
-RGB565 array. It is a preview of the layout, not evidence that the ST7789 shows
-it.
+The master gain is the only word the control task shares with the audio
+interrupt (`orch_ui_master_q23`). The panel never starts a voice directly; it
+asks the engine, and the engine starts it in the render context.
 
-## Checks that were run
+## Pages
 
-- `tests/run_tests.sh`: four suites, all green, including the new
-  `tests/orch_ui_test.c`, which drives button presses and encoder detents
-  through `orch_ui_handle()` with the board stubbed, and asserts the resulting
-  part state, clamping, knob gain, panic and chord release.
-- Every `app/*.c` compiles with `-std=c11 -Wall -Wextra -Werror
-  -DFM1_HOST_TEST`.
-- The preview above was rendered from the real drawing code.
+There are four pages: **PARTS**, **ARP**, **SEQUENCER**, **GLOBAL**.
 
-## Not verified, and why
+*PARTS* — one row per part: family, instrument and articulation, the player
+count, and a live meter of the voices it is using. The help lines under the
+rows list the shortcuts.
 
-- **No firmware image.** `tools/build.py` needs the JieLi PI32v2 toolchain
-  (`~/.jieli/toolchain` or `FM1_PI32_TOOLCHAIN`); it is absent here, so the
-  build stops at `cannot find the JieLi PI32v2 toolchain`. On a machine with the
-  toolchain: `python3 tools/build.py --app path/to/fm1orkestpm/app`, then
-  `--package`. Keep a stock recovery image and know how to reach the
-  bootloader.
-- **Nothing seen on the display.** No panel, no keys, no knob.
-- **Encoder direction and detent rate on real hardware** are untested; the
-  panel layer reports detents, the sign is assumed to be positive clockwise.
-- **CPU and RAM on the target.** 12 voices of 2048 + 512 int16 samples is about
-  60 KiB of BSS before state, plus 3.8 KiB for the text buffer. The master gain
-  uses a 64-bit multiply per sample when it is below unity; that cost is
-  unmeasured. The engine is also not in `.volatile_ram_code`, so audio code is
-  not safe while user Flash is being programmed.
+*ARP* — mode, octaves, rate, gate and the number of held keys, plus what the
+encoders do on this page.
 
-## Coordination with the 0.3.3 DSP work
+*SEQUENCER* — sixteen steps. The selected step is highlighted, a step that holds
+notes has an orange mark, and the step that is playing has a green bar under it
+while the pattern runs. Below the grid: the step number, its notes, velocity and
+gate.
 
-The 0.3.3 brainstorm says the old linear friction feedback produced a large DC
-offset and must not return without a measured model and a passing regression
-test. The friction bow on this branch is that model: `test_strings_are_not_dc`
-guards the DC, the pitch and level numbers in `docs/BRAINSTORM.md` are measured
-on the host, and `tests/run_measure.sh` reproduces them.
+*GLOBAL* — tempo, transpose, scale, volume and the save state, with the shortcuts
+of the buttons that are not page specific.
 
-The round-trip gain normalisation from 0.3.2/0.3.3 is **not** in this branch. It
-is compatible: its `loop_gain_q23` field and `loop_gain_per_sample_q23()` helper
-do not collide with the friction fields `exc_dc` and `bow_gain`, so it can be
-ported on top. Port it before tuning decay, and re-run the pitch and level
-measurements afterwards, because the sustain of a bowed note depends on the loop
-loss.
+Screens rendered by `tests/panel_preview.c` (no board attached, so these show
+the layout the code draws, not the ST7789):
+
+![PARTS page](panel-parts.png)
+![ARP page](panel-arp.png)
+![SEQUENCER page](panel-seq.png)
+
+## Arpeggiator
+
+Per part, in the engine (`app/orch_engine.c`), not in the panel: the held-key
+list and the clock have to live in the same context as the voices, because the
+control task can interrupt the render half way through a note.
+
+* five modes: up, down, up-down, random (deterministic), as played;
+* one to three octaves;
+* five rates: 1/8, 1/8 triplet, 1/16, 1/16 triplet, 1/32 of the shared tempo;
+* gate 5..100 % of the step;
+* up to eight held keys per part.
+
+Turning the arp on for a part collects its keys instead of sounding them; the
+first key sounds at once, and letting go of the last key stops the pattern.
+`orch_panic()` clears the held lists as well.
+
+## Sequencer
+
+Sixteen steps, four notes per step, per-note velocity and gate, one part at a
+time (`orch_seq_set_part`). Notes go through the same part path as MIDI, so the
+divisi planner and the adaptive interpreter see them like any other note.
+
+Recording: `SEQ`, then `REC`, then play the keys. Each key press writes a note
+into the current step and moves to the next step, so a phrase is entered left to
+right. `KNOB1` and `KNOB2` change the velocity and the gate of the selected
+step's first note, `KNOB4` clears the step, `KNOB3` is the tempo.
+
+## Note map
+
+`orch_ui_map_note()` adds the transpose and then snaps the note **down** to the
+next note of the scale. Snapping down (and not to the nearest note) is a
+deliberate choice: it never raises a note the player did not play. In MAJOR, C#
+and D# become C and D; in MINOR, D# stays D# because it is the minor third. Both
+keys and MIDI pass through this function (`groove_midi_note` in
+`app/fm1_app.c`), so transposition behaves the same wherever the note came from.
+
+## Save
+
+`SAVE` writes one record at offset 0 of the first flash sector: a magic
+(`0x4F524348`), the tempo, transpose, scale, sequencer state and selected part,
+and for each part the family, instrument, articulation, players, voice ceiling
+and the five arp settings, followed by an FNV-1a checksum. On start-up the panel
+reads it back and applies it only when the magic and the checksum both match, so
+a blank or half-written sector is ignored rather than loaded.
+
+The sequencer's note pattern is **not** in the record yet: the panel mirrors what
+it wrote, and a power cycle leaves the pattern empty. That is a known gap, not a
+bug that is hidden.
+
+## What is tested, and what is not
+
+`tests/orch_ui_test.c` drives the panel with stubbed board services and checks
+every button, every encoder role on every page, the note map, the flash save and
+that a recorded step sounds after `PLAY`. `tests/orch_arp_test.c` covers the
+arp. `tests/panel_preview.c` renders the three pages above.
+
+Not tested, because there is no hardware in this environment:
+
+* that the ST7789 shows what is drawn (colour order, orientation, timing);
+* the real button and encoder scan (the SDK's `fm1_controls_read`);
+* flash wear and a real power cycle after `SAVE`;
+* that the audio output sounds like an orchestra — the measured caveats are in
+  `docs/BRAINSTORM.md`.
+
+The firmware image itself cannot be built here either: the JieLi PI32v2
+toolchain is not available, so `build` stops with
+`cannot find the JieLi PI32v2 toolchain`. Everything above is host-side code
+plus host tests.
