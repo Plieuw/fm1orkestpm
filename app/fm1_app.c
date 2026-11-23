@@ -135,7 +135,8 @@ static void panel_draw(void)
     panel_text(8U,8U,"FM1 ORCHESTRA",cyan);
     line[0]='P'; line[1]='A'; line[2]='R'; line[3]='T'; line[4]=' ';
     line[5]=(char)('1'+p); line[6]=' '; line[7]='C'; line[8]='H'; line[9]=' ';
-    line[10]=(char)('0'+ch); line[11]='-'; line[12]=(char)('0'+ch+3U); line[13]=0;
+    line[10]=(char)('0'+ch/10U); line[11]=(char)('0'+ch%10U); line[12]='-';
+    line[13]=(char)('0'+(ch+3U)/10U); line[14]=(char)('0'+(ch+3U)%10U); line[15]=0;
     panel_text(8U,32U,line,ink);
     panel_text(8U,56U,"INSTRUMENT",amber);
     panel_text(8U,76U,instrument_names[selected_instrument[p]],ink);
@@ -147,7 +148,7 @@ static void panel_draw(void)
     fm1_screen_fill(8U,188U,216U,8U,0x39E7U);
     fm1_screen_fill(8U,188U,(216U*selected_cap[p])/4U,8U,green);
     panel_text(8U,204U,"ENC1 INST ENC2 CAP",cyan);
-    panel_text(8U,224U,"BTN1-4 PART BTN5 PANIC",red);
+    panel_text(8U,224U,"B1-4 PART B5 PANIC",red);
 }
 
 static void panel_part_select(unsigned part)
@@ -166,8 +167,9 @@ void groove_screen_init(void)
         selected_instrument[p]=instrument_default[p];
         selected_cap[p]=2U;
         selected_art[p]=0U;
-        key_channel[p]=0U;
+        (void)p;
     }
+    for (unsigned k=0;k<PANEL_KEY_COUNT;++k) key_channel[k]=0U;
     previous_keys=0U;
     previous_buttons=0U;
     last_panel_poll=0U;
