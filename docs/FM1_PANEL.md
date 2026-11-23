@@ -28,10 +28,10 @@ It uses only documented FM1 Core interfaces from `fm1.h`, `fm1_app.h` and
 | Encoder 2 | Divisi player cap (1–4) |
 | Encoder 3 | Articulation: Auto, Legato, Detache, Staccato, Pizzicato |
 | Encoder 4 | Select part 1–4 |
-| Buttons 1–4 | Select part 1–4 |
-| Button 5 | Panic |
-| Button 6 | Advance articulation |
-| Button 7 | Cycle Divisi cap |
+| Button bits 0–3 | Select part 1–4 |
+| Button bit 4 | Panic |
+| Button bit 5 | Advance articulation |
+| Button bit 6 | Cycle Divisi cap |
 
 Local keyboard channels are the first channel of each default group:
 part 1 = MIDI channel 1, part 2 = 5, part 3 = 9, part 4 = 13.
