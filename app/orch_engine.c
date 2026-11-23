@@ -146,7 +146,9 @@ void orch_init(void) {
     selected_model=ORCH_MODEL_WAVEGUIDE_STRING;
 }
 void orch_seq_set_tempo(uint16_t bpm) {
-    if (bpm<30U) bpm=30U; if (bpm>300U) bpm=300U; tempo=bpm;
+    if (bpm<30U) bpm=30U;
+    if (bpm>300U) bpm=300U;
+    tempo=bpm;
 }
 void orch_seq_set_enabled(unsigned enabled) {
     if (seq_enabled && !enabled) seq_stop_pending=1U;
