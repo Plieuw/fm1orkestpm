@@ -160,12 +160,12 @@ unsigned orch_active_voices(void) {
 static ORCH_AUDIO void seq_tick(void) {
     uint32_t step_samples=(ORCH_SAMPLE_RATE*60U)/((uint32_t)tempo*4U);
     if (!seq_enabled) return;
-    if (!seq_started) { seq_started=1U; current_step=0U; step_start=sample_counter; }
+    if (!seq_started) { seq_started=1U; current_step=15U; step_start=sample_counter-step_samples; }
     if ((uint32_t)(sample_counter-step_start)>=step_samples) {
         step_start+=step_samples; current_step=(uint8_t)((current_step+1U)&15U);
         for (unsigned n=0;n<pattern_count[current_step];n++) {
             struct orch_step_note *p=&pattern[current_step][n];
-            if (p->velocity) enqueue(0U,p->note,p->velocity);
+            if (p->velocity) start_voice(16U,p->note,p->velocity);
         }
     }
 }
