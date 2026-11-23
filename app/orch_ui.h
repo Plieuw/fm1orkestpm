@@ -19,7 +19,17 @@ void orch_ui_init(void);       /* engine must already be initialised */
 void orch_ui_control(void);    /* call from groove_screen_control() */
 void orch_ui_handle(const struct fm1_controls *controls);
 
+/* Octave transpose and scale quantisation, applied by the note paths in
+ * fm1_app.c. Returns -1 when the result leaves the MIDI range. */
+int orch_ui_map_note(int note);
+
 unsigned orch_ui_part(void);
 unsigned orch_ui_tempo(void);
+unsigned orch_ui_page(void);
+unsigned orch_ui_transpose(void);
+unsigned orch_ui_scale(void);
+unsigned orch_ui_recording(void);
+unsigned orch_ui_seq_step(void);
+unsigned orch_ui_saved(void);   /* 1 after a successful save this session */
 
 #endif

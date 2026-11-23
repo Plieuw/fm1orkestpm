@@ -27,8 +27,13 @@ unsigned groove_midi_mode(unsigned track) {
     (void)track;
     return 0U;
 }
+
+/* Panel keys and MIDI both pass the octave transpose and the scale here, so a
+ * transposed or quantised note is the same note wherever it came from. */
 void groove_midi_note(unsigned track,unsigned note,unsigned velocity) {
-    orch_note_event(track&15U,note,velocity);
+    const int mapped = orch_ui_map_note((int)note);
+    if (mapped < 0) return;
+    orch_note_event(track&15U,(unsigned)mapped,velocity);
 }
 void groove_midi_track_reset(unsigned track) { (void)track; }
 

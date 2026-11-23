@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
-/* Host test for the panel logic. The FM-1 board services are stubbed, so this
- * checks what a knob or button does to the engine, not what the display shows.
- */
+/* Host test for the panel: the board services are stubbed, so this checks what
+ * a printed button or an encoder role does to the engine, not what the display
+ * looks like. */
 #include <stdio.h>
 #include <string.h>
 
@@ -11,18 +11,20 @@
 #include "orch_ui.h"
 
 static int failures;
-static unsigned fills, blits, leds;
+static unsigned fills, blits, leds, flash_writes, flash_erases;
 static uint32_t clock_ms;
 static struct fm1_controls feed;
 static int32_t block[256];
-
-/* The engine allocates voices while rendering, so an event needs one block
- * before orch_active_voices() means anything. */
-static void render_block(void) { orch_render_q23(block, 128U); }
+static int saved_record_ok;
 
 #define CHECK(cond) do { \
     if (!(cond)) { printf("FAIL %s:%d %s\n", __FILE__, __LINE__, #cond); ++failures; } \
 } while (0)
+
+/* the printed panel labels, as the board numbers the matrix */
+enum { B_OCT_DOWN = 0, B_OCT_UP, B_FX, B_SCL, B_ENV, B_LFO, B_EDIT, B_GLO,
+       B_HOME, B_SAVE, B_ARP, B_SEQ, B_PLAY, B_REC };
+enum { E_SELECT = 0, E_ALGO, E_KNOB1, E_KNOB2, E_KNOB3, E_KNOB4, E_PRESET };
 
 /* --- board stubs ---------------------------------------------------------- */
 
@@ -46,6 +48,21 @@ int fm1_screen_blit(unsigned x, unsigned y, unsigned w, unsigned h,
 void fm1_led_set(unsigned key, int on) { (void)key; (void)on; ++leds; }
 uint32_t fm1_millis(void) { return clock_ms; }
 
+uint32_t fm1_flash_size(void) { return 4096U; }
+int fm1_flash_erase(uint32_t offset) { (void)offset; ++flash_erases; return 0; }
+int fm1_flash_write(uint32_t offset, const void *data, size_t bytes)
+{
+    (void)offset; (void)data; (void)bytes;
+    ++flash_writes;
+    saved_record_ok = 1;
+    return 0;
+}
+int fm1_flash_read(uint32_t offset, void *data, size_t bytes)
+{
+    (void)offset; (void)data; (void)bytes;
+    return -1;   /* empty flash: nothing to load */
+}
+
 /* --- helpers -------------------------------------------------------------- */
 
 static void press(unsigned button)
@@ -63,6 +80,14 @@ static void turn(unsigned encoder, int detents)
     feed.encoders[encoder] = 0;
 }
 
+static void key(unsigned note, int down)
+{
+    const unsigned bit = note - 53U;
+    if (down) feed.keys |= 1UL << bit;
+    else feed.keys &= ~(1UL << bit);
+    orch_ui_handle(&feed);
+}
+
 int main(void)
 {
     orch_init();
@@ -71,90 +96,143 @@ int main(void)
 
     CHECK(fills > 0U);
     CHECK(blits > 0U);
-    CHECK(orch_ui_master_q23 == 0U);   /* silent until the knob is read */
+    CHECK(orch_ui_master_q23 == 0U);
+    CHECK(orch_ui_page() == 0U);          /* PARTS */
 
-    /* a button selects a part */
-    press(2);
+    /* SELECT picks a part, ALGORITHM the family on the parts page */
+    turn(E_SELECT, 2);
     CHECK(orch_ui_part() == 2U);
     CHECK(orch_part_get(2)->family == ORCH_FAM_BRASS);
-
-    /* the family buttons replace family and pick that family's default */
-    press(4U + ORCH_FAM_WOODWINDS);
+    turn(E_ALGO, -1);                     /* BRASS -> WOODWINDS */
     CHECK(orch_part_get(2)->family == ORCH_FAM_WOODWINDS);
-    CHECK(orch_part_get(2)->instrument == ORCH_INST_FLUTE);
 
-    /* encoder 1 walks the instrument list and stays inside the family */
-    turn(0, 2);
-    CHECK(orch_part_get(2)->instrument == ORCH_INST_CLARINET);
-    turn(0, 3);   /* past the end of the family: wraps to the first */
-    CHECK(orch_part_get(2)->instrument == ORCH_INST_FLUTE);
-    turn(0, 1);
+    /* PRESETS walks the instruments inside the family and wraps */
+    turn(E_PRESET, 1);
     CHECK(orch_part_get(2)->instrument == ORCH_INST_PICCOLO);
+    turn(E_PRESET, 4);                    /* 1 + 4 = 5 wraps back to the first */
+    CHECK(orch_part_get(2)->instrument == ORCH_INST_FLUTE);
 
-    /* players, voices and tempo are clamped, not wrapped */
-    turn(1, 10);
-    CHECK(orch_part_get(2)->player_cap == 4U);
-    turn(1, -20);
-    CHECK(orch_part_get(2)->player_cap == 1U);
-    turn(2, 0);
-    turn(4, 3);
-    CHECK(orch_ui_tempo() == 132U);
-    turn(4, 200);
-    CHECK(orch_ui_tempo() == 300U);
+    /* OCT+ / OCT- transpose in octaves, and the note map follows */
+    press(B_OCT_UP);
+    CHECK(orch_ui_transpose() == 12U);
+    CHECK(orch_ui_map_note(60) == 72);
+    press(B_OCT_DOWN);
+    CHECK(orch_ui_map_note(60) == 60);
+    press(B_OCT_DOWN);
+    CHECK(orch_ui_map_note(60) == 48);
+    press(B_OCT_DOWN);
+    press(B_OCT_DOWN);                    /* clamps at two octaves down */
+    CHECK(orch_ui_transpose() == (unsigned)-24);
+    press(B_OCT_UP);
+    press(B_OCT_UP);                      /* and back to concert pitch */
+    CHECK(orch_ui_transpose() == 0U);
 
-    /* articulation steps forwards and wraps back to AUTO */
+    /* SCL quantises down to the next scale note: C# and D# become C and D in
+     * major, and D# survives in minor because it is the minor third */
+    press(B_SCL);
+    CHECK(orch_ui_scale() == 1U);         /* MAJOR */
+    CHECK(orch_ui_map_note(61) == 60);
+    CHECK(orch_ui_map_note(63) == 62);
+    press(B_SCL);
+    CHECK(orch_ui_scale() == 2U);         /* MINOR */
+    CHECK(orch_ui_map_note(63) == 63);
+    press(B_SCL); press(B_SCL);
+    CHECK(orch_ui_scale() == 0U);         /* back to OFF */
+
+    /* ENV / LFO step the articulation down and up, wrapping */
     CHECK(orch_part_get(2)->articulation == ORCH_ART_AUTO);
-    press(10);
+    press(B_LFO);
     CHECK(orch_part_get(2)->articulation == ORCH_ART_PORTAMENTO);
-    press(9);
+    press(B_ENV);
     CHECK(orch_part_get(2)->articulation == ORCH_ART_AUTO);
-    press(9);
+    press(B_ENV);
     CHECK(orch_part_get(2)->articulation == ORCH_ART_COL_LEGNO);
 
-    /* the part encoder wraps, the family encoder changes the family */
-    turn(5, 3);
-    CHECK(orch_ui_part() == 1U);
-    turn(6, 1);
-    CHECK(orch_part_get(1)->family == ORCH_FAM_BRASS);
+    /* ARP opens its page and switches the part's arp on */
+    press(B_ARP);
+    CHECK(orch_ui_page() == 1U);
+    CHECK(orch_arp_enabled(2U) == 1U);
+    turn(E_KNOB1, 1);                     /* rate */
+    CHECK(orch_arp_div_of(2U) == 3U);
+    turn(E_KNOB2, 1);                     /* octaves */
+    CHECK(orch_arp_octaves_of(2U) == 2U);
+    turn(E_KNOB3, 2);                     /* gate, in fives */
+    CHECK(orch_arp_gate_of(2U) == 70U);
+    turn(E_ALGO, 1);                      /* mode */
+    CHECK(orch_arp_mode_of(2U) == ORCH_ARP_DOWN);
+    press(B_ARP);
+    CHECK(orch_arp_enabled(2U) == 0U);    /* the same button toggles it off */
 
-    /* the knob is the master gain, and it is not unity at zero */
+    /* SEQ: encode a step with the keys while REC is armed */
+    press(B_SEQ);
+    CHECK(orch_ui_page() == 2U);
+    press(B_REC);
+    CHECK(orch_ui_recording() == 1U);
+    key(60, 1);
+    key(60, 0);
+    CHECK(orch_ui_seq_step() == 1U);      /* the recorder moves on */
+    CHECK(orch_part_get(2)->family == ORCH_FAM_WOODWINDS);
+
+    /* PLAY runs the sequencer: the step recorded above must sound */
+    press(B_PLAY);
+    unsigned peak = 0U;
+    for (int i = 0; i < 200; ++i) {
+        memset(block, 0, sizeof block);
+        orch_render_q23(block, 128U);
+        if (orch_active_voices() > peak) peak = orch_active_voices();
+    }
+    CHECK(peak > 0U);
+    press(B_PLAY);                        /* and stop it again */
+
+    /* GLOBAL: tempo, volume, and K4 is the panic */
+    press(B_GLO);
+    CHECK(orch_ui_page() == 3U);
+    turn(E_KNOB3, 3);
+    CHECK(orch_ui_tempo() == 132U);
+    turn(E_KNOB2, -5);                    /* semitone transpose from the global page */
+    CHECK(orch_ui_transpose() == (unsigned)-5);
+    CHECK(orch_ui_map_note(60) == 55);
+    for (int i = 0; i < 5; ++i) turn(E_KNOB2, 1);
+    CHECK(orch_ui_transpose() == 0U);
     feed.knob = 1023U;
     orch_ui_handle(&feed);
     CHECK(orch_ui_master_q23 == (1UL << 23));
-    feed.knob = 512U;
-    orch_ui_handle(&feed);
-    CHECK(orch_ui_master_q23 > 0U);
-    CHECK(orch_ui_master_q23 < (1UL << 23));
     feed.knob = 0U;
     orch_ui_handle(&feed);
     CHECK(orch_ui_master_q23 == 0U);
 
-    /* panic silences a sounding part */
-    orch_note_event(8U, 60U, 100U);
-    render_block();
+    /* the sound check button starts a chord and it stops again */
+    press(B_FX);
+    memset(block, 0, sizeof block);
+    orch_render_q23(block, 128U);
     CHECK(orch_active_voices() > 0U);
-    press(12);
-    render_block();
-    CHECK(orch_active_voices() == 0U);
-
-    /* the chord button starts the parts and stops them again */
-    press(13);
-    render_block();
-    CHECK(orch_active_voices() > 0U);
-    CHECK(orch_note_count(0U) > 0U);
     clock_ms += 1000U;
     orch_ui_control();
-    render_block();
-    /* the release is sent; the voices keep decaying, so the held-note count is
-     * what proves the button did its job */
+    memset(block, 0, sizeof block);
+    orch_render_q23(block, 128U);
     CHECK(orch_note_count(0U) == 0U);
-    CHECK(orch_note_count(1U) == 0U);
 
-    /* the scan is throttled: a second call inside 25 ms reads nothing */
+    /* SAVE erases a sector, writes the record and reports it */
+    press(B_SAVE);
+    CHECK(flash_erases == 1U);
+    CHECK(flash_writes == 1U);
+    CHECK(saved_record_ok == 1);
+    CHECK(orch_ui_saved() == 1U);
+
+    /* HOME returns to the parts page, and the scan is throttled */
+    press(B_HOME);
+    CHECK(orch_ui_page() == 0U);
     const unsigned before = leds;
     clock_ms += 5U;
     orch_ui_control();
     CHECK(leds == before);
+
+    /* panic through the global page clears the voices */
+    press(B_GLO);
+    turn(E_KNOB4, 1);
+    memset(block, 0, sizeof block);
+    orch_render_q23(block, 128U);
+    CHECK(orch_active_voices() == 0U);
 
     if (failures) {
         printf("orch_ui: %d failure(s)\n", failures);
