@@ -3,6 +3,27 @@
 
 static struct orch_part parts[ORCH_PARTS];
 
+static unsigned instrument_family(unsigned instrument)
+{
+    if (instrument <= ORCH_INST_HARP) return ORCH_FAM_STRINGS;
+    if (instrument <= ORCH_INST_BASSOON) return ORCH_FAM_WOODWINDS;
+    if (instrument <= ORCH_INST_TUBA) return ORCH_FAM_BRASS;
+    if (instrument <= ORCH_INST_TIMPANI) return ORCH_FAM_MALLETS;
+    return ORCH_FAM_CHOIR;
+}
+
+static unsigned default_instrument(unsigned family)
+{
+    switch (family) {
+    case ORCH_FAM_STRINGS: return ORCH_INST_VIOLIN;
+    case ORCH_FAM_WOODWINDS: return ORCH_INST_FLUTE;
+    case ORCH_FAM_BRASS: return ORCH_INST_TRUMPET;
+    case ORCH_FAM_MALLETS: return ORCH_INST_MARIMBA;
+    case ORCH_FAM_CHOIR: return ORCH_INST_CHOIR;
+    default: return ORCH_INST_VIOLIN;
+    }
+}
+
 const char *orch_family_name(unsigned family)
 {
     switch (family) {
@@ -10,6 +31,7 @@ const char *orch_family_name(unsigned family)
     case ORCH_FAM_WOODWINDS: return "WOODWINDS";
     case ORCH_FAM_BRASS: return "BRASS";
     case ORCH_FAM_MALLETS: return "MALLETS";
+    case ORCH_FAM_CHOIR: return "CHOIR";
     default: return "OFF";
     }
 }
@@ -25,6 +47,7 @@ void orch_parts_init(void)
         orch_divisi_init(&part->divisi);
         part->channels = channel_map[p];
         part->family = (uint8_t)p;
+        part->instrument = (uint8_t)default_instrument(p);
         part->enabled = 1U;
         part->articulation = ORCH_ART_AUTO;
         part->player_cap = 2U;
@@ -57,8 +80,19 @@ int orch_part_configure(unsigned part, unsigned family, uint16_t channels)
 {
     if (part >= ORCH_PARTS || family >= ORCH_FAM_COUNT) return -1;
     parts[part].family = (uint8_t)family;
+    parts[part].instrument = (uint8_t)default_instrument(family);
     parts[part].channels = channels;
     parts[part].enabled = channels ? 1U : 0U;
+    orch_adaptive_reset_phrase(&parts[part].adaptive);
+    orch_divisi_init(&parts[part].divisi);
+    return 0;
+}
+
+int orch_part_set_instrument(unsigned part, unsigned instrument)
+{
+    if (part >= ORCH_PARTS || instrument >= ORCH_INST_COUNT) return -1;
+    parts[part].instrument = (uint8_t)instrument;
+    parts[part].family = (uint8_t)instrument_family(instrument);
     orch_adaptive_reset_phrase(&parts[part].adaptive);
     orch_divisi_init(&parts[part].divisi);
     return 0;
