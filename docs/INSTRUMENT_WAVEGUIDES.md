@@ -1,82 +1,94 @@
-# Instrument waveguide models — 0.3.0
+# Instrument-specific waveguide models — 0.3.0
 
-This beta replaces the single generic excitation path with instrument-family profiles and distinct excitation/resonator behaviour. The implementation is fixed-point and allocation-free in the audio callback.
+The FM1 renderer uses the existing per-part Adaptive Playing and Divisi pipeline. Every active Divisi player receives its own waveguide voice; the instrument profile changes the resonator, excitation, damping, envelope and body response. The models are computed in fixed point, with static memory and no allocation in the audio callback.
 
-## Shared physical-model structure
+## Instrument catalogue
 
-Each active note owns:
-- A tuned circular travelling-wave delay line.
-- A one-pole loss/damping state.
-- A short secondary resonator for body/bore coloration.
-- A fractional-delay pitch modulation path for low-depth vibrato.
-- A soft envelope and a per-voice excitation state.
+The part layer now exposes these instrument identities:
 
-The secondary resonator is deliberately short (maximum 511 samples) to constrain RAM and CPU. All state is allocated statically.
+| Family | Instruments |
+|---|---|
+| Strings | Violin, viola, cello, double bass, harp |
+| Woodwinds | Flute, piccolo, clarinet, oboe, bassoon |
+| Brass | Trumpet, French horn, trombone, tuba |
+| Mallets / percussion | Marimba, xylophone, timpani |
+| Voice | Choir |
 
-## Family-specific behaviour
+Each instrument has its own profile: loop gain, damping, attack, release, body resonance frequency and level, bow pressure or breath-noise amount, vibrato range, and (where appropriate) plucked/struck or half-period behaviour. A part selects its instrument with orch_engine_set_instrument(part, instrument). Selecting an instrument also sets its compatible family.
 
-| Family | Main resonator | Excitation | Secondary resonance |
-|---|---|---|---|
-| Violin | Long, high-feedback string loop | Continuous nonlinear bow/friction approximation plus low noise | Body mode around 500 Hz |
-| Viola | String loop with slightly darker damping | Bow/friction approximation | Body mode around 350 Hz |
-| Cello | Longer/softer string response | Bow/friction approximation | Body mode around 220 Hz |
-| Bass | Longer decay and darker response | Bow/friction approximation | Body mode around 110 Hz |
-| Woodwind | Half-period air-column delay with inverted reflection | Breath noise plus pitch-locked jet/edge oscillator | Bore overtone resonance |
-| Brass | Half-period bore delay with inverted reflection | Pitch-locked lip oscillator coupled to bore pressure | Bell/bore overtone resonance |
-| Choir | Sustained resonator | Two phase-related harmonic components and formant-like filtering | Formant/body resonance |
-| Percussion | Short, more heavily damped resonator | Shaped noise impulse | Inharmonic membrane-like secondary mode |
+## Physical-model structure
 
-The wind-family delay uses a half-period path with inverted feedback as a low-cost approximation of a closed/open air column. It is not a complete multi-bore clarinet/flute model.
+Each note/player owns:
+- A fractional-length digital waveguide delay line tuned from MIDI pitch.
+- A family-specific loop gain and damping response.
+- A short secondary delay resonator for body, bore, bell, bar or vocal-formant coloration.
+- An excitation oscillator for pitch-locked air/lip/voice behaviour where needed.
+- The existing adaptive envelope, articulation, glide, vibrato and Divisi player placement.
 
-## Articulation
+## Instrument-specific behaviour
 
-ORCH_MODEL_WAVEGUIDE_STRING selects sustained/bowed string excitation. ORCH_MODEL_PLUCKED_STRING selects a shaped one-shot excitation for string-family instruments; the envelope then decays naturally. Percussion also uses a one-shot excitation and natural decay.
+- **Violin / viola / cello / double bass:** rosin-noise excitation scaled by the instrument's bow pressure and the adaptive energy, a per-voice DC blocker, and a different body-mode resonance for each instrument. Their loop gains and damping differ so the lower instruments sustain more darkly. A friction feedback is deliberately not used; see the validation section.
+- **Harp:** one-shot plucked excitation with a long natural ring; no continuous bow drive.
+- **Flute / piccolo:** half-period, inverted-reflection air-column approximation, pitch-locked jet/edge excitation, and a higher body/bore resonance. Piccolo has a shorter, brighter profile.
+- **Clarinet / oboe / bassoon:** the same compact air-column topology but with different damping, breath-noise, attack and body resonance profiles. These are not yet separate full reed/tone-hole solvers.
+- **Trumpet / French horn / trombone / tuba:** half-period bore path with inverted reflection and a pitch-locked lip-pressure oscillator. Each instrument has its own body/bell resonance and envelope profile.
+- **Marimba / xylophone / timpani:** one-shot strike excitation, short attack, stronger damping and a secondary inharmonic resonator. These are compact modal approximations, not full 2-D plate or membrane models.
+- **Choir:** pitch-locked fundamental plus overtone excitation, formant-like smoothing and a sustained envelope.
 
-The family profile determines loop gain, damping, attack/release scale, vibrato range, bow pressure, breath-noise amount and body mix. MIDI channel-to-family assignment is exposed through orch_set_channel_family(channel, family). All channels still share the same global polyphonic voice pool.
+The wind/brass half-period path is a low-cost closed/open air-column approximation. It is not a complete multi-section bore with tone holes, register vents, bell flare or measured reflection coefficients.
 
-## Adaptive Playing
+## Adaptive Playing and Divisi
 
-Phrase timing and density are tracked per MIDI channel. Adaptive values shape attack/release, vibrato depth and tremolo depth. Vibrato is applied as a small fractional-delay change in cents rather than jumping the read pointer by whole samples.
+The engine retains the per-part Himalia-inspired phrase interpreter and Divisi planner:
+- Phrase timing, note intervals, gate duty, velocity trends, phrase peaks and density are tracked per part.
+- Articulation resolves to legato, portamento, détaché, martelé, staccato, spiccato, pizzicato, flageolet, sul tasto, sul ponticello or col legno.
+- Glide is applied only to connected notes and follows interval/duration intent.
+- Vibrato begins after a delay and grows over the note; its depth is expressed as fractional delay rather than integer sample jumps.
+- Divisi distributes a chord among up to four modeled players per part, with stable assignment, small detuning and pan differences.
+- Every player has its own delay, envelope, vibrato phase, excitation and pan. The global pool is capped at 12 voices; each part has its own lower voice ceiling.
 
-## Divisi and polyphony
+## Limitations
 
-The six-player Divisi planner remains a planning layer. It is not yet six simultaneous independent player models. It must be connected to a measured CPU budget before it can allocate extra modeled players. MIDI note polyphony remains the first priority.
+These are first-pass physical-model approximations, not finished acoustic instrument emulations. In particular:
+- Bow/string contact is not solved: the string is driven by rosin noise, and the Helmholtz friction curve, bridge admittance, string dispersion, coupled strings and measured body impulse responses are still missing.
+- Wind and brass use compact single-bore approximations; reed stiffness, lip aperture, tone holes, register holes, bore taper and bell radiation need further work.
+- Choir is a small harmonic/formant model, not a full vocal-tract waveguide.
+- Percussion uses a compact secondary mode, not a multi-mode membrane/plate solver.
+- Profile constants require listening tests and calibration on the actual FM1.
+- The 12-voice global ceiling and Divisi player limits must be profiled on the target before increasing them.
 
-## Limitations and validation
+## Validation
 
-These are first-pass physical-model approximations, not finished instrument emulations. In particular:
-- The bowed-string friction model is simplified and does not yet model a calibrated nonlinear bow/string contact curve, bridge admittance, string dispersion or independent player bow control.
-- Woodwind and brass use compact single-bore approximations; no register holes, tone holes, bell flare mesh or full lip/reed pressure solver yet.
-- Choir uses harmonic/formant synthesis rather than a full vocal-tract waveguide.
-- Percussion uses a compact resonator pair, not a plate/membrane modal bank.
-- The body resonators and all profile constants require listening tests and measurement on the FM1.
-
-Before a flashable release, run the host compile workflow, build with the exact FM1/JieLi toolchain, and measure audio-block execution time and RAM on hardware at 1/4/8/12 active notes. Do not raise the voice ceiling until measured headroom is confirmed.
+The host source-check workflow compiles the engine, adaptive interpreter, Divisi planner, part manager and FM1 callback with C11, -Wall, -Wextra and -Werror, and runs three host test suites. A successful host compile does not prove the JieLi target build or audio quality. A flashable release still requires the exact FM1 toolchain, packaging, and hardware measurements at 1/4/8/12 active voices, including CPU-block timing and RAM use.
 
 ## Validation on host (0.3.1)
 
-Measured on host renders of this engine, 44.1 kHz, 128-frame blocks, one note
-at a time, rendered with the same sources the firmware would use:
+Measured on host renders of this engine, 44.1 kHz, 128-frame blocks, one note at
+a time, rendered with the same sources the firmware would use:
 
 | Family | Pitch (autocorrelation) | Peak (Q23) | Note |
 |---|---|---|---|
-| strings | 110.2 / 262.5 / 668.2 Hz for A2/C4/E5 | 0.6–1.7 M | was broken, see below |
-| woodwinds | 110.2 / 262.5 / 668.2 Hz | 3.3–3.7 M | |
-| brass | 110.2 / 262.5 / 668.2 Hz | 3.3–3.9 M | |
-| mallets | 110.2 / 264.1 / 668.2 Hz | 0.13–0.5 M | decays on its own |
+| strings | 110.0 / 262.5 / 668.2 Hz for A2/C4/E5 | 0.8–2.1 M | r 0.83–0.95 |
+| woodwinds | 110.2 / 262.5 / 668.2 Hz | 3.3–4.8 M | r 0.99–1.00 |
+| brass | 110.2 / 262.5 / 668.2 Hz | 3.3–5.1 M | r 0.99–1.00 |
+| mallets | 110.2 / 261.6 / 659.3 Hz | 0.13–0.5 M | decays on its own |
 
 The tuning error is +4 to +23 cents (the loop filter is not phase linear); the
 autocorrelation lag resolution at the top note is about 26 cents, so treat the
 high-register number as an upper bound.
 
-Two defects were found by measurement and fixed here:
+Two defects were found by measurement and fixed:
 
-- The bowed string was a DC generator: a linear friction force fed back from
-  the string output produced a constant offset of 2.74 M against a 2.97 M peak
-  and no fundamental at all. Strings are now driven by rosin noise scaled by
-  the profile's bow pressure, and every voice has a DC blocker. The Helmholtz
-  friction model remains unported.
+- The bowed string was a DC generator. The friction force was computed from the
+  string's own output against a constant bow speed, which injects a fixed
+  offset: measured DC 2.74 M against a 2.97 M peak, f0/DC = 0, no pitch at all.
+  Strings are now driven by rosin noise scaled by the profile's bow pressure,
+  and every voice has a DC blocker after the body colouration. After the fix:
+  DC 2.4 k–24 k, pitch 110.0/262.5/668.2 Hz. The Helmholtz friction contact is
+  still not ported, so this is a working excitation, not a solved bow model.
 - `orch_engine.c` was truncated mid-function in the 0.3.0 commit, and the
-  instrument profile struct declared a `uint8_t` for Q15 friction values
-  (22000 did not fit). Both are fixed, and the host tests now guard the DC
-  case so it cannot come back silently.
+  instrument profile declared a `uint8_t` for Q15 friction values (22000 did
+  not fit). Both are fixed, and `test_strings_are_not_dc` guards the DC case.
+
+Voice stealing, glide state and the vibrato depth width were fixed by the
+0.3.0 author in 5f91c1c and 4173e50 and are carried over here.
