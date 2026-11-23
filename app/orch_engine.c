@@ -1,5 +1,8 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
+#include "fm1.h"
 #include "orch_engine.h"
+
+#define ORCH_AUDIO FM1_AUDIO_CODE
 
 #define DELAY_SIZE 2048U
 #define EVENT_CAP 64U
@@ -29,18 +32,18 @@ static uint8_t seq_enabled, seq_started, current_step;
 static enum orch_model selected_model;
 static uint32_t rng = 0x6d2b79f5U;
 
-static int32_t clamp16(int32_t x) {
+static ORCH_AUDIO int32_t clamp16(int32_t x) {
     if (x > 32767) return 32767;
     if (x < -32768) return -32768;
     return x;
 }
-static int32_t noise16(void) {
+static ORCH_AUDIO int32_t noise16(void) {
     rng ^= rng << 13; rng ^= rng >> 17; rng ^= rng << 5;
     return (int16_t)(rng >> 16);
 }
-static uint16_t note_delay(unsigned note) {
+static ORCH_AUDIO uint16_t note_delay(unsigned note) {
     static const uint16_t base[12] = {
-        2048,1933,1824,1722,1625,1534,1448,1367,1290,1218,1150,1085
+        170,160,151,143,135,127,120,113,106,100,95,90
     };
     int octave = (int)(note / 12U) - 5;
     uint32_t n = base[note % 12U];
@@ -54,7 +57,7 @@ static uint16_t note_delay(unsigned note) {
     if (n > DELAY_SIZE) n = DELAY_SIZE;
     return (uint16_t)n;
 }
-static void enqueue(unsigned ch, unsigned note, unsigned velocity) {
+static ORCH_AUDIO void enqueue(unsigned ch, unsigned note, unsigned velocity) {
     uint8_t next = (uint8_t)((event_write + 1U) & (EVENT_CAP - 1U));
     if (next == event_read) return;
     events[event_write].channel = (uint8_t)(ch & 15U);
@@ -77,7 +80,7 @@ void orch_midi_short_message(const uint8_t *m, unsigned bytes) {
                 voices[i].releasing=1U;
     }
 }
-static void start_voice(unsigned ch, unsigned note, unsigned velocity) {
+static ORCH_AUDIO void start_voice(unsigned ch, unsigned note, unsigned velocity) {
     unsigned chosen=ORCH_MAX_VOICES, oldest_index=0U;
     int32_t quietest=2147483647;
     uint32_t oldest=0U;
@@ -97,7 +100,7 @@ static void start_voice(unsigned ch, unsigned note, unsigned velocity) {
     for (unsigned n=0;n<v->length;n++)
         v->delay[n]=(int16_t)((noise16()*(int32_t)velocity)/512);
 }
-static void release_voice(unsigned ch, unsigned note) {
+static ORCH_AUDIO void release_voice(unsigned ch, unsigned note) {
     for (unsigned i=0;i<ORCH_MAX_VOICES;i++) {
         voice_t *v=&voices[i];
         if (v->active && v->channel==ch && v->note==note) {
@@ -106,7 +109,7 @@ static void release_voice(unsigned ch, unsigned note) {
         }
     }
 }
-static void drain_events(void) {
+static ORCH_AUDIO void drain_events(void) {
     while (event_read!=event_write) {
         event_t e=events[event_read];
         event_read=(uint8_t)((event_read+1U)&(EVENT_CAP-1U));
@@ -154,7 +157,7 @@ unsigned orch_active_voices(void) {
     unsigned n=0; for (unsigned i=0;i<ORCH_MAX_VOICES;i++) n+=voices[i].active?1U:0U;
     return n;
 }
-static void seq_tick(void) {
+static ORCH_AUDIO void seq_tick(void) {
     uint32_t step_samples=(ORCH_SAMPLE_RATE*60U)/((uint32_t)tempo*4U);
     if (!seq_enabled) return;
     if (!seq_started) { seq_started=1U; current_step=0U; step_start=sample_counter; }
@@ -166,7 +169,7 @@ static void seq_tick(void) {
         }
     }
 }
-void orch_render_q23(int32_t *out,unsigned frames) {
+ORCH_AUDIO void orch_render_q23(int32_t *out,unsigned frames) {
     if (!out) return;
     drain_events();
     for (unsigned f=0;f<frames;f++) {
