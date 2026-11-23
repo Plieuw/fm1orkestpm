@@ -174,7 +174,7 @@ void orch_midi_short_message(const uint8_t *m, unsigned bytes) {
         enqueue(ch, 0U, m[2] >= 64U, 1U);
 }
 static ORCH_AUDIO int32_t read_fractional_delay(const voice_t *v, uint32_t delay_q8) {
-    uint32_t whole = delay_q8 >> 8;
+    uint32_t whole = (delay_q8 >> 8) % v->length;
     uint32_t frac = delay_q8 & 255U;
     int32_t a = (int32_t)v->index - (int32_t)whole;
     while (a < 0) a += v->length;
@@ -281,7 +281,8 @@ static ORCH_AUDIO void start_voice(unsigned ch, unsigned note, unsigned velocity
     v->note = (uint8_t)note; v->channel = (uint8_t)ch;
     v->velocity = (uint8_t)velocity; v->family = (uint8_t)family;
     v->active = 1U; v->gate = 1U; v->releasing = 0U;
-    v->articulation = (uint8_t)(selected_model == ORCH_MODEL_PLUCKED_STRING);
+    v->articulation = (uint8_t)(selected_model == ORCH_MODEL_PLUCKED_STRING &&
+        family <= ORCH_FAMILY_BASS);
     v->vib_phase = rng;
     v->vib_step = (uint32_t)(family == ORCH_FAMILY_CHOIR ? 240000U : 390000U);
     v->vib_depth = vib;
@@ -443,7 +444,7 @@ static ORCH_AUDIO int32_t instrument_excitation(voice_t *v, const instrument_pro
     case ORCH_FAMILY_CELLO:
     case ORCH_FAMILY_BASS: {
         if (v->articulation) return 0;
-        int32_t bow = ((int32_t)v->velocity - 64) * 180;
+        int32_t bow = (int32_t)v->velocity * 150;
         int32_t slip = bow - string_velocity;
         int32_t friction = clamp32((slip * (int32_t)p->bow_pressure) >> 7, -9000, 9000);
         return (friction + ((n * p->air_noise) >> 9)) >> 2;
@@ -520,6 +521,8 @@ static ORCH_AUDIO void render_voice(voice_t *v, int64_t *mix) {
         uint32_t attack = clamp_u32(v->attack_samples, 1U, ORCH_SAMPLE_RATE);
         v->envelope += ENV_MAX / (int32_t)attack;
         if (v->envelope > ENV_MAX) v->envelope = ENV_MAX;
+        if (v->envelope >= ENV_MAX && (v->articulation || v->family == ORCH_FAMILY_PERCUSSION))
+            v->gate = 0U;
     } else if (v->releasing || v->family == ORCH_FAMILY_PERCUSSION ||
                (v->articulation && v->family <= ORCH_FAMILY_BASS)) {
         uint32_t rel = clamp_u32(v->release_samples, 1U, ORCH_SAMPLE_RATE * 4U);
