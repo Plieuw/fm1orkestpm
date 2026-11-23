@@ -77,7 +77,7 @@ void orch_midi_short_message(const uint8_t *m, unsigned bytes) {
     if (!m || bytes < 2U || m[0] < 0x80U || m[0] >= 0xf0U) return;
     unsigned kind = m[0] & 0xf0U, ch = m[0] & 15U;
     if ((kind == 0x80U || kind == 0x90U) && bytes >= 3U)
-        enqueue(ch,m[1],(kind == 0x80U || m[2] == 0U) ? 0U : m[2]);
+        enqueue(ch,m[1],(kind == 0x80U || m[2] == 0U) ? 0U : m[2],0U);
     else if (kind == 0xb0U && bytes >= 3U && m[1] == 64U) {
         enqueue(ch,0U,m[2]>=64U,1U);
     }
