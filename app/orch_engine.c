@@ -22,6 +22,7 @@
 #define ENV_MAX 32767
 #define Q23_MAX 8388607
 #define Q23_MIN (-8388608)
+#define Q23_ONE 8388608U
 #define PART_NOTES 8U
 #define SEQ_CHANNEL 16U
 
@@ -37,6 +38,7 @@ typedef struct {
     uint32_t len_q16, len_target_q16, len_step;
     uint32_t glide_left;
     uint32_t age;
+    uint32_t loop_gain_q23; /* per-sample gain derived from per-round-trip loss */
     int32_t lp;      /* previous loop sample (the damping filter's state) */
     int32_t dc;      /* output DC blocker state */
     int32_t out;     /* last radiated sample */
@@ -93,6 +95,26 @@ static int32_t clamp16(int32_t x)
     if (x < -32768) return -32768;
     return x;
 }
+static uint32_t loop_gain_per_sample_q23(unsigned trip_gain_q15, unsigned samples)
+{
+    if (!samples) samples = 1U;
+    if (trip_gain_q15 > 32767U) trip_gain_q15 = 32767U;
+    /* For small losses, (1-loss)^(1/N) ~= 1-loss/N. Keep the loss
+     * independent of pitch while avoiding powf/logf in the audio path. */
+    uint64_t loss_q23 = (uint64_t)(32768U - trip_gain_q15) * Q23_ONE;
+    loss_q23 /= (uint64_t)32768U * samples;
+    if (!loss_q23) loss_q23 = 1U; /* never permit a marginal, lossless loop */
+    if (loss_q23 >= Q23_ONE) loss_q23 = Q23_ONE - 1U;
+    return Q23_ONE - (uint32_t)loss_q23;
+}
+
+#ifdef FM1_HOST_TEST
+uint32_t orch_test_loop_gain_per_sample_q23(unsigned trip_gain_q15, unsigned samples)
+{
+    return loop_gain_per_sample_q23(trip_gain_q15, samples);
+}
+#endif
+
 static int32_t noise16(void)
 {
     rng ^= rng << 13; rng ^= rng >> 17; rng ^= rng << 5;
@@ -434,6 +456,15 @@ static void voice_start(unsigned part, unsigned note, unsigned velocity,
 
     v->energy_q16 = (int32_t)in->energy;
     v->accent_q16 = (int32_t)in->accent;
+    {
+        int32_t trip_gain = (int32_t)ip->loop_gain +
+                            (((v->energy_q16 - ORCH_Q16) * 300) >> 16);
+        if (trip_gain < 28000) trip_gain = 28000;
+        if (trip_gain > 32700) trip_gain = 32700;
+        uint32_t loop_samples = v->len_target_q16 >> 16;
+        if (loop_samples < 4U) loop_samples = 4U;
+        v->loop_gain_q23 = loop_gain_per_sample_q23((unsigned)trip_gain, loop_samples);
+    }
 
     /* vibrato: a rate per player, depth from the intent, delayed onset */
     {
@@ -793,12 +824,10 @@ static void voice_tick(voice_t *v)
     if (damp <= 2U) smoothed = (smoothed + v->lp) >> 1;
     v->lp = delayed;
     v->out = smoothed;
-    /* loop gain just under one: the string rings, the bow keeps it alive */
+    /* loop loss is calibrated per round trip at note start, not per sample:
+     * otherwise low notes decay faster simply because their delay is longer. */
     const struct instrument_profile *ip = &INST_PROFILE[v->instrument];
-    int32_t gain = (int32_t)ip->loop_gain + (((v->energy_q16 - ORCH_Q16) * 300) >> 16);
-    if (gain < 28000) gain = 28000;
-    if (gain > 32700) gain = 32700;
-    int32_t loop = (smoothed * gain) >> 15;
+    int32_t loop = (int32_t)(((int64_t)smoothed * v->loop_gain_q23) >> 23);
     if (ip->half_period) loop = -loop;
 
     /* excitation: scaled in Q16 so the products stay in 32 bits */

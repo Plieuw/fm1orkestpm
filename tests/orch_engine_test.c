@@ -44,6 +44,30 @@ static void solo_part(unsigned family)
         CHECK(orch_engine_configure_part(p, family, p == 0U ? 0x000FU : 0U) == 0);
 }
 
+static uint32_t q23_power(uint32_t base, unsigned exponent)
+{
+    uint64_t value = 8388608U;
+    for (unsigned i = 0; i < exponent; ++i)
+        value = (value * base) >> 23;
+    return (uint32_t)value;
+}
+
+static void test_round_trip_loss(void)
+{
+    const uint32_t low_note = orch_test_loop_gain_per_sample_q23(32400U, 400U);
+    const uint32_t high_note = orch_test_loop_gain_per_sample_q23(32400U, 67U);
+    const uint32_t low_trip = q23_power(low_note, 400U);
+    const uint32_t high_trip = q23_power(high_note, 67U);
+    const uint32_t expected = (uint32_t)(((uint64_t)32400U * 8388608U) / 32768U);
+    const uint32_t tolerance = expected / 1000U;
+    const uint32_t low_error = low_trip > expected ? low_trip - expected : expected - low_trip;
+    const uint32_t high_error = high_trip > expected ? high_trip - expected : expected - high_trip;
+    CHECK(low_note > high_note);
+    CHECK(low_error < tolerance);
+    CHECK(high_error < tolerance);
+    CHECK(low_note < 8388608U && high_note < 8388608U);
+}
+
 static void test_routing(void)
 {
     orch_init();
@@ -210,6 +234,7 @@ static void test_articulation(void)
 
 int main(void)
 {
+    test_round_trip_loss();
     test_routing();
     test_families();
     test_instruments();
