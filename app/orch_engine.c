@@ -806,7 +806,6 @@ static void voice_tick(voice_t *v)
     }
     if (v->gate && v->excite != EXC_STRIKE) {
         const int32_t noise = noise16();
-        const int32_t energy = v->energy_q16;
         switch (v->excite) {
         case EXC_BOW: {
             const int32_t bow_speed = ((int32_t)v->velocity + 16) * 140;
