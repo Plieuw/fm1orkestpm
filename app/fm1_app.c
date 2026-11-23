@@ -129,15 +129,14 @@ static void panel_draw(void)
     static const uint16_t bg=0x0841U, ink=0xFFFFU, cyan=0x07FFU;
     static const uint16_t amber=0xFD20U, green=0x07E0U, red=0xF800U;
     const unsigned p=selected_part;
-    const unsigned ch=channel_first(p)+1U;
+    static const char *const part_labels[PANEL_PARTS] = {
+        "PART 1 CH 1-4", "PART 2 CH 5-8",
+        "PART 3 CH 9-12", "PART 4 CH 13-16"
+    };
     char line[24];
     fm1_screen_fill(0U,0U,FM1_SCREEN_WIDTH,FM1_SCREEN_HEIGHT,bg);
     panel_text(8U,8U,"FM1 ORCHESTRA",cyan);
-    line[0]='P'; line[1]='A'; line[2]='R'; line[3]='T'; line[4]=' ';
-    line[5]=(char)('1'+p); line[6]=' '; line[7]='C'; line[8]='H'; line[9]=' ';
-    line[10]=(char)('0'+ch/10U); line[11]=(char)('0'+ch%10U); line[12]='-';
-    line[13]=(char)('0'+(ch+3U)/10U); line[14]=(char)('0'+(ch+3U)%10U); line[15]=0;
-    panel_text(8U,32U,line,ink);
+    panel_text(8U,32U,part_labels[p],ink);
     panel_text(8U,56U,"INSTRUMENT",amber);
     panel_text(8U,76U,instrument_names[selected_instrument[p]],ink);
     panel_text(8U,100U,"ARTICULATION",amber);
@@ -167,7 +166,6 @@ void groove_screen_init(void)
         selected_instrument[p]=instrument_default[p];
         selected_cap[p]=2U;
         selected_art[p]=0U;
-        (void)p;
     }
     for (unsigned k=0;k<PANEL_KEY_COUNT;++k) key_channel[k]=0U;
     previous_keys=0U;
@@ -195,7 +193,9 @@ void groove_screen_control(void)
         if (pressed & bit) {
             const unsigned ch=channel_first(selected_part);
             key_channel[k]=(uint8_t)ch;
-            key_velocity=48U+(unsigned)controls.knob*79U/1023U;
+            unsigned knob=controls.knob;
+            if (knob>1023U) knob=1023U;
+            key_velocity=(uint16_t)(48U+knob*79U/1023U);
             orch_note_event(ch,note,key_velocity);
             panel_dirty=1U;
         }
