@@ -6,7 +6,7 @@ Polyphonic physical-modeling firmware for the M-VAVE FM1 (JieLi WL82 / AC791N, P
 
 - One selected instrument shares a dynamic polyphonic voice pool; no fixed voice per instrument.
 - MIDI input is channel-aware (1-16) and all accepted channels share the same pool.
-- Polyphonic step-pattern API: up to four simultaneous notes per step; full gate scheduling and transport are still in development.
+- Polyphonic step-pattern API: up to four simultaneous notes per step, with per-note gate percentages and internal tempo.
 - Physical-modeling-first synthesis. The first prototype is a digital-waveguide string voice.
 - No audio-thread allocation, locks, file access, or display calls.
 
@@ -21,7 +21,7 @@ The FM1 uses JieLi WL82/AC791N. Himalia firmware targets a different MCU, so Him
 - 12 provisional waveguide voices (not a measured maximum).
 - Shared voice allocation across MIDI channels.
 - MIDI Note On/Off, velocity and sustain pedal.
-- 16-step polyphonic sequence-pattern API, up to four notes per step (sequencer timing is incomplete).
+- 16-step polyphonic sequencer pattern, up to four notes per step, with basic internal timing and gate release.
 - Fixed-point mono synthesis rendered to stereo Q23 output.
 
 The 12-voice ceiling is provisional and must be measured on real FM1 hardware. The goal is the highest stable polyphony that fits the audio interrupt budget.
