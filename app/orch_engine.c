@@ -18,7 +18,8 @@ typedef struct {
     uint32_t vib_phase, vib_step;
     uint16_t vib_depth;
     uint8_t note, channel, velocity, active, gate, releasing;
-    uint8_t attack_scale, release_scale, tremolo_depth, player;
+    uint8_t attack_scale, release_scale, player;
+    uint16_t tremolo_depth;
 } voice_t;
 
 typedef struct { uint8_t channel, note, velocity, type; } event_t;
@@ -104,7 +105,7 @@ static ORCH_AUDIO void release_voice(unsigned ch, unsigned note) {
 }
 static ORCH_AUDIO void adaptive_note(unsigned ch, unsigned note, unsigned velocity,
                                       uint32_t *attack_ms, uint32_t *release_ms,
-                                      uint16_t *vib, uint8_t *trem) {
+                                      uint16_t *vib, uint16_t *trem) {
     adaptive_t *a=&adaptive[ch];
     uint32_t ioi= a->initialized ? sample_counter-a->last_on : 0U;
     if (a->initialized && ioi>0U) {
@@ -126,10 +127,10 @@ static ORCH_AUDIO void adaptive_note(unsigned ch, unsigned note, unsigned veloci
         selected_family==ORCH_FAMILY_CELLO || selected_family==ORCH_FAMILY_BASS) {
         *vib=(uint16_t)(ioi>ORCH_SAMPLE_RATE/3U ? 4U : 2U);
         if (velocity<45U) *vib=(uint16_t)(*vib/2U);
-        *trem=(uint8_t)(a->phrase_notes>3U && density>75U ? 7U : 2U);
+        *trem=(uint16_t)(a->phrase_notes>3U && density>75U ? 1400U : 450U);
     } else {
         *vib=(uint16_t)(selected_family==ORCH_FAMILY_CHOIR ? 2U : 1U);
-        *trem=(uint8_t)(a->phrase_notes>5U ? 3U : 0U);
+        *trem=(uint16_t)(a->phrase_notes>5U ? 600U : 0U);
     }
     a->last_on=sample_counter; a->last_note=(uint8_t)note;
     a->last_velocity=(uint8_t)velocity; a->initialized=1U;
@@ -148,7 +149,7 @@ static ORCH_AUDIO void start_voice(unsigned ch, unsigned note, unsigned velocity
     voice_t *v=&voices[chosen];
     uint16_t target=note_delay(note);
     uint32_t attack_ms=20U, release_ms=140U;
-    uint16_t vib=0U; uint8_t trem=0U;
+    uint16_t vib=0U, trem=0U;
     if (ch<ORCH_MIDI_CHANNELS) adaptive_note(ch,note,velocity,&attack_ms,&release_ms,&vib,&trem);
     else {
         attack_ms=selected_model==ORCH_MODEL_PLUCKED_STRING?5U:24U;
@@ -166,7 +167,7 @@ static ORCH_AUDIO void start_voice(unsigned ch, unsigned note, unsigned velocity
     v->filter=0; v->envelope=0; v->index=0U;
     v->note=(uint8_t)note; v->channel=(uint8_t)ch; v->velocity=(uint8_t)velocity;
     v->active=1U; v->gate=1U; v->releasing=0U;
-    v->vib_phase=0U; v->vib_step=(uint32_t)(selected_family==ORCH_FAMILY_VIOLIN?3100000U:2200000U);
+    v->vib_phase=0U; v->vib_step=(uint32_t)(selected_family==ORCH_FAMILY_CHOIR?330000U:450000U);
     v->vib_depth=vib; v->tremolo_depth=trem; v->attack_scale=1U; v->release_scale=1U;
     for (unsigned n=0;n<v->length;n++)
         v->delay[n]=(int16_t)((noise16()*(int32_t)velocity)/2048);
@@ -309,7 +310,7 @@ ORCH_AUDIO void orch_render_q23(int32_t *out,unsigned frames) {
             v->index=(uint16_t)((v->index+1U)%v->length);
             if (v->gate && v->envelope<ENV_MAX) {
                 uint32_t attack=v->attack_samples?v->attack_samples:1U;
-                v->envelope+=(int32_t)((ENV_MAX-v->envelope)/(int32_t)clamp_u32(attack,1U,ORCH_SAMPLE_RATE));
+                v->envelope+=(int32_t)(ENV_MAX/clamp_u32(attack,1U,ORCH_SAMPLE_RATE));
                 if (v->envelope>ENV_MAX) v->envelope=ENV_MAX;
             } else if (v->releasing) {
                 uint32_t rel=v->release_samples?v->release_samples:1U;
@@ -317,10 +318,8 @@ ORCH_AUDIO void orch_render_q23(int32_t *out,unsigned frames) {
                 if (v->envelope<=8) { v->active=0U; v->envelope=0; continue; }
             }
             uint32_t phase=v->vib_phase;
-            int32_t modulation=0;
             int32_t trem=32767-((triangle_lfo(phase>>1)*(int32_t)v->tremolo_depth)>>15);
             int32_t level=(v->filter*v->envelope)>>15;
-            level=(level*(32767+modulation/8))>>15;
             level=(level*trem)>>15;
             sum+=(int64_t)level*v->velocity>>7;
         }
