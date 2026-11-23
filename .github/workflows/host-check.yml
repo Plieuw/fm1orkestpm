@@ -1,0 +1,28 @@
+name: Host source check
+
+on:
+  push:
+    branches:
+      - main
+      - "beta/**"
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  host-compile:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
+      - name: Checkout FM1 Core API headers
+        uses: actions/checkout@v4
+        with:
+          repository: rgrvmusic/fm1-core
+          path: fm1-core
+      - name: Compile all orchestral engine sources
+        run: |
+          for source in app/orch_engine.c app/orch_adaptive.c app/orch_divisi.c app/orch_part.c app/fm1_app.c; do
+            object="/tmp/$(basename "$source" .c).o"
+            cc -std=c11 -Wall -Wextra -Werror -DFM1_HOST_TEST -Ifm1-core/include -Iapp -c "$source" -o "$object"
+          done
