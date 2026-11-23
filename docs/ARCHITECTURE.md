@@ -41,3 +41,10 @@ The source exposes a 16-step pattern API with up to four notes per step and per-
 3. Hardware tests at 1, 4, 8 and 12 held notes.
 4. Measure audio-block overruns and peak render time.
 5. Increase the voice ceiling only while preserving interrupt headroom.
+
+
+## Himalia divisi and Adaptive Playing
+
+The next architecture layer is specified in [DIVISI_ADAPTIVE_ARCHITECTURE.md](DIVISI_ADAPTIVE_ARCHITECTURE.md). It separates MIDI-note polyphony from ensemble-player divisi, gives every MIDI instrument part its own phrase/adaptive state, and preserves Himalia's gesture-driven vibrato, tremolo, articulation, dynamics and glide behaviour.
+
+The current 0.1 source does not implement this layer yet. Its 12-voice waveguide prototype is a single shared pool; it must be refactored into per-part note state plus a global measured DSP budget before multi-instrument divisi is enabled.
