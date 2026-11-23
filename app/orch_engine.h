@@ -40,6 +40,29 @@ int orch_seq_set_step(unsigned step, unsigned slot, const struct orch_step_note 
 void orch_seq_clear(void);
 void orch_seq_set_part(unsigned part);
 
+/* Arpeggiator. A held note on a part with the arp on is collected instead of
+ * played; the render loop plays the pattern at the shared tempo. */
+enum orch_arp_mode {
+    ORCH_ARP_UP = 0, ORCH_ARP_DOWN, ORCH_ARP_UPDOWN, ORCH_ARP_RANDOM,
+    ORCH_ARP_AS_PLAYED, ORCH_ARP_MODE_COUNT
+};
+
+int orch_arp_set_enabled(unsigned part, unsigned on);
+int orch_arp_set_mode(unsigned part, unsigned mode);
+int orch_arp_set_octaves(unsigned part, unsigned octaves); /* 1..3 */
+int orch_arp_set_division(unsigned part, unsigned div);    /* 0:1/8 1:1/8T 2:1/16 3:1/16T 4:1/32 */
+int orch_arp_set_gate(unsigned part, unsigned percent);   /* 5..100 */
+unsigned orch_arp_enabled(unsigned part);
+unsigned orch_arp_held(unsigned part);
+unsigned orch_arp_sounding(unsigned part); /* note or 0xFF when silent */
+unsigned orch_arp_mode_of(unsigned part);
+unsigned orch_arp_octaves_of(unsigned part);
+unsigned orch_arp_div_of(unsigned part);
+unsigned orch_arp_gate_of(unsigned part);
+
+/* The step the sequencer is on, or 0xFF when it is stopped. */
+unsigned orch_seq_position(void);
+
 unsigned orch_active_voices(void);
 
 /* Introspection for the panel and the host tests. */

@@ -82,6 +82,36 @@ static uint8_t pattern_count[ORCH_SEQ_STEPS];
 static uint8_t seq_note[ORCH_STEP_NOTES], seq_active[ORCH_STEP_NOTES];
 static uint32_t seq_off_at[ORCH_STEP_NOTES];
 static uint32_t age_counter, sample_counter, step_start;
+
+/* ------------------------------------------------------------ arpeggiator
+ *
+ * A held key (or MIDI note) on a part with the arp on is collected instead of
+ * played; the render loop then plays the pattern one note at a time. It lives
+ * here, and not in the panel, because the note list and the clock must be
+ * handled in the same context as the voices: the panel runs in the control
+ * task, which can interrupt this code half way through a note. */
+#define ARP_MAX_HELD 8U
+#define ARP_NONE 0xFFU
+
+typedef struct {
+    uint8_t held[ARP_MAX_HELD];   /* in the order the keys were pressed */
+    uint8_t vel[ARP_MAX_HELD];
+    uint8_t order[ARP_MAX_HELD];  /* ascending pitch, for the sorted modes */
+    uint8_t count, enabled, mode, octaves, div, gate;
+    uint8_t index;
+    uint8_t sounding;             /* the note it is playing, or ARP_NONE */
+    uint8_t sounding_vel;
+    uint32_t next_at, off_at;
+    uint32_t rng;
+} arp_t;
+
+static arp_t arps[ORCH_PARTS];
+static void arp_hold(unsigned part, unsigned note, unsigned velocity);
+static void arp_unhold(unsigned part, unsigned note);
+static void arp_reset_all(void);
+static void arp_tick(void);
+static void part_note_start(unsigned part, unsigned note, unsigned velocity);
+static void part_note_stop(unsigned part, unsigned note);
 static volatile uint16_t tempo = 120U;
 static volatile uint8_t seq_enabled, seq_stop_pending, seq_part;
 static uint8_t seq_started, current_step;
@@ -558,10 +588,9 @@ void orch_midi_short_message(const uint8_t *m, unsigned bytes)
 }
 
 /* The note-on path: interpret, plan divisi, realize the players. */
-static void engine_note_on(unsigned ch, unsigned note, unsigned velocity)
+static void part_note_start(unsigned part, unsigned note, unsigned velocity)
 {
-    const unsigned part = orch_part_for_channel(ch);
-    if (part == 0xFFU || !velocity) return;
+    if (!velocity) return;
     struct orch_part *cfg = orch_part_get(part);
     if (!cfg) return;
 
@@ -598,10 +627,37 @@ static void engine_note_on(unsigned ch, unsigned note, unsigned velocity)
     }
 }
 
+static void engine_note_on(unsigned ch, unsigned note, unsigned velocity)
+{
+    const unsigned part = orch_part_for_channel(ch);
+    if (part == 0xFFU || !velocity) return;
+    if (arps[part].enabled) {
+        arp_hold(part, note, velocity);
+        return;
+    }
+    part_note_start(part, note, velocity);
+}
+
+static void part_note_stop(unsigned part, unsigned note)
+{
+    for (unsigned i = 0; i < ORCH_MAX_VOICES; ++i) {
+        voice_t *v = &voices[i];
+        if (!v->active || v->part != part || v->note != note) continue;
+        v->gate = 0U;
+        v->releasing = 1U;
+    }
+    part_note_remove(part, note);
+}
+
 static void engine_note_off(unsigned ch, unsigned note, unsigned sustain_on)
 {
     const unsigned part = orch_part_for_channel(ch);
     if (part == 0xFFU) return;
+    if (arps[part].enabled) {
+        /* the key is let go but the pattern keeps running on the others */
+        arp_unhold(part, note);
+        return;
+    }
     struct orch_part *cfg = orch_part_get(part);
     if (cfg) orch_adaptive_off(&cfg->adaptive, sample_counter);
 
@@ -627,6 +683,153 @@ static void engine_sustain(unsigned ch, unsigned on)
     }
 }
 
+/* ------------------------------------------------------- arpeggiator impl */
+
+static const uint8_t ARP_STEPS_PER_QUARTER[5] = { 2U, 3U, 4U, 6U, 8U };
+
+static void arp_clear(arp_t *a)
+{
+    a->count = 0U;
+    a->index = 0U;
+    a->sounding = ARP_NONE;
+}
+
+static void arp_rebuild_order(arp_t *a)
+{
+    for (unsigned i = 0; i < a->count; ++i) a->order[i] = (uint8_t)i;
+    for (unsigned i = 1; i < a->count; ++i) {
+        const uint8_t key = a->order[i];
+        unsigned j = i;
+        while (j && a->held[a->order[j - 1U]] > a->held[key]) {
+            a->order[j] = a->order[j - 1U];
+            --j;
+        }
+        a->order[j] = key;
+    }
+}
+
+static void arp_hold(unsigned part, unsigned note, unsigned velocity)
+{
+    arp_t *a = &arps[part];
+    if (a->count >= ARP_MAX_HELD) return;
+    for (unsigned i = 0; i < a->count; ++i)
+        if (a->held[i] == note) { a->vel[i] = (uint8_t)velocity; return; }
+    a->held[a->count] = (uint8_t)note;
+    a->vel[a->count] = (uint8_t)velocity;
+    ++a->count;
+    arp_rebuild_order(a);
+    if (a->sounding == ARP_NONE) {
+        a->index = 0U;
+        a->next_at = sample_counter;   /* the first key sounds at once */
+    }
+}
+
+static void arp_unhold(unsigned part, unsigned note)
+{
+    arp_t *a = &arps[part];
+    unsigned i = 0U;
+    for (; i < a->count; ++i)
+        if (a->held[i] == note) break;
+    if (i >= a->count) return;
+    for (unsigned j = i; j + 1U < a->count; ++j) {
+        a->held[j] = a->held[j + 1U];
+        a->vel[j] = a->vel[j + 1U];
+    }
+    --a->count;
+    arp_rebuild_order(a);
+    if (!a->count) {
+        if (a->sounding != ARP_NONE) part_note_stop(part, a->sounding);
+        arp_clear(a);
+        return;
+    }
+    if (a->index >= a->count) a->index = 0U;
+}
+
+static void arp_reset_all(void)
+{
+    for (unsigned part = 0; part < ORCH_PARTS; ++part) {
+        if (arps[part].sounding != ARP_NONE)
+            part_note_stop(part, arps[part].sounding);
+        arp_clear(&arps[part]);
+    }
+}
+
+/* The pattern: without a sorted order the notes play as they were pressed. */
+static unsigned arp_pick(const arp_t *a, unsigned step)
+{
+    const unsigned total = (unsigned)a->count * a->octaves;
+    if (!total) return 0U;
+    unsigned idx;
+    switch (a->mode) {
+    case ORCH_ARP_DOWN:
+        idx = total - 1U - (step % total);
+        break;
+    case ORCH_ARP_UPDOWN: {
+        const unsigned period = total > 1U ? total * 2U - 2U : 1U;
+        const unsigned k = step % period;
+        idx = k < total ? k : period - k;
+        break;
+    }
+    case ORCH_ARP_RANDOM:
+        idx = (unsigned)((step * 2654435761U) >> 7) % total; /* deterministic */
+        break;
+    default:
+        idx = step % total;
+        break;
+    }
+    const unsigned octave = idx / a->count;
+    const unsigned pos = idx % a->count;
+    const unsigned base = (a->mode == ORCH_ARP_AS_PLAYED)
+                              ? a->held[pos]
+                              : a->held[a->order[pos]];
+    unsigned note = base + 12U * octave;
+    if (note > 127U) note -= 12U;
+    return note;
+}
+
+static unsigned arp_velocity(const arp_t *a, unsigned step)
+{
+    const unsigned total = (unsigned)a->count * a->octaves;
+    if (!total) return 0U;
+    const unsigned pos = (step % total) % a->count;
+    const unsigned idx = (a->mode == ORCH_ARP_AS_PLAYED) ? pos : a->order[pos];
+    return a->vel[idx];
+}
+
+static void arp_tick(void)
+{
+    for (unsigned part = 0; part < ORCH_PARTS; ++part) {
+        arp_t *a = &arps[part];
+        if (!a->enabled || !a->count) continue;
+
+        if (a->sounding != ARP_NONE &&
+            (int32_t)(sample_counter - a->off_at) >= 0) {
+            part_note_stop(part, a->sounding);
+            a->sounding = ARP_NONE;
+        }
+
+        unsigned rate = ARP_STEPS_PER_QUARTER[a->div < 5U ? a->div : 2U];
+        uint32_t step_samples = (uint32_t)((ORCH_SAMPLE_RATE * 60U) /
+                                           ((uint32_t)tempo * rate));
+        if (step_samples < 16U) step_samples = 16U;
+
+        if ((int32_t)(sample_counter - a->next_at) >= 0) {
+            const unsigned note = arp_pick(a, a->index);
+            const unsigned vel = arp_velocity(a, a->index);
+            const unsigned gate = a->gate < 5U ? 5U : (a->gate > 100U ? 100U : a->gate);
+            const unsigned total = (unsigned)a->count * a->octaves;
+            a->index = (uint8_t)((a->index + 1U) % (total ? total : 1U));
+            if (a->sounding != ARP_NONE) part_note_stop(part, a->sounding);
+            part_note_start(part, note, vel);
+            a->sounding = (uint8_t)note;
+            a->sounding_vel = (uint8_t)vel;
+            a->off_at = sample_counter + (step_samples * gate) / 100U;
+            a->next_at += step_samples;
+            if ((int32_t)(sample_counter - a->next_at) > 0) a->next_at = sample_counter;
+        }
+    }
+}
+
 static void drain_events(void)
 {
     while (event_read != event_write) {
@@ -635,6 +838,7 @@ static void drain_events(void)
         if (e.type == 2U) {
             for (unsigned i = 0; i < ORCH_MAX_VOICES; ++i) voice_stop(i);
             for (unsigned c = 0; c < ORCH_MIDI_CHANNELS; ++c) sustain[c] = 0U;
+            arp_reset_all();
             part_notes_reset();
         } else if (e.type == 1U) {
             engine_sustain(e.channel, e.velocity);
@@ -679,6 +883,15 @@ void orch_init(void)
     seq_part = 0U;
     current_step = 0U;
     sample_counter = step_start = 0U;
+    for (unsigned part = 0; part < ORCH_PARTS; ++part) {
+        arp_clear(&arps[part]);
+        arps[part].enabled = 0U;
+        arps[part].mode = ORCH_ARP_UP;
+        arps[part].octaves = 1U;
+        arps[part].div = 2U;       /* 1/16 */
+        arps[part].gate = 60U;
+        arps[part].rng = 1U;
+    }
     for (unsigned n = 0; n < ORCH_STEP_NOTES; ++n) {
         seq_active[n] = 0U; seq_off_at[n] = 0U; seq_note[n] = 0U;
     }
@@ -964,6 +1177,7 @@ void orch_render_q23(int32_t *out, unsigned frames)
     drain_events();
     for (unsigned f = 0; f < frames; ++f) {
         seq_tick();
+        arp_tick();
         int64_t left = 0, right = 0;
         unsigned active = 0U;
         for (unsigned i = 0; i < ORCH_MAX_VOICES; ++i) {
@@ -1015,6 +1229,78 @@ unsigned orch_note_count(unsigned part)
 const struct orch_intent *orch_last_intent(unsigned part)
 {
     return part < ORCH_PARTS ? &runtime[part].intent : 0;
+}
+
+int orch_arp_set_enabled(unsigned part, unsigned on)
+{
+    if (part >= ORCH_PARTS) return -1;
+    arp_t *a = &arps[part];
+    a->enabled = (uint8_t)(on ? 1U : 0U);
+    if (!a->enabled && a->sounding != ARP_NONE) {
+        part_note_stop(part, a->sounding);
+        arp_clear(a);
+    }
+    return 0;
+}
+
+int orch_arp_set_mode(unsigned part, unsigned mode)
+{
+    if (part >= ORCH_PARTS || mode >= ORCH_ARP_MODE_COUNT) return -1;
+    arps[part].mode = (uint8_t)mode;
+    arps[part].index = 0U;
+    return 0;
+}
+
+int orch_arp_set_octaves(unsigned part, unsigned octaves)
+{
+    if (part >= ORCH_PARTS) return -1;
+    if (octaves < 1U) octaves = 1U;
+    if (octaves > 3U) octaves = 3U;
+    arps[part].octaves = (uint8_t)octaves;
+    arps[part].index = 0U;
+    return 0;
+}
+
+int orch_arp_set_division(unsigned part, unsigned div)
+{
+    if (part >= ORCH_PARTS) return -1;
+    if (div > 4U) div = 4U;
+    arps[part].div = (uint8_t)div;
+    return 0;
+}
+
+int orch_arp_set_gate(unsigned part, unsigned percent)
+{
+    if (part >= ORCH_PARTS) return -1;
+    if (percent < 5U) percent = 5U;
+    if (percent > 100U) percent = 100U;
+    arps[part].gate = (uint8_t)percent;
+    return 0;
+}
+
+unsigned orch_arp_enabled(unsigned part)
+{
+    return part < ORCH_PARTS ? arps[part].enabled : 0U;
+}
+
+unsigned orch_arp_held(unsigned part)
+{
+    return part < ORCH_PARTS ? arps[part].count : 0U;
+}
+
+unsigned orch_seq_position(void)
+{
+    return seq_enabled ? current_step : 0xFFU;
+}
+
+unsigned orch_arp_mode_of(unsigned part) { return part < ORCH_PARTS ? arps[part].mode : 0U; }
+unsigned orch_arp_octaves_of(unsigned part) { return part < ORCH_PARTS ? arps[part].octaves : 1U; }
+unsigned orch_arp_div_of(unsigned part) { return part < ORCH_PARTS ? arps[part].div : 2U; }
+unsigned orch_arp_gate_of(unsigned part) { return part < ORCH_PARTS ? arps[part].gate : 60U; }
+
+unsigned orch_arp_sounding(unsigned part)
+{
+    return part < ORCH_PARTS ? arps[part].sounding : ARP_NONE;
 }
 
 int orch_engine_configure_part(unsigned part, unsigned family, uint16_t channels)
