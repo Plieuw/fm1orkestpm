@@ -176,10 +176,10 @@ ORCH_AUDIO void orch_render_q23(int32_t *out,unsigned frames) {
         seq_tick();
         int64_t sum=0;
         for (unsigned i=0;i<ORCH_MAX_VOICES;i++) {
-            voice_t *v=&voices[i]; if (!v->active) continue;
+            voice_t *v=&voices[i]; if (!v->active) continue;\n            ++active;
             int32_t delayed=v->delay[v->index];
             v->filter+=(delayed-v->filter)>>3;
-            int32_t loop=v->filter-(v->filter>>7);
+            int32_t loop=v->filter-(v->filter>>15);
             if (v->gate) {
                 int32_t excitation=(noise16()*(int32_t)v->velocity)>>9;
                 loop += selected_model==ORCH_MODEL_WAVEGUIDE_STRING ?
@@ -195,7 +195,7 @@ ORCH_AUDIO void orch_render_q23(int32_t *out,unsigned frames) {
             }
             sum+=(v->filter*v->envelope>>15)*v->velocity>>7;
         }
-        int64_t scaled=(sum*96)>>7;
+        int64_t scaled=active ? (sum*256)/(int64_t)active : 0;
         if (scaled>Q23_MAX) scaled=Q23_MAX;
         if (scaled<Q23_MIN) scaled=Q23_MIN;
         out[f*2U]=(int32_t)scaled; out[f*2U+1U]=(int32_t)scaled;
