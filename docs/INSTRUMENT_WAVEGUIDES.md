@@ -52,3 +52,31 @@ These are first-pass physical-model approximations, not finished instrument emul
 - The body resonators and all profile constants require listening tests and measurement on the FM1.
 
 Before a flashable release, run the host compile workflow, build with the exact FM1/JieLi toolchain, and measure audio-block execution time and RAM on hardware at 1/4/8/12 active notes. Do not raise the voice ceiling until measured headroom is confirmed.
+
+## Validation on host (0.3.1)
+
+Measured on host renders of this engine, 44.1 kHz, 128-frame blocks, one note
+at a time, rendered with the same sources the firmware would use:
+
+| Family | Pitch (autocorrelation) | Peak (Q23) | Note |
+|---|---|---|---|
+| strings | 110.2 / 262.5 / 668.2 Hz for A2/C4/E5 | 0.6–1.7 M | was broken, see below |
+| woodwinds | 110.2 / 262.5 / 668.2 Hz | 3.3–3.7 M | |
+| brass | 110.2 / 262.5 / 668.2 Hz | 3.3–3.9 M | |
+| mallets | 110.2 / 264.1 / 668.2 Hz | 0.13–0.5 M | decays on its own |
+
+The tuning error is +4 to +23 cents (the loop filter is not phase linear); the
+autocorrelation lag resolution at the top note is about 26 cents, so treat the
+high-register number as an upper bound.
+
+Two defects were found by measurement and fixed here:
+
+- The bowed string was a DC generator: a linear friction force fed back from
+  the string output produced a constant offset of 2.74 M against a 2.97 M peak
+  and no fundamental at all. Strings are now driven by rosin noise scaled by
+  the profile's bow pressure, and every voice has a DC blocker. The Helmholtz
+  friction model remains unported.
+- `orch_engine.c` was truncated mid-function in the 0.3.0 commit, and the
+  instrument profile struct declared a `uint8_t` for Q15 friction values
+  (22000 did not fit). Both are fixed, and the host tests now guard the DC
+  case so it cannot come back silently.
