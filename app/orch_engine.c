@@ -124,11 +124,11 @@ static ORCH_AUDIO void adaptive_note(unsigned ch, unsigned note, unsigned veloci
         95U + (127U-velocity) + (density<55U ? 65U : 0U);
     if (selected_family==ORCH_FAMILY_VIOLIN || selected_family==ORCH_FAMILY_VIOLA ||
         selected_family==ORCH_FAMILY_CELLO || selected_family==ORCH_FAMILY_BASS) {
-        *vib=(uint16_t)(ioi>ORCH_SAMPLE_RATE/3U ? 500U : 180U);
+        *vib=(uint16_t)(ioi>ORCH_SAMPLE_RATE/3U ? 4U : 2U);
         if (velocity<45U) *vib=(uint16_t)(*vib/2U);
         *trem=(uint8_t)(a->phrase_notes>3U && density>75U ? 7U : 2U);
     } else {
-        *vib=(uint16_t)(selected_family==ORCH_FAMILY_CHOIR ? 220U : 80U);
+        *vib=(uint16_t)(selected_family==ORCH_FAMILY_CHOIR ? 2U : 1U);
         *trem=(uint8_t)(a->phrase_notes>5U ? 3U : 0U);
     }
     a->last_on=sample_counter; a->last_note=(uint8_t)note;
@@ -206,7 +206,9 @@ void orch_init(void) {
     selected_model=ORCH_MODEL_WAVEGUIDE_STRING; selected_family=ORCH_FAMILY_VIOLIN;
 }
 void orch_seq_set_tempo(uint16_t bpm) {
-    if (bpm<30U) bpm=30U; if (bpm>300U) bpm=300U; tempo=bpm;
+    if (bpm<30U) bpm=30U;
+    if (bpm>300U) bpm=300U;
+    tempo=bpm;
 }
 void orch_seq_set_enabled(unsigned enabled) {
     if (seq_enabled && !enabled) seq_stop_pending=1U;
@@ -290,7 +292,13 @@ ORCH_AUDIO void orch_render_q23(int32_t *out,unsigned frames) {
                 --v->glide_samples; if (!v->glide_samples) v->length=v->target_length;
                 if (v->length<8U) v->length=8U;
             }
-            int32_t delayed=v->delay[v->index];
+            int32_t vib=triangle_lfo(v->vib_phase);
+            v->vib_phase+=v->vib_step;
+            int32_t vib_offset=(vib*(int32_t)v->vib_depth)>>15;
+            int32_t read_index=(int32_t)v->index+vib_offset;
+            while (read_index<0) read_index+=v->length;
+            read_index%=(int32_t)v->length;
+            int32_t delayed=v->delay[(unsigned)read_index];
             v->filter+=(delayed-v->filter)>>3;
             int32_t loop=v->filter-(v->filter>>15);
             if (v->gate) {
@@ -308,8 +316,7 @@ ORCH_AUDIO void orch_render_q23(int32_t *out,unsigned frames) {
                 v->envelope-=(int32_t)(v->envelope/(int32_t)clamp_u32(rel,1U,ORCH_SAMPLE_RATE)+1);
                 if (v->envelope<=8) { v->active=0U; v->envelope=0; continue; }
             }
-            uint32_t phase=v->vib_phase; v->vib_phase+=v->vib_step;
-            int32_t vib=triangle_lfo(phase);
+            uint32_t phase=v->vib_phase;
             int32_t modulation=(vib*(int32_t)v->vib_depth)>>15;
             int32_t trem=32767-((triangle_lfo(phase>>1)*(int32_t)v->tremolo_depth)>>15);
             int32_t level=(v->filter*v->envelope)>>15;
@@ -318,7 +325,8 @@ ORCH_AUDIO void orch_render_q23(int32_t *out,unsigned frames) {
             sum+=(int64_t)level*v->velocity>>7;
         }
         int64_t scaled=active ? (sum*256)/(int64_t)active : 0;
-        if (scaled>Q23_MAX) scaled=Q23_MAX; if (scaled<Q23_MIN) scaled=Q23_MIN;
+        if (scaled>Q23_MAX) scaled=Q23_MAX;
+        if (scaled<Q23_MIN) scaled=Q23_MIN;
         out[f*2U]=(int32_t)scaled; out[f*2U+1U]=(int32_t)scaled;
         ++sample_counter;
     }
