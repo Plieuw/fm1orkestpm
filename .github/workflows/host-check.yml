@@ -6,12 +6,15 @@ on:
       - main
       - "beta/**"
   pull_request:
+  workflow_dispatch:
 
 jobs:
   host-compile:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
       - name: Checkout FM1 Core API headers
         uses: actions/checkout@v4
         with:
