@@ -107,13 +107,14 @@ static ORCH_AUDIO void adaptive_note(unsigned ch, unsigned note, unsigned veloci
                                       uint32_t *attack_ms, uint32_t *release_ms,
                                       uint16_t *vib, uint16_t *trem) {
     adaptive_t *a=&adaptive[ch];
-    uint32_t ioi= a->initialized ? sample_counter-a->last_on : 0U;
-    if (a->initialized && ioi>0U) {
+    uint8_t same_onset=(uint8_t)(a->initialized && a->last_on==sample_counter);
+    uint32_t ioi= (a->initialized && !same_onset) ? sample_counter-a->last_on : 0U;
+    if (a->initialized && !same_onset && ioi>0U) {
         if (!a->mean_ioi) a->mean_ioi=ioi;
         else a->mean_ioi=(a->mean_ioi*7U+ioi)/8U;
         if (ioi > a->mean_ioi*3U) a->phrase_notes=0U;
     }
-    if (a->phrase_notes<255U) ++a->phrase_notes;
+    if (!same_onset && a->phrase_notes<255U) ++a->phrase_notes;
     uint32_t density=(a->mean_ioi && ioi) ? (a->mean_ioi*100U)/ioi : 50U;
     density=clamp_u32(density,25U,200U);
     uint32_t energy=velocity;
@@ -132,7 +133,8 @@ static ORCH_AUDIO void adaptive_note(unsigned ch, unsigned note, unsigned veloci
         *vib=(uint16_t)(selected_family==ORCH_FAMILY_CHOIR ? 2U : 1U);
         *trem=(uint16_t)(a->phrase_notes>5U ? 600U : 0U);
     }
-    a->last_on=sample_counter; a->last_note=(uint8_t)note;
+    if (!same_onset) a->last_on=sample_counter;
+    a->last_note=(uint8_t)note;
     a->last_velocity=(uint8_t)velocity; a->initialized=1U;
 }
 static ORCH_AUDIO void start_voice(unsigned ch, unsigned note, unsigned velocity) {
@@ -167,7 +169,7 @@ static ORCH_AUDIO void start_voice(unsigned ch, unsigned note, unsigned velocity
     v->filter=0; v->envelope=0; v->index=0U;
     v->note=(uint8_t)note; v->channel=(uint8_t)ch; v->velocity=(uint8_t)velocity;
     v->active=1U; v->gate=1U; v->releasing=0U;
-    v->vib_phase=0U; v->vib_step=(uint32_t)(selected_family==ORCH_FAMILY_CHOIR?330000U:450000U);
+    v->vib_phase=rng; v->vib_step=(uint32_t)(selected_family==ORCH_FAMILY_CHOIR?330000U:450000U);
     v->vib_depth=vib; v->tremolo_depth=trem; v->attack_scale=1U; v->release_scale=1U;
     for (unsigned n=0;n<v->length;n++)
         v->delay[n]=(int16_t)((noise16()*(int32_t)velocity)/2048);
