@@ -12,11 +12,7 @@ void groove_screen_control(void) {
 }
 void groove_midi_init(void) { orch_init(); }
 void groove_midi_poll(void) {}
-void groove_midi_panic(void) {
-    for (unsigned ch=0;ch<ORCH_MIDI_CHANNELS;ch++)
-        for (unsigned note=0;note<128U;note++)
-            orch_note_event(ch,note,0U);
-}
+void groove_midi_panic(void) { orch_panic(); }
 unsigned groove_midi_mode(unsigned track) {
     (void)track;
     return 0U;
