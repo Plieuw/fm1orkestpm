@@ -1,50 +1,52 @@
-# FM1 Orchestral Engine — architecture 0.1
+# FM1 Orchestral Engine — architecture 0.2.0
 
-## Core design
+## Design target
 
-The instrument is polyphonic first. One global voice allocator serves all accepted MIDI channels and the internal sequencer. MIDI channel identity is retained per voice so Note Off can be channel-aware. The internal sequencer uses a separate reserved source identifier, not one of the 16 external MIDI channels. No voice is permanently reserved for a channel.
+Polyphony remains the first priority. External MIDI channels share one global note allocator, so a channel does not permanently reserve voices. The sequencer is a separate source and also uses that pool. The current ceiling remains 12 voices until target-device profiling proves a higher count safe.
 
-## Audio path
+## Audio path and constraints
 
-MIDI input -> bounded event queue -> voice allocator -> digital waveguide -> stereo Q23 block.
+MIDI -> bounded event queue -> global allocator -> fixed-point digital waveguide -> stereo Q23 output. Rendering uses fixed-size state and no heap allocation, blocking calls, display work or file access. The FM1 Core callback is 128 frames at approximately 44.1 kHz.
 
-The FM1 Core renderer receives 128 frames per block at approximately 44.1 kHz. The audio callback uses fixed-size buffers and fixed-point arithmetic. No heap allocation, blocking calls, filesystem access or display operations belong in the render path.
+## Implemented in this beta
 
-## Voice allocation
+- Channel-aware Note On/Off and CC64 sustain.
+- Twelve provisional shared waveguide voices.
+- Velocity-sensitive, softened envelope onset and instrument-family release shaping.
+- Context-sensitive legato glide over a short transition; detached notes do not glide.
+- Gesture-derived vibrato modulation and phrase/density-derived tremolo depth. These are preliminary, low-cost approximations and need listening calibration.
+- Per-channel adaptive phrase memory: inter-onset estimate, phrase density proxy, note count and velocity trend.
+- Instrument-family selection API for violin, viola, cello, bass, woodwind, brass, choir and percussion.
+- Divisi planning API with up to six section players, stable chord-part mapping, and extra doublers for sparse phrases.
+- 16-step internal sequencer, up to four notes per step, internal tempo and gate percentages.
 
-The first implementation has a provisional ceiling of 12 voices. It reuses an idle voice, otherwise steals the quietest releasing voice, otherwise the oldest held voice. All MIDI channels share this pool. Twelve is not a measured hardware maximum; benchmark on device before raising it.
+## Divisi boundary
 
-Each voice owns a 2048-sample delay buffer, loop filter, envelope and MIDI note/channel identity.
+The six-player Divisi planner is implemented as a deterministic planning layer, not yet as six independent rendered physical player models. The plan returns active players, chord-part assignment and doubling offsets. Rendering those players as independent waveguides would multiply DSP cost and reduce available MIDI-note polyphony. It must therefore be integrated behind a measured global CPU budget rather than silently consuming several slots for every note. This keeps the polyphonic note engine separate from ensemble orchestration.
 
-## First physical model
+The orch_set_divisi() switch enables/disables sparse-phrase doubling in the planner. The current MIDI front end does not yet expose a UI or controller mapping for instrument family or Divisi mode.
 
-The first prototype is a simplified digital-waveguide string:
-- delay line models travelling energy on a string;
-- one-pole damping models frequency-dependent loss;
-- noise excitation seeds the resonator and sustains a rough bowed-like tone while held;
-- release closes excitation and allows the resonator to decay.
+## Adaptive Playing boundary
 
-This is an initial physical-modeling scaffold, not yet a finished violin/bowed-string model. The next DSP pass must add a nonlinear bow/friction interaction, more accurate bridge/body coupling, and measured tuning across the MIDI range.
+Adaptive values are calculated on note events, not through expensive per-sample analysis. The current implementation provides first-pass phrase-density estimates, softer attack/release, a short legato glide, and low-cost modulation. It is not yet the full Himalia interpreter: phrase peak detection, articulation classification, bow pressure/speed, independent player personalities, true nonlinear bow/friction interaction, body/bridge coupling, and adaptive player reassignment remain future work.
 
-## MIDI
+## Voice allocation and memory
 
-The raw FM1 MIDI callback parses channel-voice Note On, Note Off and CC64 sustain messages. All 16 channels feed the same polyphonic pool. MIDI program changes, pitch bend, channel pressure, per-channel expression and independent channel presets are not implemented yet.
+Each voice owns a 2048-sample delay buffer, damping filter, envelope, glide state and modulation phase. All channels share this pool. Voice stealing prefers the quietest releasing voice, then the oldest held voice. The 12-voice ceiling is provisional and should not be raised before timing and memory measurements on the FM1 target.
 
-## Sequencer
+## Sequencer and MIDI gaps
 
-The source exposes a 16-step pattern API with up to four notes per step and per-note gate percentages. Sequencer playback is disabled by default; it uses an internal tempo and releases each sequenced note after its programmed gate. External MIDI clock, per-pattern length, swing, ratchets, MIDI transport sync and panel editing remain outstanding.
+External MIDI clock/transport, pitch bend, channel pressure, expression, program changes, per-channel instrument presets, pattern length, swing, ratchets and panel editing remain outstanding. The current 16-step sequencer runs from internal tempo.
 
-## Validation plan
+## Validation status
 
-1. Host compile and tests for allocator, MIDI parser and sequence timing.
-2. Build/package with the matching FM1 Core platform and JieLi PI32v2 toolchain.
-3. Hardware tests at 1, 4, 8 and 12 held notes.
-4. Measure audio-block overruns and peak render time.
-5. Increase the voice ceiling only while preserving interrupt headroom.
+The host workflow checks C compilation with warnings treated as errors. That is not a JieLi target build, firmware package, or hardware test. Before a flashable beta is claimed:
+1. Add host tests for allocator, note lifecycle, adaptive timing and Divisi mapping.
+2. Build/package using the matching FM1 Core/JieLi PI32v2 toolchain.
+3. Measure 1/4/8/12-note loads on device, including sequencer and modulation.
+4. Verify pitch tracking, tuning, output level, transient quality and block deadline headroom.
+5. Increase the voice ceiling only after measured margin is available.
 
+## Reference
 
-## Himalia divisi and Adaptive Playing
-
-The next architecture layer is specified in [DIVISI_ADAPTIVE_ARCHITECTURE.md](DIVISI_ADAPTIVE_ARCHITECTURE.md). It separates MIDI-note polyphony from ensemble-player divisi, gives every MIDI instrument part its own phrase/adaptive state, and preserves Himalia's gesture-driven vibrato, tremolo, articulation, dynamics and glide behaviour.
-
-The current 0.1 source does not implement this layer yet. Its 12-voice waveguide prototype is a single shared pool; it must be refactored into per-part note state plus a global measured DSP budget before multi-instrument divisi is enabled.
+The Divisi/adaptive design rationale is in [DIVISI_ADAPTIVE_ARCHITECTURE.md](DIVISI_ADAPTIVE_ARCHITECTURE.md). The source architecture is inspired by the user's Himalia strings-engine exploration; this FM1 implementation is separately adapted for the FM1 target and remains GPL-3.0-or-later.
