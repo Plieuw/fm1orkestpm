@@ -32,7 +32,7 @@ The model details and limitations are described in [INSTRUMENT_WAVEGUIDES.md](IN
 
 All MIDI channels share one global voice pool. Divisi remains a deterministic six-player planning layer, not six additional rendered players. It must be connected to a measured CPU budget before it can allocate more modeled subvoices. This avoids silently multiplying DSP cost and protects note polyphony.
 
-The current 12-voice ceiling is provisional. Each voice has a 2048-sample primary delay and a secondary resonator of up to 512 samples, plus filter/envelope state. RAM and audio-block deadline must be measured on the FM1 before increasing the voice count.
+The current 12-voice ceiling is provisional. Each voice has a 2048-sample primary delay and a secondary resonator of up to 512 samples, plus filter/envelope state. RAM and audio-block deadline must be measured on the FM1 before increasing the voice count. Instrument loop loss is specified per round trip and converted once to a Q23 per-sample gain at note start; this prevents pitch register from changing decay time. The conversion has a one-step minimum loss so the delay loop is never marginally lossless.
 
 ## Remaining work
 
