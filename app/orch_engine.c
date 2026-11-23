@@ -186,35 +186,33 @@ static void artic_profile(unsigned artic, unsigned family, struct artic_profile 
 }
 
 struct instrument_profile {
-    uint16_t loop_gain;
-    uint16_t body_gain;
-    uint16_t body_hz;
+    uint16_t loop_gain, body_gain, body_hz;
     uint8_t damping, attack_ms;
     uint16_t release_ms;
-    uint8_t body_mix, bow_pressure, air_noise, vibrato_cents;
-    uint8_t half_period, pluck;
+    uint8_t body_mix, half_period, pluck, vibrato_cents;
+    uint16_t bow_pressure;
+    uint8_t air_noise;
 };
 static const struct instrument_profile INST_PROFILE[ORCH_INST_COUNT] = {
-    {32630U,31600U,500U,2U,42U,260U,52U,22000U,5U,7U,0U,0U}, /* violin */
-    {32610U,31650U,350U,2U,48U,320U,58U,22500U,5U,6U,0U,0U}, /* viola */
-    {32590U,31700U,220U,3U,62U,460U,68U,23000U,4U,5U,0U,0U}, /* cello */
-    {32550U,31750U,110U,3U,78U,620U,76U,23500U,4U,4U,0U,0U}, /* bass */
-    {32400U,31000U,700U,2U,12U,1100U,64U,0U,4U,2U,0U,1U}, /* harp */
-    {32000U,30900U,1000U,3U,24U,180U,34U,0U,42U,3U,1U,0U}, /* flute */
-    {31900U,30700U,1800U,3U,18U,140U,28U,0U,48U,2U,1U,0U}, /* piccolo */
-    {32100U,31100U,800U,3U,28U,220U,42U,0U,34U,3U,1U,0U}, /* clarinet */
-    {32000U,31200U,1200U,3U,30U,220U,46U,0U,38U,4U,1U,0U}, /* oboe */
-    {32200U,31300U,400U,3U,38U,300U,54U,0U,32U,2U,1U,0U}, /* bassoon */
-    {31900U,30700U,1500U,3U,26U,220U,44U,0U,28U,4U,1U,0U}, /* trumpet */
-    {32000U,31000U,700U,3U,36U,280U,52U,0U,26U,3U,1U,0U}, /* horn */
-    {32100U,31100U,500U,3U,34U,260U,58U,0U,24U,3U,1U,0U}, /* trombone */
-    {32200U,31300U,250U,3U,48U,340U,64U,0U,22U,2U,1U,0U}, /* tuba */
-    {31300U,29200U,1200U,2U,3U,700U,84U,0U,72U,0U,0U,1U}, /* marimba */
-    {31100U,29000U,1800U,2U,2U,520U,82U,0U,78U,0U,0U,1U}, /* xylophone */
-    {31400U,29400U,150U,2U,4U,900U,88U,0U,64U,0U,0U,1U}, /* timpani */
-    {31700U,31200U,500U,3U,90U,520U,62U,0U,10U,5U,0U,0U}  /* choir */
+    {32630U,31600U,500U,2U,42U,260U,52U,0U,0U,7U,22000U,5U}, /* violin */
+    {32610U,31650U,350U,2U,48U,320U,58U,0U,0U,6U,22500U,5U}, /* viola */
+    {32590U,31700U,220U,3U,62U,460U,68U,0U,0U,5U,23000U,4U}, /* cello */
+    {32550U,31750U,110U,3U,78U,620U,76U,0U,0U,4U,23500U,4U}, /* bass */
+    {32400U,31000U,700U,2U,12U,1100U,64U,0U,1U,2U,0U,4U}, /* harp */
+    {32000U,30900U,1000U,3U,24U,180U,34U,1U,0U,3U,0U,42U}, /* flute */
+    {31900U,30700U,1800U,3U,18U,140U,28U,1U,0U,2U,0U,48U}, /* piccolo */
+    {32100U,31100U,800U,3U,28U,220U,42U,1U,0U,3U,0U,34U}, /* clarinet */
+    {32000U,31200U,1200U,3U,30U,220U,46U,1U,0U,4U,0U,38U}, /* oboe */
+    {32200U,31300U,400U,3U,38U,300U,54U,1U,0U,2U,0U,32U}, /* bassoon */
+    {31900U,30700U,1500U,3U,26U,220U,44U,1U,0U,4U,0U,28U}, /* trumpet */
+    {32000U,31000U,700U,3U,36U,280U,52U,1U,0U,3U,0U,26U}, /* horn */
+    {32100U,31100U,500U,3U,34U,260U,58U,1U,0U,3U,0U,24U}, /* trombone */
+    {32200U,31300U,250U,3U,48U,340U,64U,1U,0U,2U,0U,22U}, /* tuba */
+    {31300U,29200U,1200U,2U,3U,700U,84U,0U,1U,0U,0U,72U}, /* marimba */
+    {31100U,29000U,1800U,2U,2U,520U,82U,0U,1U,0U,0U,78U}, /* xylophone */
+    {31400U,29400U,150U,2U,4U,900U,88U,0U,1U,0U,0U,64U}, /* timpani */
+    {31700U,31200U,500U,3U,90U,520U,62U,0U,0U,5U,0U,10U}  /* choir */
 };
-
 static int32_t triangle32(uint32_t phase)
 {
     const uint32_t x = phase >> 16;
@@ -447,11 +445,10 @@ static void voice_start(unsigned part, unsigned note, unsigned velocity,
         v->vib_delay = (uint32_t)((in->phrase_start ? 180U : 120U) * ORCH_SAMPLE_RATE / 1000U);
     }
 
-    v->body_len = (uint16_t)((ORCH_SAMPLE_RATE / (ip->body_hz ? ip->body_hz : 440U)));
+    v->body_len = (uint16_t)(ORCH_SAMPLE_RATE / (ip->body_hz ? ip->body_hz : 440U));
     if (v->body_len < 8U) v->body_len = 8U;
     if (v->body_len > 512U) v->body_len = 512U;
-    v->body_write = 0U;
-    v->body_lp = 0;
+    v->body_write = 0U; v->body_lp = 0;
     for (unsigned n = 0; n < v->body_len; ++n) v->body[n] = 0;
     v->excite_phase = rng ^ (note * 0x9e3779b9U);
     v->excite_inc = ip->half_period ? (uint32_t)(0x7fffffffU / (uint32_t)(target >> 16))
@@ -851,14 +848,11 @@ static void voice_tick(voice_t *v)
     }
     v->delay[v->write] = (int16_t)clamp16(loop);
     v->write = (v->write + 1U) & DELAY_MASK;
-
-    /* A compact secondary resonator models body, bore, bell or bar modes. */
     {
         const int32_t body_delayed = v->body[v->body_write];
         v->body_lp += (body_delayed - v->body_lp) >> 2;
         const int32_t body_feedback = (v->body_lp * (int32_t)ip->body_gain) >> 15;
-        const int32_t body_input = smoothed >> 3;
-        v->body[v->body_write] = (int16_t)clamp16(body_feedback + body_input);
+        v->body[v->body_write] = (int16_t)clamp16(body_feedback + (smoothed >> 3));
         ++v->body_write;
         if (v->body_write >= v->body_len) v->body_write = 0U;
         v->out = smoothed + ((v->body_lp * (int32_t)ip->body_mix) >> 7);
@@ -869,3 +863,99 @@ static void voice_tick(voice_t *v)
     if (v->attack_left) {
         --v->attack_left;
         v->env += v->env_inc;
+        if (v->env > ENV_MAX) v->env = ENV_MAX;
+    } else if (v->gate) {
+        v->env = ENV_MAX;
+    } else {
+        v->env -= v->env_dec;
+        if (v->env <= 8) voice_stop((unsigned)(v - voices));
+    }
+    if (v->stroke_left) {
+        if (!--v->stroke_left) v->gate = 0U;
+    }
+}
+
+void orch_render_q23(int32_t *out, unsigned frames)
+{
+    if (!out) return;
+    drain_events();
+    for (unsigned f = 0; f < frames; ++f) {
+        seq_tick();
+        int64_t left = 0, right = 0;
+        unsigned active = 0U;
+        for (unsigned i = 0; i < ORCH_MAX_VOICES; ++i) {
+            voice_t *v = &voices[i];
+            if (!v->active) continue;
+            voice_tick(v);
+            if (!v->active) continue;
+            ++active;
+            const int32_t amp = (v->out * v->env >> 15);
+            const int32_t g = (amp * (int32_t)v->velocity) >> 7;
+            left += (int64_t)g * v->pan_l;
+            right += (int64_t)g * v->pan_r;
+        }
+        const int64_t div = active ? (int64_t)active : 1;
+        int64_t l = left / div;
+        int64_t r = right / div;
+        if (l > Q23_MAX) l = Q23_MAX;
+        if (l < Q23_MIN) l = Q23_MIN;
+        if (r > Q23_MAX) r = Q23_MAX;
+        if (r < Q23_MIN) r = Q23_MIN;
+        out[f * 2U] = (int32_t)l;
+        out[f * 2U + 1U] = (int32_t)r;
+        ++sample_counter;
+    }
+}
+
+/* ----------------------------------------------------------- inspection */
+
+unsigned orch_active_voices(void)
+{
+    unsigned n = 0U;
+    for (unsigned i = 0; i < ORCH_MAX_VOICES; ++i) n += voices[i].active ? 1U : 0U;
+    return n;
+}
+
+unsigned orch_voices_of_part(unsigned part)
+{
+    unsigned n = 0U;
+    for (unsigned i = 0; i < ORCH_MAX_VOICES; ++i)
+        n += (voices[i].active && voices[i].part == part) ? 1U : 0U;
+    return n;
+}
+
+unsigned orch_note_count(unsigned part)
+{
+    return part < ORCH_PARTS ? part_note_count(part) : 0U;
+}
+
+const struct orch_intent *orch_last_intent(unsigned part)
+{
+    return part < ORCH_PARTS ? &runtime[part].intent : 0;
+}
+
+int orch_engine_configure_part(unsigned part, unsigned family, uint16_t channels)
+{
+    return orch_part_configure(part, family, channels);
+}
+int orch_engine_set_instrument(unsigned part, unsigned instrument)
+{
+    return orch_part_set_instrument(part, instrument);
+}
+int orch_engine_set_articulation(unsigned part, unsigned articulation)
+{
+    return orch_part_set_articulation(part, articulation);
+}
+int orch_engine_set_player_cap(unsigned part, unsigned cap)
+{
+    return orch_part_set_player_cap(part, cap);
+}
+int orch_engine_set_voice_ceiling(unsigned part, unsigned voices_)
+{
+    struct orch_part *cfg = orch_part_get(part);
+    if (!cfg) return -1;
+    if (!voices_) voices_ = 1U;
+    if (voices_ > ORCH_MAX_VOICES) voices_ = ORCH_MAX_VOICES;
+    cfg->voice_ceiling = (uint8_t)voices_;
+    return 0;
+}
