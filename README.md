@@ -1,34 +1,46 @@
 # FM1 Orchestral Engine
 
-Polyphonic physical-modeling firmware for the M-VAVE FM1 (JieLi WL82 / AC791N, PI32v2).
+Polyphonic **physical-modeling** firmware for the M-VAVE FM1 (JieLi WL82 /
+AC791N, PI32v2) — an orchestra of modeled instruments, not a sample player.
 
 ## Direction
 
-- One selected instrument shares a dynamic polyphonic voice pool; no fixed voice per instrument.
-- MIDI input is channel-aware (1-16) and all accepted channels share the same pool.
-- Polyphonic step-pattern API: up to four simultaneous notes per step, with per-note gate percentages and internal tempo.
-- Physical-modeling-first synthesis. The first prototype is a digital-waveguide string voice.
+- One selected instrument per part shares a dynamic polyphonic voice pool; no fixed voice per instrument.
+- Up to four instrument parts, each with its own MIDI channels, family, phrase state and divisi.
+- Physical modeling first: bowed strings, breath columns, lip-driven bores and struck bars, computed sample by sample.
+- Himalia's phrase interpretation (energy, accents, articulation, vibrato, glide, divisi density) is ported to fixed point and drives the models. See [docs/HIMALIA_PORT.md](docs/HIMALIA_PORT.md).
 - No audio-thread allocation, locks, file access, or display calls.
 
-## Status
+## Status: 0.2.0-beta, host-validated only
 
-The repository began as a license-only project. The first implementation targets the public FM1 Core platform API in https://github.com/rgrvmusic/fm1-core. That platform provides the FM1 board/audio layer and renderer hook; it is not copied into this repository. Building requires a matching FM1 Core checkout and the JieLi PI32v2 2.5.3 toolchain.
+The repository began as a license-only project. 0.1.0 added a waveguide
+prototype; this beta adds the layer the design called for:
 
-The FM1 uses JieLi WL82/AC791N. Himalia firmware targets a different MCU, so Himalia is a musical/DSP reference, not directly flashable code.
+| Module | What it does |
+|---|---|
+| `app/orch_adaptive.c` | fixed-point port of Himalia's `StrBrain`: phrase/gate/velocity interpretation into bounded intents |
+| `app/orch_divisi.c` | divisi planner: 1–4 players per note, stable assignment, per-slot detune and seat |
+| `app/orch_part.c` | instrument parts: channel routing, family, articulation, ceilings |
+| `app/orch_engine.c` | the model: one waveguide per player, four family excitations, articulation profiles, glide, vibrato, Q23 stereo out |
+
+**Nothing here has run on hardware.** It compiles with `-Werror` against the
+FM1 Core headers and the host tests pass; no `.fwsc` is claimed.
 
 ## First beta scope
 
-- 12 provisional waveguide voices (not a measured maximum).
-- Shared voice allocation across MIDI channels.
-- MIDI Note On/Off, velocity and sustain pedal.
-- 16-step polyphonic sequencer pattern, up to four notes per step, with basic internal timing and gate release.
-- Fixed-point mono synthesis rendered to stereo Q23 output.
+- 12-voice provisional polyphony (`ORCH_MAX_VOICES`), not a measured maximum.
+- 4 parts × up to 4 modeled players per note (2 by default).
+- MIDI Note On/Off, velocity, CC64 sustain, panic; channel-aware routing.
+- 16-step polyphonic sequencer, up to four notes per step, per-note gate percentages, internal tempo.
+- Fixed-point mono-per-player synthesis to stereo Q23.
 
-The 12-voice ceiling is provisional and must be measured on real FM1 hardware. The goal is the highest stable polyphony that fits the audio interrupt budget.
+The 12-voice ceiling and the per-part player cap are provisional and must be
+measured on real hardware. The aim is the highest stable polyphony that fits
+the 2.9 ms audio block.
 
 ## Build prerequisites
 
-- FM1 Core: https://github.com/rgrvmusic/fm1-core
+- FM1 Core: https://github.com/rgrvmusic/fm1-core (platform, board and renderer hook; not copied here)
 - JieLi PI32v2 toolchain 2.5.3 (`-mcpu=r3`)
 - Python 3.10+
 
@@ -39,6 +51,21 @@ python3 fm1-core/tools/build.py --app fm1orkestpm/app --clean
 python3 fm1-core/tools/build.py --app fm1orkestpm/app --package
 ```
 
-The FM1 Core platform and binary SDK retain their own licenses and redistribution terms. See its THIRD_PARTY.md. This project's GPL-3.0 license remains in force for original application code.
+## Host tests
 
-This is source code, not a verified firmware image. Do not flash until it builds cleanly and the generated package is checked. No .fwsc or .uf2 is claimed by this initial source commit.
+No toolchain or hardware needed:
+
+```sh
+FM1_CORE=../fm1-core sh tests/run_tests.sh
+```
+
+Covers adaptive classification and velocity reaction, divisi distribution and
+stability, channel routing, sustain, panic, sequencer gates, and the Q23
+output range. CI runs the same script on every push.
+
+## Licences
+
+This project is GPL-3.0. The FM1 Core platform is MIT; its binary SDK, boot
+resources and third-party parts keep their own terms (see its THIRD_PARTY.md).
+Himalia is GPL-3.0 and is the musical/DSP reference for the adaptive layer;
+`docs/HIMALIA_PORT.md` records what was re-implemented and what was left out.

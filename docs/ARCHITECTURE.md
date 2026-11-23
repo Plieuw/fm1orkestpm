@@ -1,52 +1,137 @@
-# FM1 Orchestral Engine — architecture 0.2.0
+# FM1 Orchestral Engine — architecture 0.2
 
-## Design target
+## Core design
 
-Polyphony remains the first priority. External MIDI channels share one global note allocator, so a channel does not permanently reserve voices. The sequencer is a separate source and also uses that pool. The current ceiling remains 12 voices until target-device profiling proves a higher count safe.
+The instrument is a polyphonic physical model, not a sample player. There are
+two kinds of polyphony and they are kept apart:
 
-## Audio path and constraints
+1. **Note polyphony** — how many MIDI notes sound at once (shared pool of
+   `ORCH_MAX_VOICES` = 12, provisional).
+2. **Divisi polyphony** — how many modeled players realize one note
+   (`ORCH_DIVISI_MAX` = 4 per note, two by default).
 
-MIDI -> bounded event queue -> global allocator -> fixed-point digital waveguide -> stereo Q23 output. Rendering uses fixed-size state and no heap allocation, blocking calls, display work or file access. The FM1 Core callback is 128 frames at approximately 44.1 kHz.
+A MIDI note belongs to an **instrument part** (`app/orch_part.c`). A part owns
+its MIDI channels, its family, its adaptive state and its divisi state. The
+part decides how the note is played; the engine decides how that sounds.
 
-## Implemented in this beta
+```
+MIDI / sequencer
+      │ bounded event queue (no allocation)
+      ▼
+orch_part_for_channel()  →  part (family, channels, articulation, ceilings)
+      │
+      ├─ orch_adaptive_note()      how: energy, attack, accent, vibrato, glide,
+      │                            articulation, density, phrase flags
+      ├─ orch_divisi_plan()        who: 1..4 players, stable assignment,
+      │                            per-slot detune and pan
+      └─ voice_start() × players   what: waveguide + family excitation
+      ▼
+stereo Q23 block (FM1_BLOCK_FRAMES = 128)
+```
 
-- Channel-aware Note On/Off and CC64 sustain.
-- Twelve provisional shared waveguide voices.
-- Velocity-sensitive, softened envelope onset and instrument-family release shaping.
-- Context-sensitive legato glide over a short transition; detached notes do not glide.
-- Gesture-derived vibrato modulation and phrase/density-derived tremolo depth. These are preliminary, low-cost approximations and need listening calibration.
-- Per-channel adaptive phrase memory: inter-onset estimate, phrase density proxy, note count and velocity trend.
-- Instrument-family selection API for violin, viola, cello, bass, woodwind, brass, choir and percussion.
-- Divisi planning API with up to six section players, stable chord-part mapping, and extra doublers for sparse phrases.
-- 16-step internal sequencer, up to four notes per step, internal tempo and gate percentages.
+## Audio path
 
-## Divisi boundary
+`fm1_app_render()` is called by the FM1 Core platform from the ALNK DMA
+interrupt once per 128 frames at 44.1 kHz (2.9 ms). It calls
+`orch_render_q23()`, which drains the event queue, runs the sequencer, then
+renders every active voice sample by sample. No heap, no locks, no filesystem,
+no display, no libc in this path.
 
-The six-player Divisi planner is implemented as a deterministic planning layer, not yet as six independent rendered physical player models. The plan returns active players, chord-part assignment and doubling offsets. Rendering those players as independent waveguides would multiply DSP cost and reduce available MIDI-note polyphony. It must therefore be integrated behind a measured global CPU budget rather than silently consuming several slots for every note. This keeps the polyphonic note engine separate from ensemble orchestration.
+Output is signed Q23 stereo. The FM1 Core mixer (`fm1_output_mix`) applies
+MASTER and mixes USB/Bluetooth audio; that stays platform code.
 
-The orch_set_divisi() switch enables/disables sparse-phrase doubling in the planner. The current MIDI front end does not yet expose a UI or controller mapping for instrument family or Divisi mode.
+## Parts and families
 
-## Adaptive Playing boundary
+| Part | Default channels | Family | Excitation |
+|---|---|---|---|
+| 1 | 1–4 | strings | bowed: rosin noise + loop feedback |
+| 2 | 5–8 | woodwinds | breath column: filtered noise, stronger damping |
+| 3 | 9–12 | brass | lip buzz + a nonlinear term in the loop |
+| 4 | 13–16 | mallets | struck: noise burst, then ring-out |
 
-Adaptive values are calculated on note events, not through expensive per-sample analysis. The current implementation provides first-pass phrase-density estimates, softer attack/release, a short legato glide, and low-cost modulation. It is not yet the full Himalia interpreter: phrase peak detection, articulation classification, bow pressure/speed, independent player personalities, true nonlinear bow/friction interaction, body/bridge coupling, and adaptive player reassignment remain future work.
+Defaults are a starting point, not a claim: only the string family has been
+tuned by ear on a host render. `orch_engine_configure_part()` remaps families
+and channels; `orch_engine_set_articulation()` pins an articulation for a part
+(useful for a panel page); `orch_engine_set_player_cap()` and
+`orch_engine_set_voice_ceiling()` bound the cost per part.
 
-## Voice allocation and memory
+## Adaptive playing
 
-Each voice owns a 2048-sample delay buffer, damping filter, envelope, glide state and modulation phase. All channels share this pool. Voice stealing prefers the quietest releasing voice, then the oldest held voice. The 12-voice ceiling is provisional and should not be raised before timing and memory measurements on the FM1 target.
+`orch_adaptive.c` is the fixed-point port of Himalia's `StrBrain` (see
+[HIMALIA_PORT.md](HIMALIA_PORT.md)). Per note it produces a bounded
+`struct orch_intent`:
 
-## Sequencer and MIDI gaps
+- `energy` — bow / breath / lip level (drives loop gain and excitation);
+- `attack_mul` — how gently the note begins;
+- `accent` — extra attack weight;
+- `vib_intent` — vibrato wanted (delayed and grown inside the voice);
+- `glide_ms` — pitch travel for a connected note;
+- `articulation` + `length_class` — resolved from the gate history when AUTO;
+- `density` — how many players this note wants;
+- phrase flags (`phrase_start`, `connected`, `down_bow`, `new_high`).
 
-External MIDI clock/transport, pitch bend, channel pressure, expression, program changes, per-channel instrument presets, pattern length, swing, ratchets and panel editing remain outstanding. The current 16-step sequencer runs from internal tempo.
+The velocity half is applied separately (`orch_adaptive_velocity`), because
+MIDI velocity can arrive a few milliseconds after the note; it compares the
+note with the part's recent average, which is what makes a hard note in a soft
+phrase an accent rather than simply louder.
 
-## Validation status
+Rules kept from Himalia: rest vs. gap detection, tied notes, gate/interval
+duty, very fast notes becoming spiccato, phrase opening gently and building,
+new phrase peaks leaning in, the eight-phrase dynamic arc, and divisi opening
+with the phrase.
 
-The host workflow checks C compilation with warnings treated as errors. That is not a JieLi target build, firmware package, or hardware test. Before a flashable beta is claimed:
-1. Add host tests for allocator, note lifecycle, adaptive timing and Divisi mapping.
-2. Build/package using the matching FM1 Core/JieLi PI32v2 toolchain.
-3. Measure 1/4/8/12-note loads on device, including sequencer and modulation.
-4. Verify pitch tracking, tuning, output level, transient quality and block deadline headroom.
-5. Increase the voice ceiling only after measured margin is available.
+## Divisi
 
-## Reference
+`orch_divisi_plan()` takes the part's sounding notes and the intent's density
+and returns, per player slot: which note it plays, its intonation offset and
+its seat. Assignment is deterministic with hysteresis: a held note stays on
+its player, new notes take the free players, extra players double existing
+notes, and each slot keeps its own detune and pan so a line does not change
+colour when the chord changes.
 
-The Divisi/adaptive design rationale is in [DIVISI_ADAPTIVE_ARCHITECTURE.md](DIVISI_ADAPTIVE_ARCHITECTURE.md). The source architecture is inspired by the user's Himalia strings-engine exploration; this FM1 implementation is separately adapted for the FM1 target and remains GPL-3.0-or-later.
+The plan is recomputed at each note-on; existing voices are not restarted, so
+the plan never interrupts a sounding note.
+
+## The physical model
+
+One voice is a digital waveguide:
+
+- a fractional delay line (int16, `DELAY_SIZE` 2048) holds travelling energy;
+- loop damping is a two-tap smoother inside the loop — a one-pole applied every
+  sample would attenuate the fundamental by ~70 % per round trip and the voice
+  would never resonate (this was a real bug, fixed and re-measured);
+- loop gain sits just under one and rises with the intent's energy;
+- excitation depends on the family and the articulation;
+- the articulation profile sets attack, release, stroke length, damping, an
+  accent and a pitch offset (flageolet), and whether the note is plucked or
+  struck (pizzicato, col legno).
+
+Vibrato modulates the delay length with a triangle LFO, delayed ~120 ms and
+growing over ~350 ms; the rate differs per player slot, which is what makes a
+section sound like a section. Glide ramps the delay length to the new pitch
+over `glide_ms`, and only for connected notes.
+
+A pluck or a strike closes the gate immediately and runs its own attack, so it
+rings out naturally instead of being cut by note-off.
+
+## Voice allocation
+
+Per part, `voice_ceiling` (default 4) is enforced first; the global pool is 12.
+A stealing voice prefers a releasing voice, then the oldest held note. Divisi
+density is reduced by the adaptive layer before the pool is exhausted — the
+Himalia guard principle, applied at planning time rather than by degrading a
+player.
+
+## Validation
+
+Host (`tests/`): adaptive classification (legato / détaché / staccato /
+spiccato), velocity reaction, density bounds, divisi distribution, cap,
+stability across plans, routing per channel, sustain, panic, sequencer gates,
+Q23 range, and non-silence.
+
+On hardware (not done yet): build and package with FM1 Core + the JieLi
+PI32v2 2.5.3 toolchain, then play 1, 4, 8 and 12 notes, read overruns and peak
+render time from the platform statistics, and only then raise
+`ORCH_MAX_VOICES` or the default `player_cap`.
+
+Implementation status of the port: [DIVISI_STATUS.md](DIVISI_STATUS.md).

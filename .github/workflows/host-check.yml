@@ -15,12 +15,22 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.ref }}
+
       - name: Checkout FM1 Core API headers
         uses: actions/checkout@v4
         with:
           repository: rgrvmusic/fm1-core
           path: fm1-core
+
       - name: Compile application sources
         run: |
-          cc -std=c11 -Wall -Wextra -Werror -DFM1_HOST_TEST -Ifm1-core/include -Iapp -c app/orch_engine.c -o /tmp/orch_engine.o
-          cc -std=c11 -Wall -Wextra -Werror -DFM1_HOST_TEST -Ifm1-core/include -Iapp -c app/fm1_app.c -o /tmp/fm1_app.o
+          set -e
+          for f in app/orch_adaptive.c app/orch_divisi.c app/orch_part.c app/orch_engine.c app/fm1_app.c; do
+            echo "cc $f"
+            cc -std=c11 -O2 -Wall -Wextra -Werror -DFM1_HOST_TEST \
+               -Ifm1-core/include -Iapp -c "$f" -o "/tmp/$(basename "$f" .c).o"
+          done
+
+      - name: Run host tests
+        run: |
+          FM1_CORE="$PWD/fm1-core" sh tests/run_tests.sh
