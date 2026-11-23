@@ -38,7 +38,7 @@ The per-player model uses one 2048-sample primary delay and a 512-sample seconda
 - Improve string bridge/body coupling, dispersion and independent player bow behaviour, and implement the Helmholtz friction contact.
 - Improve reed, tone-hole, register and brass bell/lip modelling.
 - Expand choir formants and percussion modal banks.
-- Add panel/program-change mapping for instrument and articulation selection.
+- FM1 panel integration now maps local keys, encoders and buttons to note, part, instrument, articulation and Divisi controls; see [FM1_PANEL.md](FM1_PANEL.md). The physical button index mapping still needs confirmation on the device.
 - Measure 1/4/8/12-voice block deadlines and RAM on the JieLi target. Host DSP behaviour tests exist in `tests/` (three suites, run by CI).
 - Produce a flashable firmware package only after the exact FM1 target build succeeds.
 
