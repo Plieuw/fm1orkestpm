@@ -18,7 +18,7 @@ typedef struct {
     uint8_t note, channel, velocity, active, gate, releasing;
 } voice_t;
 
-typedef struct { uint8_t channel, note, velocity; } event_t;
+typedef struct { uint8_t channel, note, velocity, type; } event_t;
 
 static voice_t voices[ORCH_MAX_VOICES];
 static event_t events[EVENT_CAP];
@@ -60,27 +60,26 @@ static ORCH_AUDIO uint16_t note_delay(unsigned note) {
     if (n > DELAY_SIZE) n = DELAY_SIZE;
     return (uint16_t)n;
 }
-static ORCH_AUDIO void enqueue(unsigned ch, unsigned note, unsigned velocity) {
+static ORCH_AUDIO void enqueue(unsigned ch, unsigned note, unsigned velocity, unsigned type) {
     uint8_t next = (uint8_t)((event_write + 1U) & (EVENT_CAP - 1U));
     if (next == event_read) return;
     events[event_write].channel = (uint8_t)(ch & 15U);
     events[event_write].note = (uint8_t)(note & 127U);
     events[event_write].velocity = (uint8_t)(velocity & 127U);
+    events[event_write].type = (uint8_t)type;
     event_write = next;
 }
 void orch_note_event(unsigned ch, unsigned note, unsigned velocity) {
-    if (ch < 16U && note < 128U && velocity < 128U) enqueue(ch,note,velocity);
+    if (ch < 16U && note < 128U && velocity < 128U) enqueue(ch,note,velocity,0U);
 }
+void orch_panic(void) { enqueue(0U,0U,0U,2U); }
 void orch_midi_short_message(const uint8_t *m, unsigned bytes) {
     if (!m || bytes < 2U || m[0] < 0x80U || m[0] >= 0xf0U) return;
     unsigned kind = m[0] & 0xf0U, ch = m[0] & 15U;
     if ((kind == 0x80U || kind == 0x90U) && bytes >= 3U)
         enqueue(ch,m[1],(kind == 0x80U || m[2] == 0U) ? 0U : m[2]);
     else if (kind == 0xb0U && bytes >= 3U && m[1] == 64U) {
-        sustain[ch] = m[2] >= 64U;
-        if (!sustain[ch]) for (unsigned i=0;i<ORCH_MAX_VOICES;i++)
-            if (voices[i].active && voices[i].channel==ch && !voices[i].gate)
-                voices[i].releasing=1U;
+        enqueue(ch,0U,m[2]>=64U,1U);
     }
 }
 static ORCH_AUDIO void start_voice(unsigned ch, unsigned note, unsigned velocity) {
@@ -116,7 +115,15 @@ static ORCH_AUDIO void drain_events(void) {
     while (event_read!=event_write) {
         event_t e=events[event_read];
         event_read=(uint8_t)((event_read+1U)&(EVENT_CAP-1U));
-        if (e.velocity) start_voice(e.channel,e.note,e.velocity);
+        if (e.type==2U) {
+            for (unsigned i=0;i<ORCH_MAX_VOICES;i++) voices[i].active=0U;
+            for (unsigned ch=0;ch<ORCH_MIDI_CHANNELS;ch++) sustain[ch]=0U;
+        } else if (e.type==1U) {
+            sustain[e.channel]=e.velocity;
+            if (!e.velocity) for (unsigned i=0;i<ORCH_MAX_VOICES;i++)
+                if (voices[i].active && voices[i].channel==e.channel && !voices[i].gate)
+                    voices[i].releasing=1U;
+        } else if (e.velocity) start_voice(e.channel,e.note,e.velocity);
         else release_voice(e.channel,e.note);
     }
 }
