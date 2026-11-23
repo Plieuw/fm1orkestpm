@@ -27,7 +27,7 @@ Each note/player owns:
 
 ## Instrument-specific behaviour
 
-- **Violin / viola / cello / double bass:** rosin-noise excitation scaled by the instrument's bow pressure and the adaptive energy, a per-voice DC blocker, and a different body-mode resonance for each instrument. Their loop gains and damping differ so the lower instruments sustain more darkly. A friction feedback is deliberately not used; see the validation section.
+- **Violin / viola / cello / double bass:** rosin-noise excitation scaled by the instrument's bow pressure and the adaptive energy, a per-voice DC blocker, and a different body-mode resonance for each instrument. Their loop gains and damping differ so the lower instruments sustain more darkly. The scalar loop-gain component is normalized per nominal round trip; the two-tap smoother remains a per-sample, pitch-dependent damping element and still needs calibration. A friction feedback is deliberately not used; see the validation section.
 - **Harp:** one-shot plucked excitation with a long natural ring; no continuous bow drive.
 - **Flute / piccolo:** half-period, inverted-reflection air-column approximation, pitch-locked jet/edge excitation, and a higher body/bore resonance. Piccolo has a shorter, brighter profile.
 - **Clarinet / oboe / bassoon:** the same compact air-column topology but with different damping, breath-noise, attack and body resonance profiles. These are not yet separate full reed/tone-hole solvers.
