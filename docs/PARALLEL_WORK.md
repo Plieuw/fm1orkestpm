@@ -12,7 +12,7 @@ work mergeable and stop one agent from undoing another's measured fixes.
 | `beta/0.3.0-instrument-waveguides` | per-channel families, per-instrument profiles, body resonators |
 | `beta/0.3.1-build-and-host-checks` | 0.3.0 content plus the DC fix, host tests and CI |
 | `beta/0.3.2-roundtrip-loss-integration` | per-round-trip waveguide loss and low/high-register regression test, layered on the latest 0.3.1 branch tip |
-| `beta/0.3.3-dsp-roadmap` | 0.3.2 plus 32-bit round-trip gain conversion and shared DSP brainstorm/implementation roadmap |
+| `beta/0.3.3-dsp-roadmap` | 0.3.2 plus 32-bit round-trip gain conversion and shared DSP brainstorm/implementation roadmap |\n| `beta/0.3.4-panel-integration` | FM1 Core app adapter, local key-to-note input, MIDI callback, RGB565 panel UI and safe control-task part edits |
 
 Rules:
 
@@ -78,3 +78,8 @@ These were found by measurement on host renders, not by ear:
 No firmware package has been built or flashed. Every claim in these documents
 is a host-render or host-compile result. Do not describe the engine as tested
 on the FM1 until someone has measured audio-block time and RAM on hardware.
+
+
+## 0.3.4 panel integration notes
+
+The FM1 Core API provides `fm1_app_render`, `fm1_app_midi_received`, `groove_screen_init` and `groove_screen_control` hooks. The previous `fm1_app.c` already routed audio and external MIDI, but its panel-control hook was empty. The 0.3.4 branch now adds local key edge detection, part/instrument/articulation/Divisi controls and a small RGB565 status display. PR #6: https://github.com/Plieuw/fm1orkestpm/pull/6. Host source check passed on commit `52f13e34ab035563d1bc75e6116046fcb02da47f` (run `45286429574`). See `docs/FM1_PANEL.md` for the numeric control map and validation caveats. Do not claim a hardware-tested panel mapping until checked against the physical button numbering. The JieLi target build and physical FM1 test are still outstanding.
