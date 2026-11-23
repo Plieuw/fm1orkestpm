@@ -11,6 +11,7 @@ work mergeable and stop one agent from undoing another's measured fixes.
 | `beta/0.2.0-divisi-adaptive` | adaptive interpreter, divisi planner, host tests, port docs |
 | `beta/0.3.0-instrument-waveguides` | per-channel families, per-instrument profiles, body resonators |
 | `beta/0.3.1-build-and-host-checks` | 0.3.0 content plus the DC fix, host tests and CI |
+| `beta/0.3.2-roundtrip-loss-integration` | per-round-trip waveguide loss and low/high-register regression test, layered on the latest 0.3.1 branch tip |
 
 Rules:
 
