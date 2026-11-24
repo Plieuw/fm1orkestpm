@@ -61,13 +61,13 @@ pages through the same controls as the preview and counts the calls:
 | what | fills before | fills now |
 | --- | --- | --- |
 | STAGE, entered | 63 106 | 2 683 |
-| ARP | 9 370 | 1 199 |
-| SEQUENCE | 61 723 | 2 626 |
-| FX | 87 262 | 7 251 |
-| CONSOLE | 4 366 | 1 803 |
+| ARP | 9 370 | 1 150 |
+| SEQUENCE | 61 723 | 2 598 |
+| FX | 87 262 | 7 212 |
+| CONSOLE | 4 366 | 1 689 |
 | one knob turn | — | 539 |
 | its highlight fading | 819 | 197 |
-| **five pages** | **225 827** | **24 108** |
+| **five pages** | **225 827** | **23 839** |
 
 The STAGE figure is entering the hall: the picture, the title, the marks and
 the strip. The lights are counted apart, because they are the part that runs on
@@ -84,7 +84,7 @@ knob turn costs, for a picture that had not moved. A step now repaints the band
 the lights are in rather than the hall (see below), there are two frames
 instead of three, and the cycle is slower — so the worst second of the
 animation went from 1 970 fills to 503, and the whole five-page visit from
-23 220 to 20 653. The menus' bands bring that visit back to 24 108: 3 455 fills
+23 220 to 20 653. The menus' bands bring that visit back to 23 839: 3 186 fills
 for four pictures, each of them paid once per visit, not once per frame. These
 are host numbers for the number of calls; they are not a measurement of the
 FM-1's own frame time, which needs the board.
@@ -148,17 +148,23 @@ step never touches them. While a part is sounding the page steps every 2.4 s;
 when the hall is quiet it stays on the first frame.
 
 The nights start in the same tool. Each of the four menus has a picture of its
-own beside the hall's two frames — `tools/panel_photo/arp.png`, `seq.png`,
-`glo.png`, `fx.png` — and `tools/panel_photo/regen.sh` builds all five includes
-with it. Those four are bands: 240 × 30, the strip a page has free between its
-work and its knobs. A band is a fifth of the panel, so two things happen to the
-photograph first, and both are options of the tool:
+own — `tools/panel_photo/band/arp.png`, `seq.png`, `glo.png`, `fx.png` — and
+`tools/panel_photo/regen.sh` builds all five includes with it. Those four are
+bands: 240 × 30, the strip a page has free between its work and its knobs. A
+band is a fifth of the panel, so two things happen to the photograph before it
+becomes one, and both are options of the tool:
 
 * `--pick-rows 30` takes the band from the brightest window of thirty rows
   instead of the centre of the image, because cropped through the middle a night
   picture is its darkest part;
 * `--expose 1.35 --contrast 1.15` lifts it enough to carry the picture at that
   size, so the band is a scene and not a black stripe.
+
+That is done once, on the photograph. What `band/` holds is the result: the band
+at the panel's own size, already in the sixteen colours it will be drawn in, a
+kilobyte or two a picture. `regen.sh` reads those, so the repository rebuilds
+the four bands as they are without carrying the photographs themselves, and a
+band is the same picture every time it is built.
 
 `--name PIC_ARP` is what keeps five pictures in one translation unit apart: the
 defines and the tables carry that prefix (`PIC_ARP_W`, `pic_arp_palette`,
