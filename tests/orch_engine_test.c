@@ -255,6 +255,17 @@ static void test_sequencer(void)
     struct orch_step_note note;
     orch_init();
     orch_seq_clear();
+    /* The arranger snaps to a held chord only when explicitly enabled. */
+    orch_note_event(0U, 60U, 100U);
+    orch_note_event(0U, 64U, 100U);
+    orch_note_event(0U, 67U, 100U);
+    render(1U);
+    CHECK(orch_test_seq_adapt_note(0U, 62U) == 62U);
+    orch_seq_set_adaptive(1U);
+    CHECK(orch_test_seq_adapt_note(0U, 62U) == 60U);
+    orch_seq_set_adaptive(0U);
+    orch_init();
+    orch_seq_clear();
     note.note = 60U; note.velocity = 100U; note.gate_percent = 50U;
     CHECK(orch_seq_set_step(0U, 0U, &note) == 0);
     CHECK(orch_seq_set_step(16U, 0U, &note) == -1);
