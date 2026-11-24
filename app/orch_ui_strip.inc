@@ -57,14 +57,15 @@ static void sign(unsigned cx, unsigned cy, unsigned pct, uint16_t c)
  * value as an amber arc from 7:30 to 4:30 around it. */
 static void draw_knob(unsigned cx, unsigned y, unsigned pct, int lit)
 {
-    const unsigned cy = y + 12U;
-    disc(cx, cy, 12U, mix565(C_ROW, C_TEXT, 90U), C_BG, C_BG);
-    disc(cx, cy, 10U, mix565(C_ROW, C_TEXT, 60U), C_ROW, C_BG);
+    const unsigned cy = y + 10U;
+    disc(cx, cy, 10U, mix565(C_ROW, C_TEXT, 70U), mix565(C_ROW, C_BG, 90U),
+         C_BG);
+    disc(cx, cy, 8U, mix565(C_ROW, C_TEXT, 40U), C_ROW, C_BG);
     sign(cx, cy, pct, lit ? C_AMBER2 : C_DIM);
-    arc_soft(cx, cy, 14U, 192U, 320U, 1U, mix565(C_BG, C_TEXT, 30U), C_BG);
+    arc_soft(cx, cy, 13U, 192U, 320U, 1U, mix565(C_BG, C_TEXT, 26U), C_BG);
     if (pct) {
         const unsigned a = 192U + (pct > 100U ? 100U : pct) * 128U / 100U;
-        arc_soft(cx, cy, 14U, 192U, a, 2U, lit ? C_AMBER2 : C_AMBER, C_BG);
+        arc_soft(cx, cy, 13U, 192U, a, 2U, lit ? C_AMBER2 : C_AMBER, C_BG);
     }
 }
 
@@ -78,9 +79,9 @@ static void draw_strip(void)
     for (unsigned c = 0; c < 4U; ++c) {
         const struct knob_cell *k = &cells[c];
         const unsigned cx = c * 60U + 30U;
-        draw_knob(cx, STRIP_Y + 14U, k->pct, k->lit);
-        text_center(cx, STRIP_Y + 30U, k->label, C_DIM, C_BG);
-        text_center(cx, STRIP_Y + 40U, k->value,
+        draw_knob(cx, STRIP_Y + 9U, k->pct, k->lit);
+        text_center(cx, STRIP_Y + 28U, k->label, C_DIM, C_BG);
+        text_center(cx, STRIP_Y + 39U, k->value,
                     (hot && ui.hot_cell == c) ? C_AMBER2
                                               : (k->lit ? C_TEXT : C_DIM),
                     C_BG);

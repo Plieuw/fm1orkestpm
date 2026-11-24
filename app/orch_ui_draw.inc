@@ -1,10 +1,15 @@
 /* --- drawing ------------------------------------------------------------- */
 
-/* The panel writes to the screen and cannot read it back, so nothing here
+/* The screen writes to the display and cannot read it back, so nothing here
  * blends against what is already there: every shape takes the colour it is
  * drawn on (bg) and mixes towards it at the edges. That is what makes a disc
- * look round instead of stepped — the display is 240 pixels wide and the
- * screen is the only graphics the instrument has. */
+ * look round instead of stepped.
+ *
+ * Shapes are paths (orch_ui_path.inc): a circle becomes a polygon, an arc a
+ * strip between two arcs, a curve a polyline. The rasterizer fills them one
+ * span per row, so the cost of a disc is its height in fill calls, not its
+ * area — on a display where every call is a window command plus a transfer
+ * that is most of the drawing time. */
 
 static uint16_t mix565(uint16_t a, uint16_t b, unsigned t)
 {
@@ -30,6 +35,8 @@ static unsigned isqrt(unsigned v)
     return r;
 }
 
+#include "orch_ui_path.inc"
+
 /* A vertical gradient, one colour a row: the cheapest way to stop a field
  * looking like a flat block. */
 static void grad(unsigned x, unsigned y, unsigned w, unsigned h,
@@ -40,98 +47,79 @@ static void grad(unsigned x, unsigned y, unsigned w, unsigned h,
                         mix565(top, bottom, h > 1U ? r * 255U / (h - 1U) : 0U));
 }
 
-/* A filled disc, shaded from its core to its edge and softened against bg.
- * Used for every knob, every player and the listener's seat. */
+/* A filled disc, shaded from its core to its edge and softened against bg:
+ * a knob's cap, a player on the stage, the listener's seat, an FX lamp. */
 static void disc(unsigned cx, unsigned cy, unsigned r, uint16_t core,
                  uint16_t edge, uint16_t bg)
 {
     if (!r) return;
-    for (unsigned dy = 0; dy <= r; ++dy) {
-        const unsigned half = isqrt(r * r - dy * dy);
-        if (!half) continue;
-        for (unsigned dx = 0; dx < half; ++dx) {
-            /* the shade of the ring this pixel sits in */
-            const unsigned d = isqrt(dx * dx + dy * dy);
-            const uint16_t c = mix565(core, edge, d * 255U / r);
-            /* the pixel covering only part of the disc falls toward bg */
-            const unsigned cov = half - d < 2U && half > 2U ? 128U : 0U;
-            const uint16_t px = cov ? mix565(c, bg, cov) : c;
-            const unsigned x = cx - half + dx, y = cy - dy;
-            fm1_screen_fill(x, y, 1U, 1U, px);
-            if (dy) fm1_screen_fill(x, cy + dy, 1U, 1U, px);
-            if (dx) {
-                const unsigned xr = cx + half - dx;
-                fm1_screen_fill(xr, y, 1U, 1U, px);
-                if (dy) fm1_screen_fill(xr, cy + dy, 1U, 1U, px);
-            }
-        }
-    }
+    vp_circle((int)cx, (int)cy, r);
+    vp_fill_shaded(&vp, core, edge, bg, (int)r, (int)cy);
 }
 
-/* A capsule between two points, softened at its sides: the pen the arcs and
- * the curves are drawn with. */
+/* A capsule between two points: the shaft as a quad, the ends as half-discs,
+ * so a line has a round end and no seam where the pieces meet. */
 static void pen(int x0, int y0, int x1, int y1, unsigned w, uint16_t fg,
                 uint16_t bg)
 {
-    const int dx = x1 - x0, dy = y1 - y0;
-    const int steps = (dx < 0 ? -dx : dx) > (dy < 0 ? -dy : dy)
-                          ? (dx < 0 ? -dx : dx) : (dy < 0 ? -dy : dy);
-    const int half = (int)w / 2;
-    if (steps <= 0) { fm1_screen_fill((unsigned)x0, (unsigned)y0, w, w, fg); return; }
-    for (int i = 0; i <= steps; ++i) {
-        const int x = x0 + dx * i / steps, y = y0 + dy * i / steps;
-        for (int oy = -half; oy <= half; ++oy)
-            for (int ox = -half; ox <= half; ++ox) {
-                const unsigned px = (unsigned)(x + ox), py = (unsigned)(y + oy);
-                if (px < SW && py < SW) fm1_screen_fill(px, py, 1U, 1U, fg);
-            }
-        /* the soft shoulder, on the sides only */
-        if (half) {
-            const unsigned px = (unsigned)(x + half + 1), py = (unsigned)y;
-            if (px < SW) fm1_screen_fill(px, py, 1U, 1U, mix565(fg, bg, 96U));
-        }
-    }
+    const int half = (int)(w ? (w + 1U) / 2U : 1U);
+    int dx = x1 - x0, dy = y1 - y0;
+    const unsigned len = isqrt((unsigned)(dx * dx) + (unsigned)(dy * dy));
+    if (!len) { disc((unsigned)x0, (unsigned)y0, (unsigned)half, fg, fg, bg); return; }
+
+    const int nx = -dy * half / (int)len, ny = dx * half / (int)len;
+    const unsigned a = vp_angle(nx, ny);
+
+    vp_move(x0 + nx, y0 + ny);
+    vp_line(x1 + nx, y1 + ny);
+    vp_arc_rev(x1, y1, (unsigned)half, a, a - 128U);      /* the far cap */
+    vp_line(x0 - nx, y0 - ny);
+    vp_arc_rev(x0, y0, (unsigned)half, a - 128U, a - 256U);  /* the near cap */
+    vp_fill(&vp, fg, bg);
 }
 
-/* An arc of an annulus, a0..a1 in 256ths of a turn from twelve o'clock, drawn
- * as short capsules: a knob's value, a meter's scale, a stage light. */
-static const int8_t dir_x[32] = {
-    0, 12, 24, 35, 45, 53, 59, 63, 64, 63, 59, 53, 45, 35, 24, 12,
-    0, -12, -24, -35, -45, -53, -59, -63, -64, -63, -59, -53, -45, -35, -24, -12
-};
-static const int8_t dir_y[32] = {
-    -64, -63, -59, -53, -45, -35, -24, -12, 0, 12, 24, 35, 45, 53, 59, 63,
-    64, 63, 59, 53, 45, 35, 24, 12, 0, -12, -24, -35, -45, -53, -59, -63
-};
-
+/* An arc of a ring, a0..a1 in 256ths of a turn from twelve o'clock, w pixels
+ * wide: a knob's value, a meter's scale, the arch of the stage. */
 static void arc_soft(unsigned cx, unsigned cy, unsigned r, unsigned a0,
                      unsigned a1, unsigned w, uint16_t fg, uint16_t bg)
 {
     if (a1 <= a0) return;
-    for (unsigned a = a0; a <= a1; ++a) {
-        const unsigned i = (a >> 3) & 31U;
-        const int x = (int)cx + dir_x[i] * (int)r / 64;
-        const int y = (int)cy + dir_y[i] * (int)r / 64;
-        if (a > a0) {
-            const unsigned j = ((a - 1U) >> 3) & 31U;
-            const int px = (int)cx + dir_x[j] * (int)r / 64;
-            const int py = (int)cy + dir_y[j] * (int)r / 64;
-            pen(px, py, x, y, w, fg, bg);
-        }
-        if (a == a0 || a == a1) pen(x, y, x, y, w, fg, bg);
-    }
+    const unsigned half = w ? (w + 1U) / 2U : 1U;
+    const unsigned outer = r + half;
+    const unsigned inner = r > half ? r - half : 0U;
+
+    vp_move((int)cx + vp_cos(a0) * (int)outer / 64,
+            (int)cy + vp_sin(a0) * (int)outer / 64);
+    vp_arc((int)cx, (int)cy, outer, a0, a1);
+    if (inner) vp_arc_rev((int)cx, (int)cy, inner, a1, a0);
+    else vp_line((int)cx, (int)cy);
+    vp_fill(&vp, fg, bg);
 }
 
-/* A curve through points, for levels over time: the sequencer's pitches, the
- * delay's echoes, the ensemble's wobble. */
+/* A curve through values, for levels over time: the sequencer's pitches, the
+ * delay's echoes, the ensemble's wobble. It runs through the points as
+ * quadratics — each point is the control of the bow between its neighbours —
+ * so a phrase reads as a line rather than as a join-the-dots. */
+static int curve_x(unsigned i, unsigned n, unsigned x, unsigned w)
+{
+    return (int)x + (int)(i * (w - 1U) / (n - 1U));
+}
+
+static int curve_y(unsigned i, const unsigned char *v, unsigned y, unsigned h)
+{
+    return (int)(y + h - 1U) - (int)(v[i] * (h - 1U) / 100U);
+}
+
 static void curve(const unsigned char *v, unsigned n, unsigned x, unsigned y,
                   unsigned w, unsigned h, uint16_t fg, uint16_t bg)
 {
-    int px = -1, py = -1;
-    for (unsigned i = 0; i < n; ++i) {
-        const int cx = (int)x + (n > 1U ? (int)(i * (w - 1U) / (n - 1U)) : 0);
-        const int cy = (int)(y + h - 1U) - (int)((v[i] * (h - 1U)) / 100U);
-        if (px >= 0) pen(px, py, cx, cy, 2U, fg, bg);
-        px = cx; py = cy;
+    if (n < 2U) return;
+    vp_move(curve_x(0U, n, x, w), curve_y(0U, v, y, h));
+    for (unsigned i = 1U; i + 1U < n; ++i) {
+        const int midx = (curve_x(i, n, x, w) + curve_x(i + 1U, n, x, w)) / 2;
+        const int midy = (curve_y(i, v, y, h) + curve_y(i + 1U, v, y, h)) / 2;
+        vp_quad(curve_x(i, n, x, w), curve_y(i, v, y, h), midx, midy);
     }
+    vp_line(curve_x(n - 1U, n, x, w), curve_y(n - 1U, v, y, h));
+    vp_stroke(&vp, 2U, fg, bg);
 }
