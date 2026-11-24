@@ -93,6 +93,8 @@ static int8_t seq_input_direction[ORCH_PARTS];
 static uint32_t seq_input_last_on[ORCH_PARTS], seq_input_ioi[ORCH_PARTS];
 static uint32_t seq_off_at[ORCH_STEP_NOTES];
 static uint32_t age_counter, sample_counter, step_start;
+
+static void seq_learn_input(unsigned part, unsigned note, unsigned velocity);
 static volatile uint16_t tempo = 120U;
 static volatile uint8_t seq_enabled, seq_stop_pending, seq_part;
 static uint8_t seq_started, current_step;
