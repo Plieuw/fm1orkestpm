@@ -1,0 +1,177 @@
+<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+<!-- The Musikverein's Great Hall, as vector artwork: gold coffered ceiling,
+     arcades, the organ on the stage, chandeliers and rows of red seats. Drawn
+     for this project, not traced from the photograph; it is only ever seen
+     blurred behind the instrument (web/emu/hardware.css). -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 900" width="1600" height="900">
+  <defs>
+    <linearGradient id="gold" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#f6dc9c"/>
+      <stop offset=".45" stop-color="#e0a94f"/>
+      <stop offset="1" stop-color="#a2661f"/>
+    </linearGradient>
+    <linearGradient id="wall" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#4a1b26"/>
+      <stop offset="1" stop-color="#240e15"/>
+    </linearGradient>
+    <linearGradient id="seat" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#c2353c"/>
+      <stop offset="1" stop-color="#7c161d"/>
+    </linearGradient>
+    <linearGradient id="stage" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#5a2a1c"/>
+      <stop offset="1" stop-color="#331610"/>
+    </linearGradient>
+    <radialGradient id="vig" cx=".5" cy=".45" r=".72">
+      <stop offset=".42" stop-color="#000" stop-opacity="0"/>
+      <stop offset="1" stop-color="#000" stop-opacity=".6"/>
+    </radialGradient>
+    <radialGradient id="glow" cx=".5" cy=".5" r=".5">
+      <stop offset="0" stop-color="#ffe9bd" stop-opacity=".85"/>
+      <stop offset=".55" stop-color="#f3c477" stop-opacity=".28"/>
+      <stop offset="1" stop-color="#f3c477" stop-opacity="0"/>
+    </radialGradient>
+
+    <!-- one bay of the coffered ceiling -->
+    <pattern id="coffer" width="80" height="58" patternUnits="userSpaceOnUse">
+      <rect width="80" height="58" fill="#d8a253"/>
+      <rect x="3" y="3" width="74" height="52" fill="#bd7f2f" stroke="#7b4a15" stroke-width="2"/>
+      <rect x="10" y="10" width="60" height="38" fill="#a2641e"/>
+      <circle cx="40" cy="29" r="7" fill="#f7e2b0" opacity=".9"/>
+      <circle cx="40" cy="29" r="2.6" fill="#c98f3c"/>
+      <circle cx="10" cy="10" r="2.4" fill="#f0cd8c"/>
+      <circle cx="70" cy="10" r="2.4" fill="#f0cd8c"/>
+      <circle cx="10" cy="48" r="2.4" fill="#f0cd8c"/>
+      <circle cx="70" cy="48" r="2.4" fill="#f0cd8c"/>
+    </pattern>
+
+    <!-- the upper arcade: a lit window in a gilded frame -->
+    <pattern id="arcade" width="86" height="80" patternUnits="userSpaceOnUse">
+      <rect width="86" height="80" fill="#c98f3c"/>
+      <path d="M11 80 V42 a32 32 0 0 1 64 0 V80 Z" fill="#f2d9a6"/>
+      <path d="M17 80 V43 a26 26 0 0 1 52 0 V80 Z" fill="#8a5a2c"/>
+      <path d="M22 80 V45 a21 21 0 0 1 42 0 V80 Z" fill="#f7dfa8" opacity=".55"/>
+      <rect x="0" y="0" width="86" height="5" fill="#a2661f"/>
+    </pattern>
+
+    <!-- the wall below it: pilasters with panels between them -->
+    <pattern id="panelling" width="100" height="120" patternUnits="userSpaceOnUse">
+      <rect width="100" height="120" fill="#3f1620"/>
+      <rect x="0" y="0" width="9" height="120" fill="url(#gold)"/>
+      <rect x="91" y="0" width="9" height="120" fill="url(#gold)"/>
+      <rect x="19" y="18" width="62" height="84" fill="#5d2029" stroke="#c98f3c" stroke-width="3"/>
+      <rect x="25" y="24" width="50" height="72" fill="#2f6d6a" opacity=".5"/>
+    </pattern>
+
+    <!-- rows of seats, in three sizes for the depth -->
+    <pattern id="seats-far" width="21" height="16" patternUnits="userSpaceOnUse">
+      <rect width="21" height="16" fill="#2a0d12"/>
+      <rect x="2" y="3" width="17" height="10" rx="3" fill="url(#seat)"/>
+    </pattern>
+    <pattern id="seats-mid" width="34" height="27" patternUnits="userSpaceOnUse">
+      <rect width="34" height="27" fill="#260b10"/>
+      <rect x="2" y="5" width="30" height="18" rx="5" fill="url(#seat)"/>
+      <rect x="2" y="5" width="30" height="5" rx="2.5" fill="#d1474d" opacity=".5"/>
+    </pattern>
+    <pattern id="seats-near" width="56" height="46" patternUnits="userSpaceOnUse">
+      <rect width="56" height="46" fill="#1f080d"/>
+      <rect x="3" y="8" width="50" height="32" rx="9" fill="url(#seat)"/>
+      <rect x="3" y="8" width="50" height="9" rx="4.5" fill="#d94f55" opacity=".45"/>
+      <rect x="25" y="38" width="6" height="7" fill="#3a0c11"/>
+    </pattern>
+
+    <!-- a chandelier: crystal tiers on a rod, with its halo -->
+    <g id="chandelier">
+      <circle cx="0" cy="46" r="58" fill="url(#glow)"/>
+      <rect x="-2" y="-46" width="4" height="60" fill="#8a5a1c"/>
+      <ellipse cx="0" cy="24" rx="26" ry="9" fill="#f6dc9c"/>
+      <ellipse cx="0" cy="40" rx="34" ry="12" fill="#e8b45a"/>
+      <ellipse cx="0" cy="58" rx="24" ry="14" fill="#fbeec6"/>
+      <ellipse cx="0" cy="70" rx="12" ry="7" fill="#e8b45a"/>
+      <circle cx="0" cy="58" r="40" fill="url(#glow)" opacity=".7"/>
+    </g>
+  </defs>
+
+  <!-- the room -->
+  <rect width="1600" height="900" fill="#1b0b11"/>
+
+  <!-- ceiling: gilded coffers, darker at the sides -->
+  <rect width="1600" height="300" fill="url(#coffer)"/>
+  <rect width="1600" height="300" fill="url(#wall)" opacity=".26"/>
+  <rect x="4" y="4" width="1592" height="292" fill="none" stroke="#7b4a15" stroke-width="8" opacity=".7"/>
+  <!-- the spotlight that falls from the ceiling onto the stage -->
+  <ellipse cx="800" cy="900" rx="900" ry="520" fill="#ffd9a0" opacity=".10"/>
+
+  <!-- cornice, then the arcade of lit windows -->
+  <rect y="300" width="1600" height="26" fill="url(#gold)"/>
+  <rect y="326" width="1600" height="132" fill="url(#arcade)"/>
+  <rect y="326" width="1600" height="132" fill="url(#wall)" opacity=".18"/>
+  <rect y="458" width="1600" height="16" fill="url(#gold)"/>
+
+  <!-- the wall with its panels and pilasters -->
+  <rect y="474" width="1600" height="150" fill="url(#panelling)"/>
+
+  <!-- the organ case on the stage, pipes graded to the middle -->
+  <g>
+    <rect x="612" y="292" width="376" height="292" rx="8" fill="#4a2318"/>
+    <rect x="620" y="300" width="360" height="276" fill="#321510"/>
+    <g fill="url(#gold)" stroke="#7b4a15" stroke-width="2">
+      <rect x="632" y="392" width="18" height="176"/>
+      <rect x="656" y="360" width="18" height="208"/>
+      <rect x="680" y="330" width="18" height="238"/>
+      <rect x="704" y="310" width="18" height="258"/>
+      <rect x="728" y="296" width="18" height="272"/>
+      <rect x="752" y="288" width="18" height="280"/>
+      <rect x="776" y="284" width="22" height="284"/>
+      <rect x="804" y="288" width="18" height="280"/>
+      <rect x="828" y="296" width="18" height="272"/>
+      <rect x="852" y="310" width="18" height="258"/>
+      <rect x="876" y="330" width="18" height="238"/>
+      <rect x="900" y="360" width="18" height="208"/>
+      <rect x="924" y="392" width="18" height="176"/>
+    </g>
+    <rect x="604" y="568" width="392" height="26" fill="url(#gold)"/>
+  </g>
+
+  <!-- the stage floor and the light on it -->
+  <rect y="594" width="1600" height="80" fill="url(#stage)"/>
+  <ellipse cx="800" cy="636" rx="560" ry="52" fill="#f0c37a" opacity=".16"/>
+  <rect y="556" width="1600" height="12" fill="#c98f3c" opacity=".5"/>
+
+  <!-- seats: three bands, nearer is bigger and darker -->
+  <rect y="626" width="1600" height="54" fill="url(#seats-far)"/>
+  <rect y="678" width="1600" height="102" fill="url(#seats-mid)"/>
+  <rect y="778" width="1600" height="122" fill="url(#seats-near)"/>
+
+  <!-- aisles between the blocks of seats, with their brass rails -->
+  <g>
+    <rect x="252" y="620" width="26" height="280" fill="#170609"/>
+    <rect x="612" y="620" width="30" height="280" fill="#170609"/>
+    <rect x="960" y="620" width="30" height="280" fill="#170609"/>
+    <rect x="1324" y="620" width="26" height="280" fill="#170609"/>
+    <g fill="#c98f3c" opacity=".55">
+      <rect x="250" y="620" width="3" height="280"/>
+      <rect x="277" y="620" width="3" height="280"/>
+      <rect x="610" y="620" width="3" height="280"/>
+      <rect x="641" y="620" width="3" height="280"/>
+      <rect x="958" y="620" width="3" height="280"/>
+      <rect x="989" y="620" width="3" height="280"/>
+      <rect x="1322" y="620" width="3" height="280"/>
+      <rect x="1349" y="620" width="3" height="280"/>
+    </g>
+  </g>
+
+  <!-- chandeliers in the band the instrument leaves visible, hung low so they
+       read even when the middle of the picture is behind the panel -->
+  <g>
+    <use href="#chandelier" x="190" y="168" transform="translate(190 168) scale(.62) translate(-190 -168)"/>
+    <use href="#chandelier" x="470" y="140" transform="translate(470 140) scale(.55) translate(-470 -140)"/>
+    <use href="#chandelier" x="800" y="120" transform="translate(800 120) scale(.6) translate(-800 -120)"/>
+    <use href="#chandelier" x="1130" y="140" transform="translate(1130 140) scale(.55) translate(-1130 -140)"/>
+    <use href="#chandelier" x="1410" y="168" transform="translate(1410 168) scale(.62) translate(-1410 -168)"/>
+  </g>
+
+  <!-- warm haze over the stage, then the vignette -->
+  <ellipse cx="800" cy="330" rx="520" ry="240" fill="url(#glow)" opacity=".35"/>
+  <rect width="1600" height="900" fill="url(#vig)"/>
+</svg>
