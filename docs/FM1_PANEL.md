@@ -67,3 +67,19 @@ The page cycle uses button bit 13 (physical label still needs confirmation):
 - **Phrase detail:** encoder 1 density; encoder 2 octave range; encoder 3 cluster size; encoder 4 repeats; main knob accent. Button bit 5 toggles inverse, bit 6 cycles root C–B, bit 7 returns to automatic root, bit 8 cycles quantization.
 
 These are source-level mappings, not confirmed physical button labels. The panel adapter pauses/resumes the engine only when a setting changes; physical encoder/button indices and knob scaling must be checked on the FM1.
+
+
+## Factory presets — orchestra preset page
+
+Button bit 13 cycles four pages: orchestra → performance → phrase detail →
+factory presets. On the **ORCHESTRA PRESETS** page, Encoder 1 browses eight
+factory scenes and button bit 6 loads the highlighted scene. The load is
+applied as one control-task transaction while the engine is paused; it updates
+all four parts, their instruments/articulations/divisi caps, shared ARP/phrase
+starting settings and master FX mix. The live adaptive learner still responds
+to incoming player notes after loading.
+
+Factory scenes: Cinema Strings, Baroque, Wind Choir, Brass Fan, Pizz Motion,
+Ambient, Ostinato and Full Orchestra. These are starting points, not saved
+user slots. Physical button labels/indices still require verification on the
+FM1 hardware; the code uses the existing numeric button mapping.
