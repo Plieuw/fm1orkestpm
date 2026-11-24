@@ -302,6 +302,7 @@ static void test_connected_legato_preserves_waveguide(void)
     render(1U);
     midi(0x90U, 62U, 104U);
     const int64_t after = render_energy(1U);
+    CHECK(orch_last_intent(0U) && orch_last_intent(0U)->connected);
     CHECK(after > before / 3);
     CHECK(orch_voices_of_part(0U) == 1U);
     CHECK(orch_active_voices() == 1U);
