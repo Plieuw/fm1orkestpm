@@ -903,6 +903,20 @@ static void seq_start_voice(unsigned note, unsigned velocity)
     }
 }
 
+/* Match the ARP/phrase engine's 16-step orchestral phrase arc. */
+static const uint8_t seq_phrase_arc[16] = {
+    82U, 86U, 90U, 95U, 101U, 107U, 113U, 118U,
+    120U, 116U, 108U, 99U, 90U, 82U, 74U, 68U
+};
+
+#ifdef FM1_HOST_TEST
+unsigned orch_test_seq_phrase_arc_velocity(unsigned velocity, unsigned position)
+{
+    unsigned value=(velocity*(unsigned)seq_phrase_arc[position&15U]+50U)/100U;
+    return value<1U?1U:(value>127U?127U:value);
+}
+#endif
+
 static void seq_tick(void)
 {
     const uint32_t step_samples = (ORCH_SAMPLE_RATE * 60U) / ((uint32_t)tempo * 4U);
@@ -948,6 +962,11 @@ static void seq_tick(void)
                 if ((current_step & 3U) == 0U) adjusted += 5;
                 if (adjusted < 1) adjusted = 1;
                 if (adjusted > 127) adjusted = 127;
+                /* A full 16-step arc gives the line a rise, peak and release;
+                 * it changes playback velocity only, never stored step data. */
+                adjusted = (adjusted * (int)seq_phrase_arc[current_step] + 50) / 100;
+                if (adjusted < 1) adjusted = 1;
+                if (adjusted > 127) adjusted = 127;
                 velocity = (unsigned)adjusted;
             }
             seq_start_voice(played_note, velocity);
@@ -962,6 +981,7 @@ static void seq_tick(void)
                 if (seq_input_activity[seq_part] < 82U) adaptive_gate = 94U;
                 else if (seq_input_activity[seq_part] > 135U) adaptive_gate = 68U;
                 gate = (gate * 3U + adaptive_gate) / 4U;
+                gate = (gate * (unsigned)seq_phrase_arc[current_step] + 50U) / 100U;
             }
             if (gate < 8U) gate = 8U;
             if (gate > 100U) gate = 100U;
