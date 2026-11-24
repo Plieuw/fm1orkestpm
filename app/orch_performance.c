@@ -287,7 +287,8 @@ static unsigned arp_pick(perf_part_t *p, const uint8_t *notes, const uint8_t *ve
         (mode==6U)?(step/2U)%n:
         (p->input_have_note ?
             (contour_anchor(p,notes,n,1U)%n +
-             (p->input_direction<0 ? n-(step%n) : step%n))%n :
+             (p->input_direction<0 ? n-((step?step-1U:0U)%n) :
+              ((step?step-1U:0U)%n)))%n :
             (n-1U-(step/2U)%n));
     *out=(unsigned)notes[idx]+12U*((pat%4U==1U)?1U:0U);
     *out_vel=vel[idx];
