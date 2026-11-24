@@ -568,3 +568,12 @@ unsigned orch_perf_current_step(unsigned part)
 {
     return part<ORCH_PERF_PARTS?parts[part].step:0U;
 }
+
+void orch_perf_set_external_tempo(unsigned bpm)
+{
+    if (bpm < 40U) bpm = 40U;
+    if (bpm > 250U) bpm = 250U;
+    const uint32_t tick = (ORCH_PERF_SAMPLE_RATE * 60U) / (bpm * 24U);
+    for (unsigned i=0;i<ORCH_PERF_PARTS;++i)
+        if (parts[i].cfg.external_clock) parts[i].ext_tick_len = tick ? tick : 1U;
+}
