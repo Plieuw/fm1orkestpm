@@ -148,11 +148,20 @@ int main(int argc, char **argv)
     turn(1, 1);            /* -> strings (wraps to family 0) */
     press(2);              /* opens the FX page */
     press(2);              /* on that page: the four-part chord */
+    /* from here the numbers are the hall's own: entering it, and then one step
+     * of its lights each 2.4 s while the chord sounds */
+    fills = blits = filled_px = blitted_px = 0;
     press(8);              /* HOME, back to PARTS */
     render(400);
     clock_ms += 40U;
     orch_ui_control();
     shot(base, "parts");
+    clock_ms += 2400U;
+    orch_ui_control();
+    report("lights 1");
+    clock_ms += 2400U;
+    orch_ui_control();
+    report("lights 2");
 
     /* ARP: three keys held, arp on. The keys of the real board arrive as note
      * events through groove_midi_note(), which this preview does not have, so
