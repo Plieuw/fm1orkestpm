@@ -37,8 +37,43 @@ static void test_latch_and_clock_stop(void) {
     orch_perf_midi_realtime(0xFCU,128U);
     CHECK(orch_perf_pop_event(&e)==1 && e.note_on==0U);
 }
+
+static void test_all_pattern_slots(void)
+{
+    struct orch_perf_config c;
+    struct orch_perf_event e;
+    for (unsigned type=0U; type<ORCH_PERF_ARP_TYPES; ++type) {
+        unsigned hits=0U;
+        orch_perf_init(); orch_perf_default_config(&c);
+        c.arp_enabled=1U; c.external_clock=1U; c.arp_type=(uint8_t)type;
+        CHECK(orch_perf_set_config(0U,&c)==0);
+        CHECK(orch_perf_note_event(0U,60U,100U)==1);
+        orch_perf_midi_realtime(0xFAU,0U);
+        for(unsigned tick=1U;tick<=200U;++tick) {
+            orch_perf_midi_realtime(0xF8U,tick*918U);
+            while(orch_perf_pop_event(&e)) if(e.note_on) ++hits;
+        }
+        CHECK(hits>0U);
+    }
+    for (unsigned ge=0U; ge<ORCH_PERF_GE_COUNT; ++ge) {
+        unsigned hits=0U;
+        orch_perf_init(); orch_perf_default_config(&c);
+        c.phrase_enabled=1U; c.external_clock=1U; c.phrase_ge=(uint8_t)ge;
+        c.density=127U; c.cluster=1U;
+        CHECK(orch_perf_set_config(0U,&c)==0);
+        CHECK(orch_perf_note_event(0U,64U,100U)==1);
+        orch_perf_midi_realtime(0xFAU,0U);
+        for(unsigned tick=1U;tick<=200U;++tick) {
+            orch_perf_midi_realtime(0xF8U,tick*918U);
+            while(orch_perf_pop_event(&e)) if(e.note_on) ++hits;
+        }
+        CHECK(hits>0U);
+    }
+}
+
 int main(void) {
     test_arp_capture_and_release(); test_phrase_generator(); test_latch_and_clock_stop();
+    test_all_pattern_slots();
     if(failures){printf("%u performance test(s) failed\n",failures);return 1;}
     puts("orch_performance: all checks passed"); return 0;
 }
