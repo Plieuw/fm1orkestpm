@@ -803,6 +803,30 @@ void orch_midi_short_message(const uint8_t *m, unsigned bytes)
 }
 
 /* The note-on path: interpret, plan divisi, realize the players. */
+/* A connected melody must advance the lead player even when the
+ * divisi planner's hysteresis would otherwise keep every player on the old
+ * held chord. Reassign only one desk (the last active player) to the new note;
+ * the remaining desks retain their chord tones. */
+static void divisi_promote_connected_note(struct orch_part *cfg,
+        struct orch_divisi_plan *plan, const uint8_t *notes,
+        const uint32_t *ids, unsigned count, uint32_t newest_id)
+{
+    if (!cfg || !plan || !notes || !ids || !count || !plan->players) return;
+    for (unsigned p = 0; p < plan->players; ++p) {
+        const unsigned idx = plan->assignment[p];
+        if (idx < count && ids[idx] == newest_id) return;
+    }
+    unsigned newest = count;
+    for (unsigned i = 0; i < count; ++i)
+        if (ids[i] == newest_id) { newest = i; break; }
+    if (newest >= count) return;
+    const unsigned desk = plan->players - 1U;
+    plan->assignment[desk] = (uint8_t)newest;
+    cfg->divisi.assigned[desk] = 1U;
+    cfg->divisi.note_of_player[desk] = notes[newest];
+    cfg->divisi.id_of_player[desk] = newest_id;
+}
+
 static void engine_note_on_part(unsigned part, unsigned note, unsigned velocity)
 {
     if (part >= ORCH_PARTS || !velocity) return;
@@ -832,6 +856,8 @@ static void engine_note_on_part(unsigned part, unsigned note, unsigned velocity)
     }
     orch_divisi_plan(&cfg->divisi, notes, ids, count, in->density,
                      cfg->player_cap, &rt->plan);
+    if (in->connected)
+        divisi_promote_connected_note(cfg, &rt->plan, notes, ids, count, id);
 
     /* realize only the players that took this new note */
     for (unsigned p = 0; p < rt->plan.players; ++p) {
@@ -1228,6 +1254,8 @@ static uint32_t seq_start_voice(unsigned note, unsigned velocity)
     }
     orch_divisi_plan(&cfg->divisi, notes, ids, count, in->density,
                      cfg->player_cap, &runtime[part].plan);
+    if (in->connected)
+        divisi_promote_connected_note(cfg, &runtime[part].plan, notes, ids, count, id);
     for (unsigned p = 0; p < runtime[part].plan.players; ++p) {
         const unsigned idx = runtime[part].plan.assignment[p];
         if (idx >= count || ids[idx] != id) continue;
