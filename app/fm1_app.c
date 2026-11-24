@@ -2,6 +2,7 @@
 #include "fm1.h"
 #include "fm1_app.h"
 #include "orch_engine.h"
+#include "orch_fx.h"
 #include "orch_ui.h"
 
 static int engine_started;
@@ -10,6 +11,7 @@ static void start_engine(void)
 {
     if (engine_started) return;
     orch_init();
+    orch_fx_init();
     engine_started = 1;
 }
 
@@ -22,7 +24,7 @@ void groove_screen_control(void) {
 }
 void groove_midi_init(void) { start_engine(); }
 void groove_midi_poll(void) {}
-void groove_midi_panic(void) { orch_panic(); }
+void groove_midi_panic(void) { orch_panic(); orch_fx_reset(); }
 unsigned groove_midi_mode(unsigned track) {
     (void)track;
     return 0U;
@@ -48,6 +50,7 @@ void fm1_app_midi_received(unsigned source,const uint8_t *message,size_t bytes) 
 FM1_AUDIO_CODE int fm1_app_render(int32_t *output,unsigned frames) {
     if (!output || frames!=FM1_BLOCK_FRAMES) return -1;
     orch_render_q23(output,frames);
+    orch_fx_process(output,frames);
     const uint32_t gain = orch_ui_master_q23;
     if (gain != (1UL << 23)) {
         for (unsigned i = 0; i < 2U * frames; ++i)

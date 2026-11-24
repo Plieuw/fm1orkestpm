@@ -1,8 +1,8 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 /* FM-1 panel: screen, buttons, encoders and LEDs for the orchestral engine.
  *
- * Control task only. orch_ui_master_q23 is the one word the audio interrupt
- * reads, and the only one it may read.
+ * Control task only. The audio interrupt reads orch_ui_master_q23 and the FX
+ * bytes the panel writes through orch_fx.h, and nothing else.
  */
 #ifndef ORCH_UI_H
 #define ORCH_UI_H
@@ -31,5 +31,6 @@ unsigned orch_ui_scale(void);
 unsigned orch_ui_recording(void);
 unsigned orch_ui_seq_step(void);
 unsigned orch_ui_saved(void);   /* 1 after a successful save this session */
+unsigned orch_ui_fx_selection(void); /* effect row the FX page has selected */
 
 #endif
