@@ -534,6 +534,7 @@ void orch_midi_realtime(unsigned status)
 
 void orch_midi_clock_tempo(unsigned bpm)
 {
+    if(!bpm)return;
     if(bpm<40U)bpm=40U;
     if(bpm>250U)bpm=250U;
     enqueue(0U,bpm&127U,(bpm>>7)&127U,4U);
