@@ -78,6 +78,44 @@ static const orchestra_preset_t orchestra_presets[] = {
 };
 #define ORCH_PRESET_COUNT ((unsigned)(sizeof orchestra_presets / sizeof orchestra_presets[0]))
 
+/* Independent 16-step orchestral motifs. 60 is a neutral pitch anchor;
+ * adaptive mode revoices against the player's live chord/contour. Zero
+ * velocity is a rest. Each row is one complete scene's step/velocity/gate
+ * contour, not a replacement for the live ARP or phrase generator. */
+typedef struct { uint8_t note, velocity, gate; } preset_step_t;
+static const preset_step_t preset_steps[8][ORCH_SEQ_STEPS] = {
+ /* Cinema: spacious pulse, phrase-shaped rests */
+ {{60,72,92},{0,0,0},{64,62,92},{0,0,0},{67,76,96},{0,0,0},{64,60,92},{0,0,0},
+  {62,70,92},{0,0,0},{65,62,92},{0,0,0},{69,80,96},{0,0,0},{65,58,88},{0,0,0}},
+ /* Baroque: measured eighth-note motion */
+ {{60,88,68},{64,66,68},{67,76,68},{64,66,68},{62,84,68},{65,64,68},{69,74,68},{65,64,68},
+  {64,86,68},{67,66,68},{71,76,68},{67,66,68},{65,82,68},{69,64,68},{72,76,68},{69,64,68}},
+ /* Wind choir: breath-like spaced entries */
+ {{60,72,96},{0,0,0},{0,0,0},{64,62,96},{0,0,0},{67,74,100},{0,0,0},{0,0,0},
+  {62,70,96},{0,0,0},{0,0,0},{65,62,96},{0,0,0},{69,76,100},{0,0,0},{0,0,0}},
+ /* Brass fanfare: dotted ceremonial calls */
+ {{60,110,62},{0,0,0},{67,92,62},{0,0,0},{72,112,72},{0,0,0},{67,84,62},{0,0,0},
+  {65,104,62},{0,0,0},{69,90,62},{0,0,0},{74,116,76},{0,0,0},{69,88,62},{0,0,0}},
+ /* Pizz motion: syncopated short notes */
+ {{60,94,42},{0,0,0},{64,68,38},{67,82,42},{0,0,0},{64,72,38},{0,0,0},{69,90,42},
+  {0,0,0},{67,70,38},{64,82,42},{0,0,0},{62,72,38},{0,0,0},{65,92,42},{0,0,0}},
+ /* Ambient: sparse slow anchors */
+ {{60,58,100},{0,0,0},{0,0,0},{0,0,0},{67,52,100},{0,0,0},{0,0,0},{0,0,0},
+  {62,56,100},{0,0,0},{0,0,0},{0,0,0},{69,54,100},{0,0,0},{0,0,0},{0,0,0}},
+ /* Ostinato: interlocking pulse with rests */
+ {{60,90,74},{0,0,0},{67,72,62},{0,0,0},{60,84,74},{64,66,58},{0,0,0},{67,76,62},
+  {60,88,74},{0,0,0},{67,70,62},{64,66,58},{60,82,74},{0,0,0},{69,80,62},{0,0,0}},
+ /* Full orchestra: broad anchor + cadence */
+ {{60,76,84},{0,0,0},{64,62,84},{0,0,0},{67,80,90},{0,0,0},{69,66,84},{0,0,0},
+  {67,74,84},{0,0,0},{65,62,84},{0,0,0},{64,76,88},{0,0,0},{60,68,96},{0,0,0}}
+};
+static const uint8_t preset_seq_enabled[8] = {0,1,0,0,1,0,1,0};
+static const uint8_t preset_seq_part[8] = {0,0,1,2,0,1,0,0};
+static const uint8_t preset_response_enabled[8] = {1,1,1,1,0,1,1,1};
+static const uint8_t preset_response_leader[8] = {0,0,1,2,0,1,0,0};
+static const uint8_t preset_response_follower[8] = {1,1,0,3,2,3,2,1};
+static const int8_t preset_response_interval[8] = {12,7,-5,12,0,7,5,0};
+
 /* A tiny 3x5 uppercase font. Drawing is control-task-only and uses the
  * platform's documented RGB565 rectangle primitive; no hidden SDK symbols. */
 static void glyph_rows(char c, uint8_t rows[5])
@@ -256,6 +294,27 @@ static void panel_apply_preset(unsigned index)
         }
         (void)orch_perf_set_config(part,&perf_config[part]);
     }
+    /* Recall the independent 16-step sequencer as well as the phrase ARP.
+     * Adaptive revoicing listens only to live player MIDI; the stored motif
+     * remains intact. One sequencer lane is selected per scene to respect
+     * the current FM1 sequencer architecture. */
+    orch_seq_set_enabled(0U);
+    orch_seq_clear();
+    orch_seq_set_tempo(p->bpm);
+    orch_seq_set_part(preset_seq_part[index]);
+    orch_seq_set_adaptive(1U);
+    for (unsigned step=0U; step<ORCH_SEQ_STEPS; ++step) {
+        struct orch_step_note n;
+        n.note=preset_steps[index][step].note;
+        n.velocity=preset_steps[index][step].velocity;
+        n.gate_percent=preset_steps[index][step].gate;
+        (void)orch_seq_set_step(step,0U,&n);
+    }
+    orch_seq_set_enabled(preset_seq_enabled[index]);
+    orch_call_response_configure(preset_response_enabled[index],
+        preset_response_leader[index],preset_response_follower[index],
+        preset_response_interval[index]);
+
     for (unsigned fx=0U; fx<ORCH_FX_SLOT_COUNT; ++fx) {
         (void)orch_fx_set_enabled(fx,p->fx_on[fx]);
         (void)orch_fx_set_mix(fx,p->fx_mix[fx]);
