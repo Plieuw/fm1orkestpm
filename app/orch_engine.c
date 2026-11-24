@@ -20,7 +20,7 @@
 #define DELAY_SIZE 2048U
 #define DELAY_MASK (DELAY_SIZE - 1U)
 #define EVENT_CAP 64U
-#define ENV_MAX 32767
+#define ORCH_ENV_MAX 32767
 #define Q23_MAX 8388607
 #define Q23_MIN (-8388608)
 #define Q23_ONE 8388608U
@@ -456,14 +456,14 @@ static void voice_start(unsigned part, unsigned note, unsigned velocity,
     v->env = 0;
     {
         const uint32_t frames = (atk_ms * ORCH_SAMPLE_RATE) / 1000U;
-        v->env_inc = (int32_t)(ENV_MAX / (frames ? frames : 1U));
+        v->env_inc = (int32_t)(ORCH_ENV_MAX / (frames ? frames : 1U));
         if (v->env_inc < 1) v->env_inc = 1;
         v->attack_left = frames ? frames : 1U;
         uint32_t rel_ms = ((uint32_t)prof.release_ms * in->release_mul) >> 16;
         if (rel_ms < 30U) rel_ms = 30U;
         if (rel_ms > 3000U) rel_ms = 3000U;
         const uint32_t rel_frames = (rel_ms * ORCH_SAMPLE_RATE) / 1000U;
-        v->env_dec = (int32_t)(ENV_MAX / (rel_frames ? rel_frames : 1U));
+        v->env_dec = (int32_t)(ORCH_ENV_MAX / (rel_frames ? rel_frames : 1U));
         if (v->env_dec < 1) v->env_dec = 1;
     }
 
@@ -1081,9 +1081,9 @@ static void voice_tick(voice_t *v)
     if (v->attack_left) {
         --v->attack_left;
         v->env += v->env_inc;
-        if (v->env > ENV_MAX) v->env = ENV_MAX;
+        if (v->env > ORCH_ENV_MAX) v->env = ORCH_ENV_MAX;
     } else if (v->gate) {
-        v->env = ENV_MAX;
+        v->env = ORCH_ENV_MAX;
     } else {
         v->env -= v->env_dec;
         if (v->env <= 8) voice_stop((unsigned)(v - voices));
