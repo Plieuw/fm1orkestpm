@@ -51,8 +51,22 @@ void orch_hawk_render_q15(int32_t *output, uint32_t frames)
 /* Call from HAWK's already-routed MIDI/key event path, preserving channel. */
 void orch_hawk_note_event(uint8_t channel, uint8_t note, uint8_t velocity)
 {
-    orch_note_event((unsigned)(channel & 15U), (unsigned)note,
-                    (unsigned)velocity);
+    const uint8_t message[3] = {
+        (uint8_t)((velocity == 0U ? 0x80U : 0x90U) | (channel & 15U)),
+        (uint8_t)(note & 127U),
+        (uint8_t)(velocity & 127U)
+    };
+    orch_midi_short_message(message, 3U);
+}
+
+void orch_hawk_control_change(uint8_t channel, uint8_t controller, uint8_t value)
+{
+    const uint8_t message[3] = {
+        (uint8_t)(0xB0U | (channel & 15U)),
+        (uint8_t)(controller & 127U),
+        (uint8_t)(value & 127U)
+    };
+    orch_midi_short_message(message, 3U);
 }
 
 void orch_hawk_midi_realtime(uint8_t status)
