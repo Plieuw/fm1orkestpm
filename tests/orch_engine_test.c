@@ -197,6 +197,37 @@ static void test_release_and_sustain(void)
     orch_init();
 }
 
+static void test_arp_phrase_integration(void)
+{
+    struct orch_perf_config config;
+    orch_init();
+    orch_perf_default_config(&config);
+    config.arp_enabled=1U;
+    config.arp_type=0U;
+    config.bpm=120U;
+    CHECK(orch_perf_set_config(0U,&config)==0);
+    orch_note_event(0U,60U,100U);
+    render(8U);
+    CHECK(orch_active_voices()>0U);
+    orch_note_event(0U,60U,0U);
+    render(600U);
+    CHECK(orch_active_voices()==0U);
+
+    orch_init();
+    orch_perf_default_config(&config);
+    config.phrase_enabled=1U;
+    config.phrase_ge=0U;
+    config.density=127U;
+    CHECK(orch_perf_set_config(0U,&config)==0);
+    orch_note_event(0U,64U,100U);
+    render(8U);
+    CHECK(orch_active_voices()>0U);
+    orch_note_event(0U,64U,0U);
+    render(600U);
+    CHECK(orch_active_voices()==0U);
+    orch_init();
+}
+
 static void test_sequencer(void)
 {
     struct orch_step_note note;
@@ -268,6 +299,7 @@ int main(void)
     test_divisi_players();
     test_release_and_sustain();
     test_sequencer();
+    test_arp_phrase_integration();
     test_strings_are_not_dc();
     test_articulation();
     if (failures) { printf("%u engine test(s) failed\n", failures); return 1; }
