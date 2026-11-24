@@ -17,7 +17,7 @@ branch another agent works on, one topic per commit, and leave
 ## Build and test
 
 ```sh
-FM1_CORE=../fm1-core sh tests/run_tests.sh          # seven suites
+FM1_CORE=../fm1-core sh tests/run_tests.sh          # eight suites
 cc -std=c11 -O2 -Wall -Wextra -Werror -DFM1_HOST_TEST \
    -I../fm1-core/include -Iapp -c app/<file>.c -o /tmp/x.o
 ```
@@ -78,7 +78,8 @@ belongs to.
   selected row, never behind a value field.
 - The pan comes from `app/orch_stage.c` (instrument seat, section spread,
   listener). Do not reintroduce a fixed pan per part number.
-- Visual checks: `tests/panel_preview.c` renders five pages to PPM and
+- Visual checks: `tests/panel_preview.c` renders five pages to PPM, plus a
+  sixth frame of the full orchestra at the top of the light's scale, and
   `tools/panel_png.py` turns them into PNGs; `web/emu/` renders the same panel
   in a browser. Look at them; the theme cannot be checked any other way without
   a board.
