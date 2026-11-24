@@ -20,31 +20,64 @@ static void draw_title(void)
     }
 }
 
-static void draw_page(void)
+/* The page's own content: the knob cells first (the strip reads them), then
+ * whatever the page draws. On the stage page the hall's art is left alone once
+ * it is on screen — a knob turn there repaints the desks, the players and the
+ * name, not the wall and the audience. */
+static void draw_body(void)
 {
-    fm1_screen_fill(0, TITLE_H, SW, STRIP_Y - 1U - TITLE_H, C_BG);
     page_knobs();
+    if (ui.page == PAGE_HOME) {
+        if (!hall_static) {
+            fm1_screen_fill(0, TITLE_H, SW, STRIP_Y - 1U - TITLE_H, C_BG);
+            page_parts_full();
+            hall_static = 1;
+        } else {
+            page_parts();
+        }
+        return;
+    }
+    hall_static = 0;            /* this page paints over the hall */
+    fm1_screen_fill(0, TITLE_H, SW, STRIP_Y - 1U - TITLE_H, C_BG);
     switch (ui.page) {
     case PAGE_ARP: page_arp(); break;
     case PAGE_SEQ: page_seq(); break;
     case PAGE_GLO: page_global(); break;
     case PAGE_FX: page_fx(); break;
     case PAGE_HOME:
-    default: page_parts(); break;
+    default: break;
     }
+}
+
+static void draw_page(void)
+{
+    draw_body();
     draw_strip();
+}
+
+/* The strip has values of its own: the four cells, and which one was turned
+ * last. It is compared apart from the page, so the highlight that follows a
+ * knob can fade without repainting the page behind it. */
+static uint32_t strip_signature(void)
+{
+    uint32_t sig = ((int32_t)(fm1_millis() - ui.hot_until) < 0)
+                       ? 1U | ((uint32_t)ui.hot_cell << 4)
+                       : 0U;
+    for (unsigned c = 0; c < 4U; ++c) {
+        sig = sig * 131U + cells[c].pct + 257U * cells[c].lit;
+        for (const char *v = cells[c].value; *v; ++v)
+            sig = sig * 33U + (uint8_t)*v;
+    }
+    return sig;
 }
 
 /* The pages show live values (a running step, held arp notes) next to values
  * that only change when a control does. The control task compares them apart:
  * a live change repaints the few pixels it moves, and only a change to the
  * page's own settings repaints the page. */
-
 static uint32_t page_signature(void)
 {
     uint32_t sig = (uint32_t)ui.page * 0x9E3779B1UL;
-    if ((int32_t)(fm1_millis() - ui.hot_until) < 0)
-        sig ^= 0x40U | ((uint32_t)ui.hot_cell << 8);   /* the lit cell, and back */
     switch (ui.page) {
     case PAGE_ARP:
         sig ^= (uint32_t)orch_arp_enabled(ui.part) << 8;
