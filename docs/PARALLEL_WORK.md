@@ -10,7 +10,8 @@ work mergeable and stop one agent from undoing another's measured fixes.
 | `beta/0.1.0-poly-modeling` | first waveguide prototype, single generic excitation |
 | `beta/0.2.0-divisi-adaptive` | adaptive interpreter, divisi planner, host tests, port docs |
 | `beta/0.3.0-instrument-waveguides` | per-channel families, per-instrument profiles, body resonators |
-| `beta/0.3.1-build-and-host-checks` | 0.3.0 content plus the friction bow, host tests and CI; the panel (`app/orch_ui.c` and the four parts it includes), the orchestra seating with the movable listener, the master FX chain and the knob cells live here and nowhere else |
+| `beta/0.3.1-build-and-host-checks` | 0.3.0 content plus the friction bow, host tests and CI; the panel (`app/orch_ui.c` and the parts it includes), the orchestra seating with the movable listener, the master FX chain and the knob cells. The panel lived here until 0.4.0, below |
+| `beta/0.4.0-podium-light` | 0.3.1 at `9ad7151` plus the photographed hall, the light over the boards that follows the output, the level in the panel's live signature and `tests/run_panel_bench.sh`; the panel lives here now |
 | `beta/0.3.2-roundtrip-loss`, `beta/0.3.2-roundtrip-loss-integration` | per-round-trip waveguide loss and the low/high-register regression test |
 | `beta/0.3.3-dsp-roadmap` | 0.3.2 plus the 32-bit round-trip gain and the shared DSP brainstorm |
 | `beta/0.3.4-panel-integration` | FM1 Core adapter, keys and MIDI, and a small RGB565 status panel drawn inside `app/fm1_app.c` |
@@ -33,6 +34,33 @@ Rules:
   do not write "rebased on X" unless X really is an ancestor. A tree can be
   identical while the history is not, and the next agent will trust the
   history.
+
+## Handover: 0.4.0 (24 November 2026)
+
+`beta/0.4.0-podium-light` was made from the tip of
+`beta/0.3.1-build-and-host-checks` (`9ad7151`), so its history is that branch's
+and everything below about 0.3.1 is its history too. What 0.4.0 adds:
+
+1. **The hall is a photograph.** `tools/panel_photo.py` reduces two frames to a
+   sixteen-colour palette and, per row, the runs of one colour; the panel draws
+   them as `fm1_screen_fill` calls, about 2 700 for the whole page instead of
+   63 000. The frames are committed in `tools/panel_photo/`, so
+   `sh tools/panel_photo/regen.sh` rebuilds the include byte for byte.
+2. **The lights step in a band.** `--band 0:46` means the two frames differ
+   only above the boards, so a step repaints that band (586 / 1 211 fills) and
+   not the hall, every 2.4 s while a part sounds.
+3. **The light over the boards follows the performance.** `app/orch_level.inc`
+   takes the peak of every block the audio callback finishes and weights it by
+   the voices that are sounding, because the renderer keeps its mix at one level
+   whatever the polyphony (measured: one voice peaks 4.5 M of Q23's 8.39 M,
+   eight 3.7 M). The level is 0..24 with three steps a voice, so the full
+   orchestra of eight voices is 24 and a single held note (two players) is six;
+   it falls through the tail, so a release is not a blackout. A repaint is five
+   fills, at most every 50 ms — 100 a second at the very most.
+4. **The bench.** `tests/run_panel_bench.sh` now prints the light's half second
+   (`sound 0.5s`), the eight-voice orchestra (`orchestra`), the level at each
+   point, and the per-page fill counts: five pages 20 653, STAGE 2 683, one
+   knob turn 554, its fade 197, and 268 fills for the light's half second.
 
 ## Handover: where this branch stands (24 November 2026)
 
