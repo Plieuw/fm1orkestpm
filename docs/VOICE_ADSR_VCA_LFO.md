@@ -115,6 +115,6 @@ Scene intent:
 8. Test both known flash variants and preserve boot-area safety checks.
 
 The ADSR voice contour and per-part configuration API are implemented in the
-current feature branch. Scene-specific ADSR values still need to be assigned
-by the factory preset recall code. The general-purpose LFO, separate VCA
+current feature branch. The eight factory scenes now assign per-section ADSR values during preset
+recall. The general-purpose LFO, separate VCA
 response/velocity curves and FM1 hardware verification remain future work.
