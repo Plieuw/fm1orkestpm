@@ -31,7 +31,7 @@ The FM1 uses JieLi WL82/AC791N. Himalia firmware targets a different MCU, so Him
 - 16-step polyphonic sequencer pattern, up to four notes per step, with per-note gate and internal tempo.
 - Master FX after the voice mix: chorus, ensemble, ping-pong delay and shimmer reverb, controlled from the FX page and kept in the flash record.
 - Knob cells under the page body (label and value under each of the four knobs) and HAWK CHUA's knob speed: a fast turn goes up to x8, one detent is still one menu step, and the percentage ranges keep their 5 % a detent (a fast turn doubles it).
-- Orchestra seating: each part is panned to its instrument's place in the orchestra (strings left and right, woodwinds centre, brass and percussion right, choir back centre) with the section's players spread over its width, instead of one fixed pattern for every part. The listener can be moved across the stage and back on the PARTS page (KNOB3 left/right, KNOB4 depth); the seat is kept in the flash record.
+- Orchestra seating: each part is panned to its instrument's place in the orchestra (strings left and right, woodwinds centre, brass and percussion right, choir back centre) with the section's players spread over its width, instead of one fixed pattern for every part. The listener can be moved across the stage and back on the STAGE page (KNOB3 left/right, KNOB4 depth), which draws the hall around it — shell, wooden floor, curtains and the audience row with the listener's lit seat — and the seat is kept in the flash record.
 - Fixed-point synthesis, one waveguide per player, stereo Q23 output.
 
 The 12-voice ceiling is provisional and must be measured on real FM1 hardware. The goal is the highest stable polyphony that fits the audio interrupt budget.
