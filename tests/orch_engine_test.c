@@ -290,6 +290,9 @@ static void test_connected_legato_preserves_waveguide(void)
 {
     int64_t before = 0;
     solo_part(ORCH_FAM_STRINGS);
+    /* Isolate one resonator so this test measures legato reuse rather than
+     * the default two-player divisi arrangement. */
+    CHECK(orch_engine_set_player_cap(0U, 1U) == 0);
     CHECK(orch_engine_set_adsr(0U, 180U, 220U, 82U, 420U) == 0);
     midi(0x90U, 60U, 100U);
     for (unsigned i = 0; i < 18U; ++i)
