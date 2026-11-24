@@ -117,3 +117,42 @@ toolchain and the FM1 Core binary SDK. It produces a `.fwsc` package via
 are not available in the host CI runner or this coding session. The exact
 commands and checks are in `docs/BUILD_FIRMWARE.md`. No target ELF, app.bin,
 or `.fwsc` has been produced yet; do not flash the host-validated sources.
+
+
+## 0.3.7 — align build and installer with stable HAWK CHUA
+
+Branch: feature/0.3.7-hawk-build-and-web-installer, stacked on 0.3.6.
+
+User decision: keep the same build/release method as HAWK CHUA and provide the
+same type of browser-based installer page.
+
+Reference inspected directly from HAWK CHUA main commit
+e750df6a2e13490a4f01b84d3f9c553f4612163f:
+- build.sh + tools/build.py + tools/fm1pkg_make.py create a PI32v2 app,
+  OTA loader and .fwsc package.
+- .github/workflows/firmware.yml stages the JieLi toolchain and AC79NN SDK,
+  runs target build/tests, builds web assets, uploads artifacts and deploys
+  GitHub Pages.
+- web/index_pkg.html + fm1pkg.js + fm1ota.js + make_site.py create the
+  self-contained WebMIDI/SysEx installer site.
+
+Important architecture finding: this Orchestral Engine repo currently has
+only app/*.c modules, FM1 Core API adapter headers from a separate checkout,
+and host CI. It does not contain the startup/linker/hal/loader/firmware runtime
+that HAWK's build.py compiles. Therefore the old build guide's FM1 Core command
+was not verified and must not be used to claim a working .fwsc build. The
+0.3.7 branch corrects README and BUILD_FIRMWARE.md to make this explicit.
+
+Next actual implementation work:
+1. Integrate the orchestral engine into a real FM1 target runtime (the stable
+   HAWK/Felucca runtime is the reference).
+2. Verify the audio/MIDI/panel adapters against that runtime and target.
+3. Preserve the M-UPGRADE update entry and matching loader.
+4. Port the HAWK browser installer and package parser with attribution and
+   GPL-3.0 notices, replacing project metadata and identity only after it is
+   deliberately assigned.
+5. Port the HAWK CI pipeline to build, test, package, publish release assets
+   and deploy Pages. Never publish a placeholder installer.
+
+No target firmware, .fwsc, web installer, or physical install is claimed by
+this documentation-only branch.

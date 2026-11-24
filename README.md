@@ -49,19 +49,14 @@ The host workflow also compiles the FM1 app adapter and panel code against the
 FM1 Core API headers.
 CI compiles every source with `-Werror` and runs the same script.
 
-## Build prerequisites
+## Build and web installer
 
-- FM1 Core: https://github.com/rgrvmusic/fm1-core
-- JieLi PI32v2 toolchain 2.5.3 (`-mcpu=r3`)
-- Python 3.10+
+The intended release system is the same as stable HAWK CHUA: JieLi PI32v2
+target build, AC79 SDK inputs, .fwsc plus OTA loader, WebMIDI/SysEx browser
+installer, GitHub Actions release artifacts and GitHub Pages. The current
+repository still contains application modules and a host-tested FM1 Core
+adapter only; it does not yet contain the complete target runtime, boot/startup,
+hardware layer or OTA loader needed by HAWK's build script. See
+[docs/BUILD_FIRMWARE.md](docs/BUILD_FIRMWARE.md) for the integration plan and
+exact status. No .fwsc or browser installer is claimed yet.
 
-From the FM1 Core checkout, with this repository beside it:
-
-```sh
-python3 fm1-core/tools/build.py --app fm1orkestpm/app --clean
-python3 fm1-core/tools/build.py --app fm1orkestpm/app --package
-```
-
-The FM1 Core platform and binary SDK retain their own licenses and redistribution terms. See its THIRD_PARTY.md. This project's GPL-3.0 license remains in force for original application code.
-
-This is source code, not a verified firmware image. The panel adapter has not yet been target-built or tested on a physical FM1. Do not flash until the exact JieLi target build succeeds and the generated package is checked. No .fwsc or .uf2 is claimed by this feature branch.
