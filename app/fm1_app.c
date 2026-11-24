@@ -208,6 +208,22 @@ static void panel_apply_performance(unsigned part)
 
 static void panel_apply_preset(unsigned index)
 {
+    /* Per-scene, per-section ADSR: time values are milliseconds and sustain
+     * is percent. These contours shape the VCA only; model damping remains
+     * an independent physical-instrument property. */
+    static const struct {
+        uint16_t a, d, r;
+        uint8_t s;
+    } scene_adsr[8][PANEL_PARTS] = {
+        {{45,240,900,88},{50,260,950,90},{65,320,1100,90},{75,350,1200,90}},
+        {{20,120,260,80},{24,140,300,82},{28,150,350,82},{8,80,500,65}},
+        {{60,220,520,85},{45,200,480,88},{70,240,600,88},{85,280,700,90}},
+        {{12,100,220,82},{22,150,360,86},{25,170,380,86},{35,180,450,88}},
+        {{3,70,420,45},{3,80,480,45},{4,100,550,50},{2,65,320,42}},
+        {{90,400,1500,90},{100,450,1600,90},{110,500,1800,92},{120,550,1900,92}},
+        {{18,110,260,78},{25,140,340,82},{35,160,400,84},{12,100,250,80}},
+        {{32,180,420,82},{58,240,560,86},{38,170,360,84},{12,120,260,80}}
+    };
     /* Full performance snapshots: ARP + phrase sequencer share the same
      * timing/groove/clock controls, but each scene gets its own character. */
     static const uint8_t fx_a[8][ORCH_FX_SLOT_COUNT] = {
@@ -225,6 +241,9 @@ static void panel_apply_preset(unsigned index)
         (void)orch_engine_set_instrument(part,p->inst[part]);
         (void)orch_engine_set_articulation(part,articulation_values[p->art[part]]);
         (void)orch_engine_set_player_cap(part,p->cap[part]);
+        (void)orch_engine_set_adsr(part,scene_adsr[index][part].a,
+            scene_adsr[index][part].d,scene_adsr[index][part].s,
+            scene_adsr[index][part].r);
         selected_instrument[part]=p->inst[part];
         selected_art[part]=p->art[part];
         selected_cap[part]=p->cap[part];
