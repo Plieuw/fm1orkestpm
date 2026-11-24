@@ -16,7 +16,7 @@ if [ ! -f "$CORE/include/fm1.h" ]; then
 fi
 
 status=0
-for test in orch_adaptive orch_divisi orch_stage orch_engine orch_arp orch_ui orch_fx; do
+for test in orch_adaptive orch_divisi orch_stage orch_engine orch_arp orch_ui orch_fx orch_level; do
     case "$test" in
         orch_adaptive) src="$ROOT/app/orch_adaptive.c" ;;
         orch_divisi)   src="$ROOT/app/orch_divisi.c $ROOT/app/orch_stage.c" ;;
@@ -25,6 +25,7 @@ for test in orch_adaptive orch_divisi orch_stage orch_engine orch_arp orch_ui or
         orch_arp)      src="$ROOT/app/orch_adaptive.c $ROOT/app/orch_divisi.c $ROOT/app/orch_part.c $ROOT/app/orch_stage.c $ROOT/app/orch_engine.c" ;;
         orch_ui)       src="$ROOT/app/orch_adaptive.c $ROOT/app/orch_divisi.c $ROOT/app/orch_part.c $ROOT/app/orch_stage.c $ROOT/app/orch_engine.c $ROOT/app/orch_ui.c $ROOT/app/orch_fx.c" ;;
         orch_fx)       src="$ROOT/app/orch_fx.c" ;;
+        orch_level)    src="$ROOT/app/orch_adaptive.c $ROOT/app/orch_divisi.c $ROOT/app/orch_part.c $ROOT/app/orch_stage.c $ROOT/app/orch_engine.c $ROOT/app/orch_ui.c $ROOT/app/orch_fx.c" ;;
     esac
     # shellcheck disable=SC2086
     if ! $CC $CFLAGS "$ROOT/tests/${test}_test.c" $src -o "$OUT/$test"; then
