@@ -144,7 +144,7 @@ The first PI32v2 target link exposed the device's 72 KiB fast-RAM / 360 KiB pool
 
 - Large voice waveguide state and the stereo echo ring are placed in the HAWK `.pool` section rather than fast `.bss`.
 - Polyphony ceiling is currently eight simultaneous modeled voices (not twelve) to stay within the FM1 static-memory budget.
-- Chorus/ensemble modulation lines are 2048 samples, echo lines 4096 samples (roughly 14–79 ms), shimmer grain storage is reduced, and reverb comb/allpass lines are shortened for a compact room/ensemble character.
+- Chorus/ensemble modulation lines are 1024 samples, echo lines 4096 samples (roughly 14–79 ms), shimmer uses two 512-sample grains, and reverb comb/allpass lines are shortened for a compact room/ensemble character.
 - The four FX controls and processing algorithms remain available, but the delay/reverb tails are shorter than the desktop/reference implementation.
 - The audio mix now performs Q8 pan scaling before accumulation and uses a 32-bit divisor, avoiding the missing PI32v2 `__divdi3` helper while preserving the intended gain.
 
