@@ -919,13 +919,14 @@ static void seq_tick(void)
             /* In adaptive mode, keep the user's rhythm and step data, but
              * voice chord tones from the live harmony and thin inner voices
              * during quiet/sparse playing. Slot zero remains the anchor. */
-            if (seq_adaptive && n > 0U &&
+            const unsigned have_input = seq_input_have_note[seq_part];
+            if (seq_adaptive && have_input && n > 0U &&
                 (seq_input_activity[seq_part] < 82U ||
                  seq_input_velocity[seq_part] < 46U) &&
                 (current_step & 3U) != 0U) continue;
             const unsigned played_note = seq_adapt_note(seq_part, p->note);
             unsigned velocity = p->velocity;
-            if (seq_adaptive) {
+            if (seq_adaptive && have_input) {
                 const int delta = ((int)seq_input_velocity[seq_part] - 80) / 5;
                 int adjusted = (int)velocity + delta;
                 if ((current_step & 3U) == 0U) adjusted += 5;
@@ -940,7 +941,7 @@ static void seq_tick(void)
              * legato space for relaxed input and shorter articulation when
              * the player is moving quickly. */
             unsigned gate = p->gate_percent > 100U ? 100U : p->gate_percent;
-            if (seq_adaptive) {
+            if (seq_adaptive && have_input) {
                 unsigned adaptive_gate = 82U;
                 if (seq_input_activity[seq_part] < 82U) adaptive_gate = 94U;
                 else if (seq_input_activity[seq_part] > 135U) adaptive_gate = 68U;
