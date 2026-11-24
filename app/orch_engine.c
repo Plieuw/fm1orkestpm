@@ -52,6 +52,9 @@ typedef struct {
     int32_t accent_q16;
     int32_t energy_q16;
     uint16_t vib_phase, vib_inc;
+    uint32_t lfo_phase, lfo_inc, lfo_delay_left, lfo_fade_frames, lfo_fade_gain;
+    uint32_t lfo_hold;
+    int16_t lfo_value;
     uint32_t vib_depth, vib_depth_max, vib_ramp;
     uint32_t vib_delay;
     uint32_t stroke_left;
@@ -120,6 +123,43 @@ static int32_t clamp16(int32_t x)
     if (x > 32767) return 32767;
     if (x < -32768) return -32768;
     return x;
+}
+
+/* Cheap fixed-point LFO waveform generation; no floating point in the ISR. */
+static int32_t lfo_wave_value(unsigned wave, uint32_t phase, uint32_t *hold)
+{
+    const int32_t tri = triangle32(phase);
+    switch (wave) {
+    case ORCH_LFO_TRIANGLE: return tri;
+    case ORCH_LFO_SAW: return (int32_t)(phase >> 16) - 32768;
+    case ORCH_LFO_SQUARE: return (phase & 0x80000000U) ? 32767 : -32768;
+    case ORCH_LFO_SAMPLE_HOLD:
+        if (phase < 0x80000000U && (phase + 0x80000000U) < 0x80000000U)
+            *hold = (*hold * 1664525U) + 1013904223U;
+        return (int32_t)(*hold >> 16) - 32768;
+    case ORCH_LFO_SINE:
+    default: {
+        const int32_t a = tri < 0 ? -tri : tri;
+        return (tri * (49152 - (a >> 1))) >> 15;
+    }
+    }
+}
+static uint32_t lfo_phase_increment(const struct orch_lfo *lfo)
+{
+    uint64_t numerator, denominator = (uint64_t)ORCH_SAMPLE_RATE * 1000U;
+    if (!lfo) return 0U;
+    if (lfo->sync_division) {
+        static const uint8_t mul[5] = {0U,1U,2U,4U,4U};
+        static const uint8_t div[5] = {1U,1U,1U,1U,3U};
+        const unsigned d = lfo->sync_division;
+        numerator = (uint64_t)tempo * mul[d] * 0x100000000ULL;
+        denominator = (uint64_t)60U * ORCH_SAMPLE_RATE * div[d];
+    } else {
+        numerator = (uint64_t)lfo->rate_millihz * 0x100000000ULL;
+    }
+    uint64_t inc = numerator / denominator;
+    if (inc > 0x7fffffffULL) inc = 0x7fffffffULL;
+    return (uint32_t)inc;
 }
 static uint32_t loop_gain_per_sample_q23(unsigned trip_gain_q15, unsigned samples)
 {
@@ -527,6 +567,18 @@ static void voice_start(unsigned part, unsigned note, unsigned velocity,
         uint32_t loop_samples = v->len_target_q16 >> 16;
         if (loop_samples < 4U) loop_samples = 4U;
         v->loop_gain_q23 = loop_gain_per_sample_q23((unsigned)trip_gain, loop_samples);
+    }
+
+    /* Assignable part LFO. Each voice has independent phase and fade state. */
+    {
+        const struct orch_lfo *lfo = cfg ? &cfg->lfo : 0;
+        v->lfo_phase = rng;
+        v->lfo_hold = rng ^ 0xa5a5f00dU;
+        v->lfo_inc = lfo_phase_increment(lfo);
+        v->lfo_delay_left = lfo ? ((uint32_t)lfo->delay_ms * ORCH_SAMPLE_RATE) / 1000U : 0U;
+        v->lfo_fade_frames = lfo ? ((uint32_t)lfo->fade_ms * ORCH_SAMPLE_RATE) / 1000U : 0U;
+        v->lfo_fade_gain = v->lfo_fade_frames ? 0U : 32767U;
+        v->lfo_value = 0;
     }
 
     /* vibrato: a rate per player, depth from the intent, delayed onset */
@@ -1151,6 +1203,38 @@ static void voice_tick(voice_t *v)
         --v->glide_left;
         len = v->len_q16;
     }
+    /* General LFO runs independently of the legacy expressive vibrato. */
+    {
+        const struct orch_part *cfg = orch_part_get(v->part);
+        const struct orch_lfo *lfo = cfg ? &cfg->lfo : 0;
+        if (lfo && lfo->destinations && lfo->depth) {
+            if (v->lfo_delay_left) --v->lfo_delay_left;
+            else {
+                const uint32_t old_phase = v->lfo_phase;
+                v->lfo_phase += v->lfo_inc;
+                if (lfo->wave == ORCH_LFO_SAMPLE_HOLD && v->lfo_phase < old_phase)
+                    v->lfo_hold = v->lfo_hold * 1664525U + 1013904223U;
+                if (v->lfo_fade_gain < 32767U) {
+                    const uint32_t step = v->lfo_fade_frames
+                        ? (32767U / v->lfo_fade_frames) + 1U : 32767U;
+                    v->lfo_fade_gain += step;
+                    if (v->lfo_fade_gain > 32767U) v->lfo_fade_gain = 32767U;
+                }
+                int32_t value = lfo_wave_value(lfo->wave, v->lfo_phase, &v->lfo_hold);
+                value = (value * (int32_t)v->lfo_fade_gain) >> 15;
+                v->lfo_value = (int16_t)value;
+                if (lfo->destinations & ORCH_LFO_PITCH) {
+                    const int32_t cents = ((int32_t)lfo->depth * 50) / 100;
+                    const int32_t delta = (int32_t)(((int64_t)len * cents * 38 * value) >> 24);
+                    const int32_t modulated = (int32_t)len + delta;
+                    if (modulated > 16) len = (uint32_t)modulated;
+                }
+            }
+        } else {
+            v->lfo_value = 0;
+        }
+    }
+
     /* vibrato: delayed, then growing; a triangle on the loop length */
     if (v->vib_depth_max) {
         if (v->vib_delay) {
@@ -1181,7 +1265,18 @@ static void voice_tick(voice_t *v)
      * fundamental over a round trip (0.994^200 is 0.28), so the loop uses a
      * two-tap smoother instead: highs die within a round trip, the
      * fundamental rings for seconds. More damping = darker and shorter. */
-    const unsigned damp = v->damp ? v->damp : 2U; /* 1 dark .. 4+ bright */
+    int damp_value = v->damp ? v->damp : 2U;
+    {
+        const struct orch_part *cfg = orch_part_get(v->part);
+        const struct orch_lfo *lfo = cfg ? &cfg->lfo : 0;
+        if (lfo && (lfo->destinations & ORCH_LFO_BRIGHTNESS)) {
+            const int shift = ((int)v->lfo_value * (int)lfo->depth) / (32768 * 25);
+            damp_value += shift;
+            if (damp_value < 1) damp_value = 1;
+            if (damp_value > 6) damp_value = 6;
+        }
+    }
+    const unsigned damp = (unsigned)damp_value; /* 1 dark .. 6 bright */
     int32_t smoothed = delayed;
     if (damp <= 3U) smoothed = (delayed + v->lp) >> 1;
     if (damp <= 2U) smoothed = (smoothed + v->lp) >> 1;
@@ -1327,7 +1422,16 @@ void orch_render_q23(int32_t *out, unsigned frames)
             voice_tick(v);
             if (!v->active) continue;
             ++active;
-            const int32_t amp = (v->out * v->env >> 15);
+            int32_t amp = (v->out * v->env >> 15);
+            {
+                const struct orch_part *cfg = orch_part_get(v->part);
+                const struct orch_lfo *lfo = cfg ? &cfg->lfo : 0;
+                if (lfo && (lfo->destinations & ORCH_LFO_TREMOLO)) {
+                    const int32_t depth = (int32_t)lfo->depth * 245 / 100;
+                    const int32_t gain = 32767 - ((v->lfo_value + 32768) * depth >> 15);
+                    amp = (amp * gain) >> 15;
+                }
+            }
             const int32_t g = (amp * (int32_t)v->velocity) >> 7;
             left += g * (int32_t)v->pan_l;
             right += g * (int32_t)v->pan_r;
@@ -1392,6 +1496,13 @@ int orch_engine_set_adsr(unsigned part, unsigned attack_ms, unsigned decay_ms,
                          unsigned sustain_percent, unsigned release_ms)
 {
     return orch_part_set_adsr(part, attack_ms, decay_ms, sustain_percent, release_ms);
+}
+int orch_engine_set_lfo(unsigned part, unsigned wave, unsigned destinations,
+                        unsigned depth, unsigned rate_millihz,
+                        unsigned sync_division, unsigned delay_ms, unsigned fade_ms)
+{
+    return orch_part_set_lfo(part, wave, destinations, depth, rate_millihz,
+                             sync_division, delay_ms, fade_ms);
 }
 int orch_engine_set_voice_ceiling(unsigned part, unsigned voices_)
 {
