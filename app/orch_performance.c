@@ -49,11 +49,13 @@ static const uint8_t gate_grooves[8][8] = {
 
 typedef struct { uint8_t note, velocity; } held_note_t;
 typedef struct { uint8_t note; uint32_t off_at; uint8_t used; } active_note_t;
+typedef struct { uint8_t note, velocity, used; uint32_t on_at, gate_samples; } pending_note_t;
 typedef struct {
     struct orch_perf_config cfg;
     held_note_t held[PERF_HELD];
     uint8_t held_count, keys_down, running, first_pending;
     active_note_t active[PERF_ACTIVE];
+    pending_note_t pending[PERF_ACTIVE*3U];
     uint8_t active_count;
     uint32_t step, phrase_step, clock_phase, clock_count;
     uint32_t last_sample, step_len, pending_at;
@@ -285,7 +287,6 @@ static unsigned phrase_pick(perf_part_t *p, const uint8_t *notes,
         if (v<1) v=1; if (v>127) v=127;
         out[i]=note; out_vel[i]=(unsigned)v;
     }
-    p->phrase_step++;
     return count;
 }
 
@@ -303,6 +304,7 @@ static void perform_step(unsigned part, perf_part_t *p, uint32_t now,
 {
     uint8_t held[PERF_HELD], held_vel[PERF_HELD];
     const unsigned n=held_sorted(p,held,held_vel);
+    ++p->phrase_step;
     if (!n) { release_all(part,p); p->running=0U; return; }
 
     unsigned arp_note=0U, arp_vel=0U, arp_hit=0U;
@@ -365,19 +367,18 @@ static void perform_step(unsigned part, perf_part_t *p, uint32_t now,
      * repeated pitches safely by ending the previous instance first. */
     if (p->cfg.phrase_enabled && p->cfg.repeat) {
         const unsigned reps=p->cfg.repeat>3U?3U:p->cfg.repeat;
-        for (unsigned r=1U;r<=reps;++r) {
-            const uint32_t at=now+(step_len*r)/(reps+1U);
+        for (unsigned rep=1U;rep<=reps;++rep) {
+            const uint32_t at=now+(step_len*rep)/(reps+1U);
             for (unsigned i=0;i<count;++i) {
-                if (at==now) continue;
-                /* A repeat is represented by a scheduled active note below;
-                 * the per-sample scheduler emits it at its exact due time. */
-                if (p->active_count<PERF_ACTIVE) {
-                    for (unsigned a=0;a<PERF_ACTIVE;++a) if(!p->active[a].used) {
-                        p->active[a].used=2U;
-                        p->active[a].note=(uint8_t)out[i];
-                        p->active[a].off_at=at;
-                        break;
-                    }
+                for (unsigned a=0;a<PERF_ACTIVE*3U;++a) {
+                    pending_note_t *pn=&p->pending[a];
+                    if (pn->used) continue;
+                    pn->used=1U;
+                    pn->note=(uint8_t)out[i];
+                    pn->velocity=(uint8_t)(outv[i]*(4U-rep)/4U);
+                    pn->on_at=at;
+                    pn->gate_samples=gate_samples*3U/4U;
+                    break;
                 }
             }
         }
@@ -417,6 +418,7 @@ void orch_perf_init(void)
         p->rng=0x6D2B79F5U^(i*0x9E3779B9U);
         for(unsigned n=0;n<PERF_HELD;++n){p->held[n].note=0U;p->held[n].velocity=0U;}
         for(unsigned n=0;n<PERF_ACTIVE;++n){p->active[n].used=0U;p->active[n].note=0U;p->active[n].off_at=0U;}
+        for(unsigned n=0;n<PERF_ACTIVE*3U;++n){p->pending[n].used=0U;p->pending[n].note=0U;p->pending[n].velocity=0U;p->pending[n].on_at=0U;p->pending[n].gate_samples=0U;}
     }
 }
 
@@ -463,7 +465,7 @@ int orch_perf_note_event(unsigned part, unsigned note, unsigned velocity)
             p->held[p->held_count].velocity=(uint8_t)velocity;
             ++p->held_count;
         }
-        if(!p->running) {p->running=1U;p->first_pending=1U;p->step=p->phrase_step=0U;}
+        if(!p->running) {p->running=1U;p->first_pending=1U;p->step=p->phrase_step=0U;p->clock_count=0U;p->clock_phase=0U;}
     } else {
         if(p->keys_down)--p->keys_down;
         if(!p->cfg.latch) {
@@ -507,6 +509,17 @@ void orch_perf_advance_sample(uint32_t sample_now)
     for(unsigned i=0;i<ORCH_PERF_PARTS;++i) {
         perf_part_t *p=&parts[i];
         active_off_due(i,p,sample_now);
+        for(unsigned k=0;k<PERF_ACTIVE*3U;++k) {
+            pending_note_t *pn=&p->pending[k];
+            if(pn->used && (int32_t)(sample_now-pn->on_at)>=0) {
+                generated_on(i,p,pn->note,pn->velocity,sample_now,pn->gate_samples);
+                pn->used=0U;
+            }
+        }
+        if(p->pending_step && (int32_t)(sample_now-p->pending_at)>=0) {
+            p->pending_step=0U;
+            perform_step(i,p,sample_now,p->step_len?p->step_len:1U);
+        }
         if(!p->running || (!p->cfg.arp_enabled&&!p->cfg.phrase_enabled))continue;
         if(p->first_pending) {
             p->first_pending=0U;
@@ -523,10 +536,6 @@ void orch_perf_advance_sample(uint32_t sample_now)
             ++p->clock_count;
             if(p->clock_count%division_ticks[p->cfg.division%ORCH_PERF_DIVISIONS]==0U)
                 clock_step(i,p,sample_now);
-        }
-        if(p->pending_step && (int32_t)(sample_now-p->pending_at)>=0) {
-            p->pending_step=0U;
-            perform_step(i,p,sample_now,p->step_len?p->step_len:1U);
         }
     }
 }
