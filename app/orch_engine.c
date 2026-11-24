@@ -125,6 +125,8 @@ static int32_t clamp16(int32_t x)
     return x;
 }
 
+static int32_t triangle32(uint32_t phase);
+
 /* Cheap fixed-point LFO waveform generation; no floating point in the ISR. */
 static int32_t lfo_wave_value(unsigned wave, uint32_t phase, uint32_t *hold)
 {
