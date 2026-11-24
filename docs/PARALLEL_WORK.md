@@ -57,7 +57,11 @@ and everything below about 0.3.1 is its history too. What 0.4.0 adds:
    orchestra of eight voices is 24 and a single held note (two players) is six;
    it falls through the tail, so a release is not a blackout. A repaint is five
    fills, at most every 50 ms — 100 a second at the very most.
-4. **The bench.** `tests/run_panel_bench.sh` now prints the light's half second
+4. **The level is tested, not only measured.** `tests/orch_level_test.c` holds the
+   keys and watches the light: eight voices reach 24, one held string is six, and
+   a struck timpani dies to nought while the part's note count stays at one — the
+   gate never moves, so the fall can only come from the sound.
+5. **The bench.** `tests/run_panel_bench.sh` now prints the light's half second
    (`sound 0.5s`), the eight-voice orchestra (`orchestra`), the level at each
    point, and the per-page fill counts: five pages 20 653, STAGE 2 683, one
    knob turn 554, its fade 197, and 268 fills for the light's half second.
@@ -95,9 +99,9 @@ commits that follow it. What was done in this round:
    `fx`, `glo`) and `tools/panel_png.py` turns them into PNGs. Look at them; the
    theme cannot be checked any other way here.
 
-State of the checks when handing over: seven suites green
+State of the checks when handing over: eight suites green
 (`orch_adaptive`, `orch_divisi`, `orch_stage`, `orch_engine`, `orch_arp`,
-`orch_ui`, `orch_fx`), every `app/*.c` clean under
+`orch_ui`, `orch_fx`, `orch_level`), every `app/*.c` clean under
 `-std=c11 -O2 -Wall -Wextra -Werror`, and a fresh clone of the branch identical
 to the working tree (the only unpublished files are the rendered `docs/*.png`,
 which are output of the preview and deliberately not committed).
@@ -212,7 +216,7 @@ Whoever merges them should:
   taking that file wholesale silently drops the master FX chain and puts every
   part back on a fixed pan. `fm1_app.c` on this branch is a 60-line adapter and
   should stay that way: audio, MIDI and a call into `orch_ui_*`.
-- **Keep both test sets.** `tests/run_tests.sh` lists the seven suites here;
+- **Keep both test sets.** `tests/run_tests.sh` lists the eight suites here;
   after the merge it must also run `orch_engine_test` and
   `orch_performance_test`, and still run `orch_ui`, `orch_fx`, `orch_stage`
   and `orch_arp`.
@@ -264,7 +268,7 @@ on the FM1 until someone has measured audio-block time and RAM on hardware.
 The commands, with a matching FM1 Core checkout beside this repository:
 
 ```sh
-FM1_CORE=../fm1-core sh tests/run_tests.sh          # seven suites
+FM1_CORE=../fm1-core sh tests/run_tests.sh          # eight suites
 cc -std=c11 -O2 -Wall -Wextra -Werror -DFM1_HOST_TEST \
    -I../fm1-core/include -Iapp -c app/orch_ui.c -o /tmp/ui.o
 cc -std=c11 -O2 -DFM1_HOST_TEST -I../fm1-core/include -Iapp \
