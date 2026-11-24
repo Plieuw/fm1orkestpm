@@ -238,6 +238,32 @@ static void test_adsr_shapes_transient_energy(void)
     CHECK(fast > slow * 2);
 }
 
+static void test_adaptive_sustain_expression(void)
+{
+    int32_t low = 32767, high = -32768;
+    solo_part(ORCH_FAM_STRINGS);
+    CHECK(orch_engine_set_adsr(0U, 2U, 2U, 100U, 900U) == 0);
+    midi(0x90U, 60U, 100U);
+    for (unsigned b = 0; b < 1400U; ++b) {
+        render(1U);
+        {
+            const int32_t value = orch_test_expression_q15();
+            if (value < low) low = value;
+            if (value > high) high = value;
+        }
+    }
+    CHECK(orch_active_voices() == 1U);
+    CHECK(high > low + 500);
+    orch_init();
+
+    /* Percussive mallets should not acquire an artificial held-note swell. */
+    solo_part(ORCH_FAM_MALLETS);
+    midi(0x90U, 60U, 100U);
+    render(20U);
+    CHECK(orch_test_expression_q15() == 0);
+    orch_init();
+}
+
 static void test_release_and_sustain(void)
 {
     solo_part(ORCH_FAM_STRINGS);
@@ -437,6 +463,7 @@ int main(void)
     test_instruments();
     test_divisi_players();
     test_adsr_shapes_transient_energy();
+    test_adaptive_sustain_expression();
     test_release_and_sustain();
     test_sequencer();
     test_sequencer_phrase_arc();
