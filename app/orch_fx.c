@@ -20,27 +20,31 @@
 #include "orch_engine.h"
 #include "orch_fx.h"
 
+#ifndef FM1_AUDIO_DATA
+#define FM1_AUDIO_DATA __attribute__((section(".pool")))
+#endif
+
 #define Q15_MAX 32767
 #define Q15_MIN (-32768)
 
 /* Modulated line shared by the chorus and the ensemble: 93 ms, enough for the
  * three ensemble taps at 18/23/29 ms plus their sweep. Both effects read the
  * dry signal from it, so it is written once per sample. */
-#define MOD_SIZE 4096U
+#define MOD_SIZE 2048U
 #define MOD_MASK (MOD_SIZE - 1U)
 
 /* One echo line per channel: 371 ms, a power of two so the index wraps with a
  * mask. The usable delay range is shorter. */
-#define DLY_SIZE 16384U
+#define DLY_SIZE 4096U
 #define DLY_MASK (DLY_SIZE - 1U)
 
 /* Octave-up grain buffer: two 1024-sample grains, read at double speed. */
-#define PB_SIZE 4096U
+#define PB_SIZE 2048U
 #define PB_MASK (PB_SIZE - 1U)
-#define PB_GRAIN 1024U
+#define PB_GRAIN 512U
 
-#define COMB_MAX 1400U
-#define AP_MAX 600U
+#define COMB_MAX 384U
+#define AP_MAX 192U
 #define COMB_COUNT 4U
 #define AP_COUNT 2U
 
@@ -48,7 +52,8 @@ static int16_t mod_l[MOD_SIZE], mod_r[MOD_SIZE];
 static uint32_t mod_w;
 static uint32_t chorus_phase, ensemble_phase;
 
-static int16_t dly_l[DLY_SIZE], dly_r[DLY_SIZE];
+static int16_t dly_l[DLY_SIZE] FM1_AUDIO_DATA;
+static int16_t dly_r[DLY_SIZE] FM1_AUDIO_DATA;
 static uint32_t dly_w;
 static int32_t dly_cur;
 
@@ -176,8 +181,8 @@ static void clear_state(void)
 
 void orch_fx_init(void)
 {
-    static const uint16_t comb_tune[COMB_COUNT] = { 1116U, 1188U, 1277U, 1356U };
-    static const uint16_t ap_tune[AP_COUNT] = { 556U, 441U };
+    static const uint16_t comb_tune[COMB_COUNT] = { 306U, 326U, 350U, 372U };
+    static const uint16_t ap_tune[AP_COUNT] = { 153U, 121U };
     static const uint8_t defaults_mix[ORCH_FX_SLOT_COUNT] = { 40U, 30U, 25U, 25U };
     static const uint8_t defaults_a[ORCH_FX_SLOT_COUNT] = { 25U, 30U, 50U, 55U };
     static const uint8_t defaults_b[ORCH_FX_SLOT_COUNT] = { 50U, 50U, 35U, 25U };
@@ -308,8 +313,8 @@ void orch_fx_process(int32_t *stereo, unsigned frames)
     const uint32_t ensemble_inc = lfo_inc(fx_a[ORCH_FX_ENSEMBLE], 90U, 1800U);
     const unsigned ensemble_depth = 60U + (unsigned)fx_b[ORCH_FX_ENSEMBLE] * 4U;
 
-    /* 60..259 ms, and up to 90 % feedback. */
-    const int32_t delay_target = 2646 + (int32_t)fx_a[ORCH_FX_DELAY] * 88;
+    /* Compact 14..79 ms slap/echo line, and up to 90 % feedback. */
+    const int32_t delay_target = 600 + (int32_t)fx_a[ORCH_FX_DELAY] * 29;
     const int32_t delay_fb = (int32_t)fx_b[ORCH_FX_DELAY] * 295;
     if (dly_cur < 0) dly_cur = delay_target;
 
