@@ -30,7 +30,8 @@ static void test_latch_and_clock_stop(void) {
     c.latch=1U; c.external_clock=1U;
     CHECK(orch_perf_set_config(2U,&c)==0);
     CHECK(orch_perf_note_event(2U,55U,90U)==1);
-    orch_perf_advance_sample(0U);
+    orch_perf_midi_realtime(0xFAU,0U);
+    orch_perf_midi_realtime(0xF8U,0U);
     CHECK(orch_perf_pop_event(&e)==1 && e.note_on==1U);
     CHECK(orch_perf_note_event(2U,55U,0U)==1);
     orch_perf_midi_realtime(0xFCU,128U);
