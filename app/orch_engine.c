@@ -134,8 +134,6 @@ static int32_t lfo_wave_value(unsigned wave, uint32_t phase, uint32_t *hold)
     case ORCH_LFO_SAW: return (int32_t)(phase >> 16) - 32768;
     case ORCH_LFO_SQUARE: return (phase & 0x80000000U) ? 32767 : -32768;
     case ORCH_LFO_SAMPLE_HOLD:
-        if (phase < 0x80000000U && (phase + 0x80000000U) < 0x80000000U)
-            *hold = (*hold * 1664525U) + 1013904223U;
         return (int32_t)(*hold >> 16) - 32768;
     case ORCH_LFO_SINE:
     default: {
@@ -1225,7 +1223,7 @@ static void voice_tick(voice_t *v)
                 v->lfo_value = (int16_t)value;
                 if (lfo->destinations & ORCH_LFO_PITCH) {
                     const int32_t cents = ((int32_t)lfo->depth * 50) / 100;
-                    const int32_t delta = (int32_t)(((int64_t)len * cents * 38 * value) >> 24);
+                    const int32_t delta = (int32_t)(((int64_t)len * cents * 38 * value) >> 31);
                     const int32_t modulated = (int32_t)len + delta;
                     if (modulated > 16) len = (uint32_t)modulated;
                 }
@@ -1428,7 +1426,7 @@ void orch_render_q23(int32_t *out, unsigned frames)
                 const struct orch_lfo *lfo = cfg ? &cfg->lfo : 0;
                 if (lfo && (lfo->destinations & ORCH_LFO_TREMOLO)) {
                     const int32_t depth = (int32_t)lfo->depth * 245 / 100;
-                    const int32_t gain = 32767 - ((v->lfo_value + 32768) * depth >> 15);
+                    const int32_t gain = 32767 - ((v->lfo_value + 32768) * depth >> 16);
                     amp = (amp * gain) >> 15;
                 }
             }
