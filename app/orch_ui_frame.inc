@@ -35,10 +35,23 @@ static void draw_body(void)
         } else {
             page_parts();
         }
+        page_pic_static = 0;     /* the hall is not a menu's picture: a page
+                                  * entered again draws its band again */
         return;
     }
     hall_static = 0;            /* this page paints over the hall */
-    fm1_screen_fill(0, TITLE_H, SW, STRIP_Y - 1U - TITLE_H, C_BG);
+    /* A menu's picture is drawn when the page is entered and left alone after
+     * that, the way the hall is: a knob turn repaints the values over the
+     * picture, and the picture itself is not painted again. */
+    if (page_pic_page != ui.page) {
+        page_pic_page = ui.page;
+        page_pic_static = 0;
+    }
+    if (!page_pic_static) {
+        fm1_screen_fill(0, TITLE_H, SW, STRIP_Y - 1U - TITLE_H, C_BG);
+        draw_page_picture(ui.page);
+        page_pic_static = 1;
+    }
     switch (ui.page) {
     case PAGE_ARP: page_arp(); break;
     case PAGE_SEQ: page_seq(); break;

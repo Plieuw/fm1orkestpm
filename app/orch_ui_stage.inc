@@ -46,36 +46,23 @@ static unsigned stage_frame(void)
 static void draw_players(void);
 static void draw_instrument_name(void);
 
-static unsigned photo_cell(char c)
-{
-    return (c >= '0' && c <= '9') ? (unsigned)(c - '0')
-                                  : (unsigned)(c - 'a' + 10);
-}
-
 /* The photograph: per row the runs it is made of, three hex characters each —
  * the palette index, then the run's width in cells. A row of the hall is ten
- * or so fills, not a hundred and twenty. */
+ * or so fills, not a hundred and twenty. It is drawn through the same
+ * picture_rows() every other picture on the panel goes through. */
+static const struct panel_picture hall_picture = {
+    photo_palette, photo_frame_runs, photo_frame_rows,
+    PHOTO_FRAMES, PHOTO_ROWS, PHOTO_BLOCK
+};
+
 static void draw_photo_rows(unsigned f, unsigned first, unsigned last)
 {
-    if (f >= PHOTO_FRAMES) f = 0U;
-    const char *runs = photo_frame_runs[f];
-    const uint16_t *rows = photo_frame_rows[f];
-    for (unsigned y = first; y <= last && y < PHOTO_ROWS; ++y) {
-        const unsigned py = PHOTO_Y + y * PHOTO_BLOCK;
-        unsigned px = 0;
-        for (unsigned i = rows[y]; i < rows[y + 1U]; ++i) {
-            const char *run = runs + i * 3U;
-            const unsigned w = (photo_cell(run[1]) << 4) | photo_cell(run[2]);
-            fm1_screen_fill(px, py, w * PHOTO_BLOCK, PHOTO_BLOCK,
-                            photo_palette[photo_cell(run[0])]);
-            px += w * PHOTO_BLOCK;
-        }
-    }
+    picture_rows(&hall_picture, f, 0U, PHOTO_Y, first, last);
 }
 
 static void draw_photo(unsigned f)
 {
-    draw_photo_rows(f, 0U, PHOTO_ROWS - 1U);
+    picture(&hall_picture, f, 0U, PHOTO_Y);
 }
 
 /* The lights stepped: only the band where the frames differ is repainted, and
