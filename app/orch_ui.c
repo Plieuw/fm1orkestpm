@@ -27,6 +27,7 @@
 #include "fm1.h"
 #include "orch_engine.h"
 #include "orch_fx.h"
+#include "orch_level.h"
 #include "orch_part.h"
 #include "orch_stage.h"
 #include "orch_ui.h"
@@ -171,6 +172,7 @@ static const char *page_name(unsigned p)
 #include "orch_ui_view.inc"    /* strings, rows, cards, meters */
 #include "orch_ui_photo.inc"   /* the hall, as a photograph in runs */
 #include "orch_ui_strip.inc"   /* the four knobs' cells along the bottom */
+#include "orch_level.inc"     /* the output the light over the boards follows */
 #include "orch_ui_stage.inc"   /* the parts page and the hall */
 #include "orch_ui_pages.inc"   /* the arp and sequencer pages */
 #include "orch_ui_fx.inc"      /* the console and the FX page */

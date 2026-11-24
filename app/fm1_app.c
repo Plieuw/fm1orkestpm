@@ -3,6 +3,7 @@
 #include "fm1_app.h"
 #include "orch_engine.h"
 #include "orch_fx.h"
+#include "orch_level.h"
 #include "orch_ui.h"
 
 static int engine_started;
@@ -56,5 +57,7 @@ FM1_AUDIO_CODE int fm1_app_render(int32_t *output,unsigned frames) {
         for (unsigned i = 0; i < 2U * frames; ++i)
             output[i] = (int32_t)(((int64_t)output[i] * (int32_t)gain) >> 23);
     }
+    /* what leaves the instrument, for the light the panel draws over it */
+    orch_level_take(output, 2U * frames);
     return 0;
 }
