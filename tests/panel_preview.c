@@ -111,6 +111,11 @@ int main(int argc, char **argv)
 
     orch_init();
     orch_fx_init();
+    /* the stage picture reads best with an orchestra on it */
+    orch_engine_set_instrument(0U, ORCH_INST_VIOLIN);
+    orch_engine_set_instrument(1U, ORCH_INST_VIOLA);
+    orch_engine_set_instrument(2U, ORCH_INST_CELLO);
+    orch_engine_set_instrument(3U, ORCH_INST_DOUBLE_BASS);
     memset(&feed, 0, sizeof feed);
     feed.knob = 820U;
     orch_ui_init();
