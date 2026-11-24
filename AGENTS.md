@@ -24,6 +24,24 @@ firmware package is built, nothing is flashed, and nothing has been heard.
 Never write that the engine or the panel is tested on the FM-1. Everything here
 is a host compile and a host render.
 
+## The browser build
+
+`web/emu/` compiles the app and the engine to WebAssembly behind a hardware
+shim, so the instrument can be played and looked at without a board — see
+`docs/WEB.md`. It is modelled on HAWK CHUA's `web/emu` (newest on `main`,
+649102d), not copied: same idea, our SDK API.
+
+```sh
+pip install ziglang==0.13.0            # or have clang + wasm-ld
+FM1_CORE=../fm1-core sh web/emu/build.sh
+node web/emu/smoke.mjs                 # screen, audio, flash record
+python3 -m http.server 3000            # repo root, then web/emu/index.html
+```
+
+`build/emu/orch.wasm` is build output and stays out of git. The browser proves
+the code runs and sounds somewhere; it says nothing about the FM-1's codec or
+about audio-block time, so it is not a hardware test either.
+
 ## Publishing
 
 `git push` does not work here (no credentials: `could not read Username for
@@ -58,7 +76,8 @@ belongs to.
 - The pan comes from `app/orch_stage.c` (instrument seat, section spread,
   listener). Do not reintroduce a fixed pan per part number.
 - Visual checks: `tests/panel_preview.c` renders five pages to PPM and
-  `tools/panel_png.py` turns them into PNGs. Look at them; the theme cannot be
-  checked any other way without a board.
+  `tools/panel_png.py` turns them into PNGs; `web/emu/` renders the same panel
+  in a browser. Look at them; the theme cannot be checked any other way without
+  a board.
 - The listener's seat is appended to the flash record with its own FNV-1a
   checksum, so older records still load. Keep that pattern for new blocks.
