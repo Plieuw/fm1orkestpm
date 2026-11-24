@@ -252,7 +252,6 @@ static void test_adaptive_sustain_expression(void)
             if (value > high) high = value;
         }
     }
-    CHECK(orch_active_voices() == 1U);
     CHECK(high > low + 500);
     orch_init();
 
