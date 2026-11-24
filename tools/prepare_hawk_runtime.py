@@ -123,11 +123,11 @@ def main() -> None:
         "            else if (st == 0x80u || st == 0x90u)\n"
         "                orch_hawk_note_event((uint8_t)((pkt >> 8) & 15u), (uint8_t)d1, 0u);\n")
     replace_once(keys,
-        "            else if (st == 0xB0u && d1 == 64u)\n"
-        "                orch_hawk_control_change((uint8_t)((pkt >> 8) & 15u), (uint8_t)d1, (uint8_t)d2);\n"
         "            else if (st == 0xB0u && (d1 == 123u || d1 == 120u))\n"
         "                for (uint32_t k2 = 0; k2 < 128u; k2++)\n"
         "                    synth_note_off_b(k2);\n",
+        "            else if (st == 0xB0u && d1 == 64u)\n"
+        "                orch_hawk_control_change((uint8_t)((pkt >> 8) & 15u), (uint8_t)d1, (uint8_t)d2);\n"
         "            else if (st == 0xB0u && (d1 == 123u || d1 == 120u)) {\n"
         "                orch_hawk_control_change((uint8_t)((pkt >> 8) & 15u), (uint8_t)d1, (uint8_t)d2);\n"
         "                for (uint32_t k2 = 0; k2 < 128u; k2++) synth_note_off_b(k2);\n"
