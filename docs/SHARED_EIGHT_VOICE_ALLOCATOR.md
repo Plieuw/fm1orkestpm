@@ -136,3 +136,19 @@ desk when the planner's hysteresis would otherwise leave all desks on older
 held notes. Other desks retain their chord tones. The MIDI and sequencer paths
 use the same promotion helper, allowing a true overlapping legato line without
 breaking the shared voice pool or note-ID release isolation.
+
+
+## Instrument loudness matching
+
+A per-voice output-level follower now applies gentle automatic loudness
+compensation after the physical model and before the final expression/VCA mix.
+It estimates the rectified acoustic level and slowly steers each instrument
+toward a shared target. The target is proportional to incoming MIDI velocity,
+so quieter and louder playing dynamics are retained rather than flattened.
+Compensation is bounded to approximately +/-6 dB, uses a faster rise and slower
+fall to avoid abrupt gain pumping, and leaves the model's spectrum, damping,
+articulation and spatial placement unchanged. It is reset on a fresh note and
+retained across a connected legato handover. Host checks cover the gain limits
+and velocity scaling. Final matching still needs listening across all factory
+instruments and registers on the FM1; this is approximate balancing, not a
+claim of laboratory-calibrated LUFS equality.
