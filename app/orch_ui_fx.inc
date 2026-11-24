@@ -32,8 +32,8 @@ static void page_global(void)
         const unsigned x0 = 200U;
         for (unsigned d = 0; d < 7U; ++d) {
             const unsigned y = BODY_Y + 12U + d * 12U;
-            disc(x0, y, 4U, ui.scale != SCALE_OFF ? C_AMBER : C_CARD, C_AMBER,
-                 C_BG);
+            disc(x0, y, 4U, ui.scale != SCALE_OFF ? C_AMBER2 : C_ROW,
+                 ui.scale != SCALE_OFF ? C_AMBER : C_ROW, C_BG);
         }
         text(x0 - 14U, BODY_Y + 100U, scale_name(ui.scale), C_DIM, C_BG, 60U);
     }
