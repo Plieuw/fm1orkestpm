@@ -181,7 +181,7 @@ static void clear_state(void)
 
 void orch_fx_init(void)
 {
-    static const uint16_t comb_tune[COMB_COUNT] = { 204U, 218U, 234U, 248U };
+    static const uint16_t comb_tune[COMB_COUNT] = { 188U, 200U, 216U, 232U };
     static const uint16_t ap_tune[AP_COUNT] = { 102U, 81U };
     static const uint8_t defaults_mix[ORCH_FX_SLOT_COUNT] = { 40U, 30U, 25U, 25U };
     static const uint8_t defaults_a[ORCH_FX_SLOT_COUNT] = { 25U, 30U, 50U, 55U };
