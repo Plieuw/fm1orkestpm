@@ -5,6 +5,7 @@
 #include <stdint.h>
 #include "orch_adaptive.h"
 #include "orch_part.h"
+#include "orch_performance.h"
 
 #define ORCH_MAX_VOICES 12U
 #define ORCH_MIDI_CHANNELS 16U
