@@ -160,7 +160,7 @@ static unsigned held_sorted(const perf_part_t *p, uint8_t *notes, uint8_t *vel)
     return n;
 }
 
-static unsigned root_note(const perf_part_t *p, const uint8_t *notes, unsigned n)
+static unsigned root_note(const perf_part_t *p, const uint8_t *notes)
 {
     return p->cfg.root ? (unsigned)(p->cfg.root-1U) : (unsigned)(notes[0]%12U);
 }
@@ -175,7 +175,7 @@ static unsigned quantize_note(const perf_part_t *p, const uint8_t *held,
     if (!p->cfg.quantize || !held_n || note>127U) return note;
     uint32_t held_mask=0U;
     for (unsigned i=0;i<held_n;++i) held_mask |= 1U<<(held[i]%12U);
-    const unsigned root=root_note(p,held,held_n);
+    const unsigned root=root_note(p,held);
     held_mask=((held_mask>>root)|(held_mask<<(12U-root)))&0xFFFU;
     uint32_t mask=held_mask;
     if (p->cfg.quantize==2U) {
