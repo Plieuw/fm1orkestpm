@@ -47,14 +47,14 @@ static void page_global(void)
        ui.saved ? C_METER : C_DIM, C_BG);
 }
 
-/* What each effect does to a note, drawn from its own two parameters: a
- * wobble for the chorus and the ensemble, echoes for the delay, a tail that
- * keeps ringing for the shimmer. */
+/* What each effect does to a note, drawn from the two parameters that shape
+ * it: a wobble for the chorus and the ensemble, echoes for the delay, a tail
+ * that keeps ringing for the shimmer. */
 static void fx_shape(unsigned sel, unsigned x, unsigned y, unsigned w,
                      unsigned h, uint16_t fg, uint16_t bg)
 {
     unsigned char v[32];
-    const unsigned a = orch_fx_param_a(sel), b = orch_fx_param_b(sel);
+    const unsigned a = orch_fx_param(sel, 0U), b = orch_fx_param(sel, 1U);
 
     for (unsigned i = 0; i < 32U; ++i) {
         unsigned val;
@@ -101,21 +101,28 @@ static void page_fx(void)
     const unsigned sel = ui.fx_sel < ORCH_FX_SLOT_COUNT ? ui.fx_sel : 0U;
     const int on = (int)orch_fx_enabled(sel);
     const unsigned top = y0 + ORCH_FX_SLOT_COUNT * 17U + 4U;
-    card(6U, top, SW - 12U, 44U, C_CARD);
-    fx_shape(sel, 12U, top + 6U, SW - 24U, 20U,
+    card(6U, top, SW - 12U, 46U, C_CARD);
+    fx_shape(sel, 12U, top + 4U, SW - 24U, 14U,
              on ? mix565(C_METER, C_TEXT, 60U) : C_DIM, C_CARD);
 
-    /* the two parameters of the open effect, one line */
+    /* All four parameters of the open effect, two to a line. The pair the strip
+     * is on is the bright one, so the page and the knobs agree on where the
+     * next turn goes. */
     {
-        char line[32];
-        unsigned n = put(line, 0, sizeof line, orch_fx_param_a_name(sel));
-        n = put(line, n, sizeof line, " ");
-        n = put_num(line, n, sizeof line, orch_fx_param_a(sel), 2U);
-        n = put(line, n, sizeof line, "   ");
-        n = put(line, n, sizeof line, orch_fx_param_b_name(sel));
-        n = put(line, n, sizeof line, " ");
-        put_num(line, n, sizeof line, orch_fx_param_b(sel), 2U);
-        fm1_screen_fill(12U, top + 28U, SW - 24U, 10U, C_CARD);
-        text_center(SW / 2U, top + 30U, line, C_TEXT, C_CARD);
+        const unsigned bank = ui.fx_bank ? 2U : 0U;
+        for (unsigned i = 0; i < ORCH_FX_PARAMS; ++i) {
+            const unsigned cx = 62U + (i % 2U) * 116U;
+            const unsigned y = top + 20U + (i / 2U) * 10U;
+            char line[24];
+            unsigned n = put(line, 0, sizeof line, orch_fx_param_name(sel, i));
+            n = put(line, n, sizeof line, " ");
+            if (sel == ORCH_FX_DELAY && i == 2U)
+                put(line, n, sizeof line, fx_sync_name(orch_fx_param(sel, i)));
+            else
+                put_num(line, n, sizeof line, orch_fx_param(sel, i), 2U);
+            fm1_screen_fill(cx - 56U, y, 112U, 9U, C_CARD);
+            text_center(cx, y, line,
+                        (i / 2U) == (bank / 2U) ? C_TEXT : C_DIM, C_CARD);
+        }
     }
 }

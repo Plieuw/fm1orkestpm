@@ -1,5 +1,15 @@
 /* --- the knobs' jobs ------------------------------------------------------ */
 
+/* SYNC is a division of the beat, not a percentage: the strip says which one
+ * rather than a number that means nothing on its own. */
+static const char *fx_sync_name(unsigned percent)
+{
+    if (!percent) return "FREE";
+    if (percent > 66U) return "1/8";
+    if (percent > 33U) return "1/8T";
+    return "1/16";
+}
+
 static void page_knobs(void)
 {
     const struct orch_part *part = orch_part_get(ui.part);
@@ -27,11 +37,21 @@ static void page_knobs(void)
         cell_text(3, "PANIC", "ALL OFF", 0U, 1);
         break;
     case PAGE_FX: {
+        /* four parameters an effect, two of them on the strip at a time: the
+         * bank says which pair, and PRESETS turns it over */
         const unsigned s = ui.fx_sel < ORCH_FX_SLOT_COUNT ? ui.fx_sel : 0U;
         const int on = (int)orch_fx_enabled(s);
+        const unsigned b = ui.fx_bank ? 2U : 0U;
         cell_number(0, "MIX", (int)orch_fx_mix(s), 0, 100);
-        cell_number(1, orch_fx_param_a_name(s), (int)orch_fx_param_a(s), 0, 100);
-        cell_number(2, orch_fx_param_b_name(s), (int)orch_fx_param_b(s), 0, 100);
+        if (s == ORCH_FX_DELAY && b == 2U)
+            cell_text(1, orch_fx_param_name(s, b),
+                      fx_sync_name(orch_fx_param(s, b)),
+                      orch_fx_param(s, b), 1);
+        else
+            cell_number(1, orch_fx_param_name(s, b),
+                        (int)orch_fx_param(s, b), 0, 100);
+        cell_number(2, orch_fx_param_name(s, b + 1U),
+                    (int)orch_fx_param(s, b + 1U), 0, 100);
         cell_text(3, "POWER", on ? "ON" : "OFF", on ? 100U : 0U, on);
         break;
     }

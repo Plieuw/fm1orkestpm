@@ -85,7 +85,7 @@ struct save_record {
     /* Appended after the original checksum, so a record written by the panel
      * before the FX existed still validates and loads its first part. */
     uint8_t fx_on[ORCH_FX_SLOT_COUNT], fx_mix[ORCH_FX_SLOT_COUNT];
-    uint8_t fx_a[ORCH_FX_SLOT_COUNT], fx_b[ORCH_FX_SLOT_COUNT];
+    uint8_t fx_p[ORCH_FX_SLOT_COUNT][ORCH_FX_PARAMS];
     uint32_t fx_check;
     /* Same again for the stage: a record written before the listener existed
      * keeps its parts and its FX, and only the seat is taken from the panel. */
@@ -97,7 +97,7 @@ struct save_record {
 volatile uint32_t orch_ui_master_q23 = UNITY_Q23;
 
 static struct {
-    uint8_t page, part, seq_on, rec, seq_step, scale, saved, fx_sel;
+    uint8_t page, part, seq_on, rec, seq_step, scale, saved, fx_sel, fx_bank;
     int8_t transpose;
     uint16_t tempo;
     uint32_t buttons, keys;
