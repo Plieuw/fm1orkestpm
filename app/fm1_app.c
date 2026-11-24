@@ -168,6 +168,41 @@ static void panel_apply_performance(unsigned part)
     panel_dirty = 1U;
 }
 
+static void panel_apply_preset(unsigned index)
+{
+    if (index >= ORCH_PRESET_COUNT) return;
+    const orchestra_preset_t *p = &orchestra_presets[index];
+    fm1_engine_pause();
+    for (unsigned part=0U; part<PANEL_PARTS; ++part) {
+        (void)orch_engine_set_instrument(part,p->inst[part]);
+        (void)orch_engine_set_articulation(part,p->art[part]);
+        (void)orch_engine_set_player_cap(part,p->cap[part]);
+        selected_instrument[part]=p->inst[part];
+        selected_art[part]=0U;
+        selected_cap[part]=p->cap[part];
+        orch_perf_default_config(&perf_config[part]);
+        perf_config[part].arp_enabled=p->arp;
+        perf_config[part].phrase_enabled=p->phrase;
+        perf_config[part].arp_type=p->arp_type;
+        perf_config[part].phrase_ge=p->phrase_ge;
+        perf_config[part].bpm=p->bpm;
+        perf_config[part].division=p->division;
+        perf_config[part].density=p->density;
+        perf_config[part].range=p->range;
+        perf_config[part].cluster=p->cluster;
+        perf_config[part].accent=p->accent;
+        perf_config[part].quantize=p->quantize;
+        (void)orch_perf_set_config(part,&perf_config[part]);
+    }
+    for (unsigned fx=0U; fx<ORCH_FX_SLOT_COUNT; ++fx) {
+        (void)orch_fx_set_enabled(fx,p->fx_on[fx]);
+        (void)orch_fx_set_mix(fx,p->fx_mix[fx]);
+    }
+    fm1_engine_resume();
+    selected_preset=(uint8_t)index;
+    panel_dirty=1U;
+}
+
 static void panel_draw(void)
 {
     if (panel_perf_page == 3U) {
