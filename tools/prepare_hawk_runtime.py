@@ -86,7 +86,7 @@ def main() -> None:
         '#undef parts\n'
         '#define voice_t orch_voice_t\n'
         '#define rng orch_rng_state\n'
-        '#define ENV_MAX ORCH_ENV_MAX\n'
+        '#undef ENV_MAX\n'
         '#include "orchestra/orch_engine.c"\n'
         '#undef ENV_MAX\n'
         '#undef rng\n'
