@@ -24,10 +24,10 @@ sequencer, the effects, the note map, the save record and what is tested.
 | --- | --- |
 | `SELECT` | choose the part (1..4, wraps); the LED of the part lights |
 | `ALGORITHM` | family on STAGE; mode on ARP; step on SEQUENCE; scale on CONSOLE; effect on FX |
-| `PRESETS` | next/previous instrument inside the current family, wrapping |
+| `PRESETS` | next/previous instrument inside the current family, wrapping; on FX it turns the strip over to the effect's other two parameters |
 | `KNOB1` | divisi players 1..4 / arp rate / step velocity / FX mix |
-| `KNOB2` | voice ceiling / octaves / step gate / semitone transpose / FX parameter A |
-| `KNOB3` | listener across the stage / arp gate / step tempo / tempo on CONSOLE and SEQUENCE / FX parameter B |
+| `KNOB2` | voice ceiling / octaves / step gate / semitone transpose / the effect's first (or third) parameter |
+| `KNOB3` | listener across the stage / arp gate / step tempo / tempo on CONSOLE and SEQUENCE / the effect's second (or fourth) parameter |
 | `KNOB4` | listener depth (how far back) / arp mode / clear step / FX on-off / **panic** on CONSOLE |
 | `OCT-` `OCT+` | transpose the part an octave down or up (clamped to ±24) |
 | `FX` | open the FX page (chorus, ensemble, delay, shimmer reverb). Pressed again on that page it is the old sound check: a four-part chord, released after 900 ms |

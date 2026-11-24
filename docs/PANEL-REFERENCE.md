@@ -11,9 +11,9 @@ lights for a second after its knob moves, so the eye finds the one that changed.
 The cells change with the page: players, voices, listener and depth on STAGE;
 rate, octaves, gate and mode on ARP; the selected step's velocity, gate and
 tempo plus clear on SEQUENCE; scale, transpose, tempo and panic on CONSOLE; and
-the selected effect's mix, its two parameters and its power on FX. This is HAWK
-CHUA's layout (`firmware/src/ui.c`, `ui_cell`): the knob, its name and its value
-in one cell, instead of help lines that have to be read.
+the selected effect's mix, two of its four parameters and its power on FX. This
+is HAWK CHUA's layout (`firmware/src/ui.c`, `ui_cell`): the knob, its name and
+its value in one cell, instead of help lines that have to be read.
 
 Turning behaves as it does in HAWK CHUA (`knob_accel` in the same file):
 
@@ -25,7 +25,7 @@ Turning behaves as it does in HAWK CHUA (`knob_accel` in the same file):
   mode, effect, scale, step) moves exactly one place a detent, so a quick turn
   cannot skip an entry;
 * turning the other way starts again at x1;
-* the percentages — the FX mix and its two parameters, the arp gate, the step's
+* the percentages — the FX mix and its parameters, the arp gate, the step's
   velocity and gate — keep the 5 % a detent the panel always had, so slow
   turning is as fine as it was, and a fast turn only doubles that step: a range
   never jumps the values the fine step exists for. The tempo and the transpose
@@ -123,14 +123,23 @@ chorus -> ensemble -> echo -> shimmer reverb
 
 All four are fixed point, allocation-free and off by default. They are a master
 insert, so **one setting applies to all four parts**; there are no per-part
-sends. Each effect has a dry/wet mix and two parameters, all in percent:
+sends. Each effect has a dry/wet mix and four parameters of its own, all in
+percent; the mix is one knob on the FX page and the four are two pairs, which
+PRESETS turns over:
 
-| Effect | Parameter A | Parameter B | What it does |
-| --- | --- | --- | --- |
-| CHORUS | RATE 0.15..5 Hz | DEPTH 2..8 ms | one modulated tap per channel, opposite LFO phase |
-| ENSEMBLE | RATE 0.09..1.8 Hz | WIDTH 1..10 ms | three taps at 18/23/29 ms with their own LFO phases |
-| DELAY | TIME 60..260 ms | FEEDBACK 0..90 % | ping-pong stereo echo, time glides instead of clicking |
-| SHIMMER | DECAY 0.70..0.92 | SHIM 0..70 % | four damped combs and two allpasses per channel, with an octave-up grain shifter in the feedback path |
+| Effect | Parameters | What they do |
+| --- | --- | --- |
+| CHORUS | RATE 0.15..5 Hz, DEPTH 2..8 ms, SPREAD 0..half a cycle, TONE dark..open | one modulated tap per channel; SPREAD is how far apart the two sides sweep, TONE a one-pole low pass on the wet path |
+| ENSEMBLE | RATE 0.09..1.8 Hz, DEPTH, WIDTH 60..140 %, TAPS 1..3 | three taps at 18/23/29 ms with their own LFO phases; WIDTH spaces them, TAPS takes them from one to three |
+| DELAY | TIME 60..260 ms, FEEDBACK 0..90 %, SYNC free/1-16/1-8T/1-8, DAMP open..dark | ping-pong stereo echo, time glides instead of clicking; SYNC snaps the time to the beat the tempo is at, DAMP takes the top off every repeat |
+| SHIMMER | DECAY 0.70..0.92, SHIM 0..70 %, EARLY 0..100, DAMP open..dark | four damped combs and two allpasses per channel with an octave-up grain shifter in the feedback path; EARLY is the level of three short reflections of the input in front of the network, DAMP how much top the combs lose each pass |
+
+The delay's SYNC follows the panel's tempo, so an echo set to a sixteenth lands
+on the sixteenth at whatever speed the sequencer runs; the panel tells the
+engine the tempo whenever it changes. The four parameters are two pairs on the
+strip because four knobs also have to carry the mix and the power: PRESETS, which
+has no other job on this page, turns the strip over to the other pair, and the
+card shows all four, the pair the knobs are on in white.
 
 The delay and reverb tails are flushed by the panic move (`KNOB4` on CONSOLE)
 and by `orch_panic()`, so a stuck tail cannot outlive a panic. The reverb is an
@@ -154,8 +163,8 @@ and the five arp settings, followed by an FNV-1a checksum. On start-up the panel
 reads it back and applies it only when the magic and the checksum both match, so
 a blank or half-written sector is ignored rather than loaded.
 
-The FX block (on/off, mix, both parameters per effect) is appended **after** the
-original checksum with its own FNV-1a checksum, and the listener's seat
+The FX block (on/off, mix, all four parameters per effect) is appended **after**
+the original checksum with its own FNV-1a checksum, and the listener's seat
 (left/right and depth) is appended after that with a checksum of its own. That
 keeps the old record layout intact: a record written before the FX or the
 listener existed still loads its parts, and only the block whose checksum
