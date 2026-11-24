@@ -453,8 +453,8 @@ static void panel_draw(void)
     static const uint16_t amber=0xFD20U, green=0x07E0U;
     const unsigned p=selected_part;
     static const char *const part_labels[PANEL_PARTS] = {
-        "PART 1 CH 1-4", "PART 2 CH 5-8",
-        "PART 3 CH 9-12", "PART 4 CH 13-16"
+        "PART 1 CH 1", "PART 2 CH 2", "PART 3 CH 3", "PART 4 CH 4",
+        "PART 5 CH 5", "PART 6 CH 6", "PART 7 CH 7", "PART 8 CH 8"
     };
     char line[24];
     fm1_screen_fill(0U,0U,FM1_SCREEN_WIDTH,FM1_SCREEN_HEIGHT,bg);
