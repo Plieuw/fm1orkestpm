@@ -17,23 +17,23 @@ encoders  0 SELECT  1 ALGORITHM  2 KNOB1  3 KNOB2  4 KNOB3  5 KNOB4  6 PRESETS
 | Control | Job |
 | --- | --- |
 | `SELECT` | choose the part (1..4, wraps); the LED of the part lights |
-| `ALGORITHM` | family on PARTS; mode on ARP; step on SEQUENCER; scale on GLOBAL; effect on FX |
+| `ALGORITHM` | family on STAGE; mode on ARP; step on SEQUENCE; scale on CONSOLE; effect on FX |
 | `PRESETS` | next/previous instrument inside the current family, wrapping |
 | `KNOB1` | divisi players 1..4 / arp rate / step velocity / FX mix |
 | `KNOB2` | voice ceiling / octaves / step gate / semitone transpose / FX parameter A |
-| `KNOB3` | listener across the stage / arp gate / step tempo / tempo on GLOBAL and SEQUENCER / FX parameter B |
-| `KNOB4` | listener depth (how far back) / arp mode / clear step / FX on-off / **panic** on GLOBAL |
+| `KNOB3` | listener across the stage / arp gate / step tempo / tempo on CONSOLE and SEQUENCE / FX parameter B |
+| `KNOB4` | listener depth (how far back) / arp mode / clear step / FX on-off / **panic** on CONSOLE |
 | `OCT-` `OCT+` | transpose the part an octave down or up (clamped to ±24) |
 | `FX` | open the FX page (chorus, ensemble, delay, shimmer reverb). Pressed again on that page it is the old sound check: a four-part chord, released after 900 ms |
 | `SCL` | cycle the note map: OFF, MAJOR, MINOR, PENTA |
 | `ENV` `LFO` | articulation step down / up |
-| `EDIT` `HOME` | back to the PARTS page |
-| `GLO` | GLOBAL page |
+| `EDIT` `HOME` | back to the STAGE page |
+| `GLO` | CONSOLE page |
 | `SAVE` | write the settings record to flash; the LED shows it was done |
 | `ARP` | open the ARP page and toggle this part's arpeggiator |
-| `SEQ` | open the SEQUENCER page |
+| `SEQ` | open the SEQUENCE page |
 | `PLAY` | start/stop the sequencer on the selected part |
-| `REC` | arm the keys for step recording (SEQUENCER page only) |
+| `REC` | arm the keys for step recording (SEQUENCE page only) |
 | panel knob | master level, quadratic, 0..unity; independent of the page |
 
 The master gain (`orch_ui_master_q23`) and one byte per FX setting are the only
@@ -46,9 +46,9 @@ context.
 The four knob cells at the bottom of the screen are the page's menu: each cell
 is a small knob with its label under it and the value under that, and the value
 lights for a second after its knob moves, so the eye finds the one that changed.
-The cells change with the page: players, voices, listener and depth on PARTS;
+The cells change with the page: players, voices, listener and depth on STAGE;
 rate, octaves, gate and mode on ARP; the selected step's velocity, gate and
-tempo plus clear on SEQUENCER; scale, transpose, tempo and panic on GLOBAL; and
+tempo plus clear on SEQUENCE; scale, transpose, tempo and panic on CONSOLE; and
 the selected effect's mix, its two parameters and its power on FX. This is HAWK
 CHUA's layout (`firmware/src/ui.c`, `ui_cell`): the knob, its name and its value
 in one cell, instead of help lines that have to be read.
@@ -79,24 +79,26 @@ PRESETS is encoder 6 and KNOB1..4 are 2..5.
 
 ## Pages
 
-There are five pages: **PARTS**, **ARP**, **SEQUENCER**, **GLOBAL**, **FX**.
+There are five pages, and they are named for the hall the panel plays in:
+**STAGE**, **ARP**, **SEQUENCE**, **CONSOLE**, **FX**.
 
-*PARTS* — one row per part: family, instrument and articulation, the player
-count, and a live meter of the voices it is using. Under the rows is the stage
-picture: a bar with a square for each part at its section's place and a yellow
-mark for the listener's seat, plus the shortcuts. `KNOB3` moves the listener
-across the stage and `KNOB4` moves it back.
+*STAGE* — the page the panel opens on. One row per part: family, instrument and
+articulation, the player count, and a live meter of the voices it is using.
+Under the rows is the hall itself: the orchestra shell, the wooden floor, the
+curtains at the sides and the audience row in front, with a block for each part
+on its section's place (the selected part in green) and the listener's seat lit
+in orange. `KNOB3` moves the listener across the stage and `KNOB4` moves it back.
 
 *ARP* — mode, octaves, rate, gate and the number of held keys, plus what the
 encoders do on this page.
 
-*SEQUENCER* — sixteen steps. The selected step is highlighted, a step that holds
+*SEQUENCE* — sixteen steps. The selected step is highlighted, a step that holds
 notes has an orange mark, and the step that is playing has a green bar under it
 while the pattern runs. Below the grid: the step number, its notes, velocity and
 gate.
 
-*GLOBAL* — tempo, transpose, scale, volume and the save state, with the shortcuts
-of the buttons that are not page specific.
+*CONSOLE* — tempo, transpose, scale, volume and the save state, with the
+shortcuts of the buttons that are not page specific.
 
 *FX* — one row per effect: name, on/off, mix and its two parameters. The
 selected row is highlighted. `ALGORITHM` moves the selection, `KNOB1` is the
@@ -119,11 +121,11 @@ python3 tools/panel_png.py /tmp/p-seq.ppm   /tmp/p-seq.png
 python3 tools/panel_png.py /tmp/p-fx.ppm    /tmp/p-fx.png
 ```
 
-`panel_preview` writes four pages as PPM: the PARTS page with an orchestra on
-the stage and a four-part chord sounding, the ARP page with three held keys,
-the SEQUENCER page with three recorded steps and the playing step marked, and
-the FX page with all four effects on and the delay row selected. The PNGs are
-not committed, because they are output of that command and would go stale.
+`panel_preview` writes four pages as PPM: the STAGE page with an orchestra in the
+hall and a four-part chord sounding, the ARP page with three held keys, the
+SEQUENCE page with three recorded steps and the playing step marked, and the FX
+page with all four effects on and the delay row selected. The PNGs are not
+committed, because they are output of that command and would go stale.
 
 ## Stage and listener
 
@@ -147,8 +149,13 @@ seats are in `app/orch_stage.c`, and the seat of a part comes from its
 instrument, so the sequencer, the arpeggiator and MIDI all put a note in the
 same place.
 
+The STAGE page draws that hall as a silhouette: the shell behind the players, the
+wooden floor they stand on, the curtains at the sides and the audience row in
+front, where the lit seat is the listener. It is rectangle fills only, so it
+reads as a hall without pretending to be a picture of one.
+
 The listener is the one control over that image (`KNOB3` and `KNOB4` on the
-PARTS page, and in the save record):
+STAGE page, and in the save record):
 
 * **left/right** (-100..100) shifts the whole orchestra; 5 a detent, at most 10
   when flicked;
@@ -213,7 +220,7 @@ sends. Each effect has a dry/wet mix and two parameters, all in percent:
 | DELAY | TIME 60..260 ms | FEEDBACK 0..90 % | ping-pong stereo echo, time glides instead of clicking |
 | SHIMMER | DECAY 0.70..0.92 | SHIM 0..70 % | four damped combs and two allpasses per channel, with an octave-up grain shifter in the feedback path |
 
-The delay and reverb tails are flushed by the panic move (`KNOB4` on GLOBAL)
+The delay and reverb tails are flushed by the panic move (`KNOB4` on CONSOLE)
 and by `orch_panic()`, so a stuck tail cannot outlive a panic. The reverb is an
 insert, not a send: at 100 % mix only the reverb is heard.
 
