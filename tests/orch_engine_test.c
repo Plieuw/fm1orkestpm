@@ -250,6 +250,14 @@ static void test_external_midi_clock(void)
     orch_init();
 }
 
+static void test_sequencer_phrase_arc(void)
+{
+    CHECK(orch_test_seq_phrase_arc_velocity(100U,0U) <
+          orch_test_seq_phrase_arc_velocity(100U,8U));
+    CHECK(orch_test_seq_phrase_arc_velocity(100U,15U) <
+          orch_test_seq_phrase_arc_velocity(100U,8U));
+}
+
 static void test_sequencer(void)
 {
     struct orch_step_note note;
@@ -340,6 +348,7 @@ int main(void)
     test_divisi_players();
     test_release_and_sustain();
     test_sequencer();
+    test_sequencer_phrase_arc();
     test_arp_phrase_integration();
     test_external_midi_clock();
     test_strings_are_not_dc();
