@@ -250,6 +250,7 @@ static void test_overlapping_notes_use_legato_handover(void)
      * overlapping legato handover, not a fresh attack from silence. */
     midi(0x90U, 64U, 104U);
     render(8U);
+    CHECK(orch_last_intent(0U) && orch_last_intent(0U)->connected);
     CHECK(orch_note_count(0U) == 2U);
     CHECK(orch_voices_of_part(0U) == 1U);
     CHECK(orch_active_voices() == 1U);
