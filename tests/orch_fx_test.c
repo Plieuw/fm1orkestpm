@@ -130,7 +130,7 @@ static void test_reverb(void)
 {
     uint64_t early = 0, late = 0, shimmer_early = 0, shimmer_late = 0;
 
-    reverb_run(0U, 0, &early, &late);
+    reverb_run(0U, 1, &early, &late);
     CHECK(early > 0U);
     CHECK(late > 0U);
     CHECK(late < early);              /* the tail decays */
