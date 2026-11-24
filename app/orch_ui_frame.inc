@@ -117,10 +117,11 @@ static uint32_t page_live_signature(void)
     case PAGE_SEQ: return (uint32_t)orch_seq_position() | 0x400U;
     case PAGE_HOME: {
         /* the voices as four nibbles, which of the hall's frames is on screen,
-         * and the output the light in front of the boards follows: the lights
-         * of a playing hall change on their own */
+         * and the output the light in front of the boards follows — all 24
+         * steps of it, in bits 24..28: the lights of a playing hall change on
+         * their own */
         uint32_t sig = 0x400U | ((uint32_t)(stage_frame() + 1U) << 20);
-        sig |= ((uint32_t)(orch_output_level() >> 3) & 0x1FU) << 24;
+        sig |= ((uint32_t)orch_output_level() & 0x1FU) << 24;
         for (unsigned p = 0; p < ORCH_PARTS; ++p)
             sig |= ((uint32_t)orch_voices_of_part(p) & 0xFU) << (4U * p);
         return sig;
