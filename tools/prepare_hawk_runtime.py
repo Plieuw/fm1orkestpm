@@ -65,7 +65,7 @@ def main() -> None:
         "#define ORCH_HAWK_FM1_COMPAT_H\n"
         "/* The engine only uses this placement macro in its HAWK port. */\n"
         "#define FM1_AUDIO_CODE\n"
-        "#define FM1_AUDIO_DATA\n"
+        "#define FM1_AUDIO_DATA __attribute__((section(\".pool\")))\n"
         "#endif\n"
     )
     shutil.copy2(Path(__file__).resolve().parents[1] /
