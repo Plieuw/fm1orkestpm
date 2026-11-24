@@ -242,6 +242,33 @@ static unsigned groove_gate(const perf_part_t *p, unsigned step, unsigned base)
     return out;
 }
 
+/* Shared musical envelope: rise, peak, then breathe into the cadence. */
+static const uint8_t phrase_arc[16] = {
+    82U, 86U, 90U, 95U, 101U, 107U, 113U, 118U,
+    120U, 116U, 108U, 99U, 90U, 82U, 74U, 68U
+};
+
+static unsigned arc_velocity(unsigned velocity, unsigned position)
+{
+    unsigned value=(velocity*(unsigned)phrase_arc[position&15U]+50U)/100U;
+    if(value<1U)value=1U;
+    if(value>127U)value=127U;
+    return value;
+}
+
+static unsigned arc_gate(unsigned gate, unsigned position)
+{
+    unsigned value=(gate*(unsigned)phrase_arc[position&15U]+50U)/100U;
+    if(value<5U)value=5U;
+    if(value>100U)value=100U;
+    return value;
+}
+
+#ifdef FM1_HOST_TEST
+unsigned orch_test_phrase_arc_velocity(unsigned velocity, unsigned position)
+{ return arc_velocity(velocity,position); }
+#endif
+
 static unsigned arp_pick(perf_part_t *p, const uint8_t *notes, const uint8_t *vel,
                          unsigned n, unsigned *out, unsigned *out_vel)
 {
@@ -424,17 +451,17 @@ static void perform_step(unsigned part, perf_part_t *p, uint32_t now,
     unsigned out[PERF_MAX_STEP_NOTES], outv[PERF_MAX_STEP_NOTES], count=0U;
     if (use_arp) {
         const unsigned note=quantize_note(p,held,n,arp_note);
-        append_unique(out,outv,&count,note,groove_velocity(p,p->step,arp_vel));
+        append_unique(out,outv,&count,note,arc_velocity(groove_velocity(p,p->step,arp_vel),p->phrase_step));
     }
     if (use_seq) {
         for (unsigned i=0;i<seq_n;++i)
             append_unique(out,outv,&count,quantize_note(p,held,n,seq_notes[i]),
-                          groove_velocity(p,p->step,seq_vel[i]));
+                          arc_velocity(groove_velocity(p,p->step,seq_vel[i]),p->phrase_step));
     }
     if (!count) { ++p->step; ++p->phrase_step; return; }
 
     const unsigned gate_base=p->cfg.gate>100U?100U:p->cfg.gate;
-    const unsigned gate_pct=groove_gate(p,p->step,gate_base);
+    const unsigned gate_pct=arc_gate(groove_gate(p,p->step,gate_base),p->phrase_step);
     const uint32_t gate_samples=(step_len*gate_pct)/100U;
     for (unsigned i=0;i<count;++i)
         generated_on(part,p,out[i],outv[i],now,gate_samples);
