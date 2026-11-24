@@ -217,6 +217,27 @@ static void test_divisi_players(void)
     orch_init();
 }
 
+static int64_t measure_adsr_attack_energy(unsigned attack_ms)
+{
+    int64_t energy = 0;
+    solo_part(ORCH_FAM_STRINGS);
+    CHECK(orch_engine_set_adsr(0U, attack_ms, 180U, 82U, 350U) == 0);
+    midi(0x90U, 60U, 100U);
+    /* First ~26 ms: the ADSR must shape both the output and the excitation. */
+    energy = render_energy(9U);
+    orch_init();
+    return energy;
+}
+
+static void test_adsr_shapes_transient_energy(void)
+{
+    const int64_t fast = measure_adsr_attack_energy(5U);
+    const int64_t slow = measure_adsr_attack_energy(260U);
+    CHECK(fast > 0);
+    CHECK(slow > 0);
+    CHECK(fast > slow * 2);
+}
+
 static void test_release_and_sustain(void)
 {
     solo_part(ORCH_FAM_STRINGS);
@@ -415,6 +436,7 @@ int main(void)
     test_families();
     test_instruments();
     test_divisi_players();
+    test_adsr_shapes_transient_energy();
     test_release_and_sustain();
     test_sequencer();
     test_sequencer_phrase_arc();
