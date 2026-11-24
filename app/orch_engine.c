@@ -1551,6 +1551,15 @@ void orch_render_q23(int32_t *out, unsigned frames)
 
 /* ----------------------------------------------------------- inspection */
 
+#ifdef FM1_HOST_TEST
+int32_t orch_test_expression_q15(void)
+{
+    for (unsigned i = 0; i < ORCH_MAX_VOICES; ++i)
+        if (voices[i].active) return voices[i].expr_q15;
+    return 0;
+}
+#endif
+
 unsigned orch_active_voices(void)
 {
     unsigned n = 0U;
