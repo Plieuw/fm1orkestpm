@@ -25,7 +25,7 @@ void orch_midi_short_message(const uint8_t *message, unsigned bytes);
 void orch_midi_realtime(unsigned status);
 void orch_midi_clock_tempo(unsigned bpm);
 void orch_note_event(unsigned channel, unsigned note, unsigned velocity);
-void orch_panic(void);
+void orch_reset_notes(void);
 
 /* Parts: channel routing, family, articulation and divisi ceiling. */
 int orch_engine_configure_part(unsigned part, unsigned family, uint16_t channels);
