@@ -22,6 +22,16 @@ M-Flasher is the host-side backup/restore/flash application; `m-bootloader` is t
 6. **Keep user data untouched.** The update loader excludes the user-data interval [0x97000, 0xE0000).
 7. **Do not claim brick-proof.** Power loss, flash-chip incompatibility, hardware faults, or a damaged bootloader can still require external recovery. Recovery reduces risk; it cannot make hardware writes infallible.
 
+## Dual flash-chip compatibility
+
+The FM-1 has two known 1 MiB production flash variants:
+- Puya P25Q80: JEDEC ID `0x856014`.
+- UC25HQ80: JEDEC ID `0xB36014`.
+
+The Orchestral package remains a single firmware build for both variants. The pinned HAWK flash HAL uses the same documented SPI-NOR commands for these two parts. The build overlay now checks the live JEDEC ID before every physical erase and program operation and permits only these two IDs. Unknown physical IDs fail closed; the browser emulator is exempt because it has no physical JEDEC chip. No per-chip firmware images or bootloader replacement are needed for these two supported variants.
+
+CI checks that both IDs remain in the allow-list and that both destructive operations retain the guard. This is source-level compatibility validation, not a substitute for testing both hardware revisions.
+
 ## What the current pinned OTA loader protects
 
 The HAWK/Felucca loader used by the Orchestral build has two explicit protections:
