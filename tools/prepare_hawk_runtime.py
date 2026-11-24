@@ -55,12 +55,12 @@ def main() -> None:
     flash_hal = root / "firmware" / "hal" / "fm1_flash.h"
     replace_once(flash_hal,
         "    uint32_t f = irq_save();\n    int rc = FL_FAR(fl_erase4k_ram)(off, took_us);\n",
-        "    if (!fl_emulated() && !fl_id_ok(fl_jedec_ram())) return -5; /* refuse unsupported physical flash */\n"
+        "    if (!fl_emulated() && !fl_id_ok(FL_FAR(fl_jedec_ram)())) return -5; /* refuse unsupported physical flash */\n"
         "    uint32_t f = irq_save();\n    int rc = FL_FAR(fl_erase4k_ram)(off, took_us);\n")
     replace_once(flash_hal,
         "    uint32_t took;\n    while (n) {\n",
         "    uint32_t took;\n"
-        "    if (!fl_emulated() && !fl_id_ok(fl_jedec_ram())) return -5; /* refuse unsupported physical flash */\n"
+        "    if (!fl_emulated() && !fl_id_ok(FL_FAR(fl_jedec_ram)())) return -5; /* refuse unsupported physical flash */\n"
         "    while (n) {\n")
 
     app = Path(__file__).resolve().parents[1] / "app"
