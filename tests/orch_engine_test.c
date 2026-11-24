@@ -514,6 +514,7 @@ int main(void)
     test_divisi_players();
     test_adsr_shapes_transient_energy();
     test_connected_legato_preserves_waveguide();
+    test_overlapping_notes_use_legato_handover();
     test_adaptive_sustain_expression();
     test_release_and_sustain();
     test_sequencer();
