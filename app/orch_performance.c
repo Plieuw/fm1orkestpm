@@ -515,22 +515,30 @@ int orch_perf_note_event(unsigned part, unsigned note, unsigned velocity)
         /* Learn the player's contour before the generated notes are chosen.
          * This state is intentionally separate from generated_on(), avoiding
          * feedback loops where the ARP learns from its own output. */
-        if (p->input_have_note) {
-            const int delta=(int)note-(int)p->input_note;
-            if (delta>=2) p->input_direction=1;
-            else if (delta<=-2) p->input_direction=-1;
-            if (p->input_last_on && p->last_sample>p->input_last_on) {
-                const uint32_t ioi=p->last_sample-p->input_last_on;
-                if (ioi<PERF_CLOCK_TIMEOUT*8U)
-                    p->input_ioi_avg=p->input_ioi_avg?
-                        (p->input_ioi_avg*3U+ioi)/4U:ioi;
-            }
-            if (p->input_phrase_age<15U) ++p->input_phrase_age;
-        } else p->input_phrase_age=0U;
-        p->input_note=(uint8_t)note; p->input_have_note=1U;
-        p->input_last_on=p->last_sample;
-        p->input_velocity_avg=p->input_velocity_avg?
-            (uint8_t)(((unsigned)p->input_velocity_avg*3U+velocity)/4U):(uint8_t)velocity;
+        {
+            const unsigned previous_note=p->input_note;
+            const unsigned previous_velocity=p->input_velocity_avg;
+            const unsigned had_note=p->input_have_note;
+            p->input_peak=0U;
+            if (had_note) {
+                const int delta=(int)note-(int)previous_note;
+                if (delta>=2) p->input_direction=1;
+                else if (delta<=-2) p->input_direction=-1;
+                if (p->input_last_on && p->last_sample>p->input_last_on) {
+                    const uint32_t ioi=p->last_sample-p->input_last_on;
+                    if (ioi<PERF_CLOCK_TIMEOUT*8U)
+                        p->input_ioi_avg=p->input_ioi_avg?
+                            (p->input_ioi_avg*3U+ioi)/4U:ioi;
+                }
+                if (p->input_phrase_age<15U) ++p->input_phrase_age;
+                if (delta>=5) p->input_peak=1U;
+            } else p->input_phrase_age=0U;
+            if (had_note && velocity>previous_velocity+20U) p->input_peak=1U;
+            p->input_note=(uint8_t)note; p->input_have_note=1U;
+            p->input_last_on=p->last_sample;
+            p->input_velocity_avg=previous_velocity?
+                (uint8_t)((previous_velocity*3U+velocity)/4U):(uint8_t)velocity;
+        }
         p->input_activity=100U;
         if (p->input_ioi_avg) {
             const uint32_t nominal=(ORCH_PERF_SAMPLE_RATE*3U)/4U;
@@ -539,9 +547,6 @@ int orch_perf_note_event(unsigned part, unsigned note, unsigned velocity)
             else p->input_activity=(uint8_t)(165U-
                 ((p->input_ioi_avg-nominal/2U)*100U)/(nominal*3U/2U));
         }
-        p->input_peak=(uint8_t)(velocity>p->input_velocity_avg+20U ||
-                                  (p->input_phrase_age>1U &&
-                                   (note>p->input_note+5U || note+5U<p->input_note)));
         if(!p->keys_down&&p->cfg.latch) p->held_count=0U;
         ++p->keys_down;
         for(unsigned i=0;i<p->held_count;++i) if(p->held[i].note==note)return 1;
