@@ -1,7 +1,8 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 /* The browser page as a piece of hardware: a brushed aluminium front panel with
  * walnut cheeks in a concert hall, the FM-1's own 240x240 panel behind glass,
- * real button caps and knurled knobs. Photographs: see assets/CREDITS.md. */
+ * real button caps and knurled knobs. The hall and the wood are vectors, drawn
+ * for this project: see assets/CREDITS.md. */
 
 :root {
   --ink: #121417;
@@ -25,9 +26,9 @@ body {
 /* the hall, out of focus behind the instrument */
 .room {
   position: fixed; inset: -24px;
-  background: #0a0a0b url("assets/hall.jpg") center 36% / cover no-repeat;
-  filter: blur(2.5px) saturate(1.12) brightness(0.98) contrast(1.04);
-  transform: scale(1.06);
+  background: #0a0a0b url("assets/hall.svg") center 42% / cover no-repeat;
+  filter: blur(1.6px) saturate(1.08) brightness(0.9) contrast(1.03);
+  transform: scale(1.04);
   z-index: 0;
 }
 .room::after {
@@ -71,7 +72,7 @@ body {
 .cheek {
   position: relative; z-index: 1;
   flex: none; width: 30px; border-radius: 16px 0 0 16px;
-  background: #6b482c url("assets/wood.jpg") center / cover;
+  background: #6b482c url("assets/wood.svg") 0 0 / 112px 112px repeat;
   background-blend-mode: multiply;
   box-shadow: inset -10px 0 16px -8px #000, inset 10px 0 12px -10px rgba(255,255,255,.22),
               0 0 0 1px rgba(0,0,0,.5);
