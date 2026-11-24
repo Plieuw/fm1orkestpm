@@ -492,7 +492,7 @@ int orch_perf_note_event(unsigned part, unsigned note, unsigned velocity)
             p->held[p->held_count].velocity=(uint8_t)velocity;
             ++p->held_count;
         }
-        if(!p->running) {p->running=1U;p->first_pending=(uint8_t)!p->cfg.external_clock;p->step=p->phrase_step=0U;p->clock_count=0U;p->clock_phase=0U;}
+        if(!p->running) {p->running=1U;p->first_pending=(uint8_t)!p->cfg.external_clock;p->step=p->phrase_step=0U;p->clock_count=0U;p->clock_phase=0U;p->ext_age=0U;}
     } else {
         if(p->keys_down)--p->keys_down;
         if(!p->cfg.latch) {
