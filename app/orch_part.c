@@ -64,6 +64,26 @@ int orch_part_set_adsr(unsigned part, unsigned attack_ms, unsigned decay_ms,
     return 0;
 }
 
+int orch_part_set_lfo(unsigned part, unsigned wave, unsigned destinations,
+                      unsigned depth, unsigned rate_millihz,
+                      unsigned sync_division, unsigned delay_ms, unsigned fade_ms)
+{
+    if (part >= ORCH_PARTS || wave > ORCH_LFO_SAMPLE_HOLD ||
+        (destinations & ~(unsigned)(ORCH_LFO_PITCH | ORCH_LFO_TREMOLO |
+                                    ORCH_LFO_BRIGHTNESS)) ||
+        depth > 100U || rate_millihz < 100U || rate_millihz > 20000U ||
+        sync_division > 4U || delay_ms > 5000U || fade_ms > 5000U)
+        return -1;
+    parts[part].lfo.wave = (uint8_t)wave;
+    parts[part].lfo.destinations = (uint8_t)destinations;
+    parts[part].lfo.depth = (uint8_t)depth;
+    parts[part].lfo.rate_millihz = (uint16_t)rate_millihz;
+    parts[part].lfo.sync_division = (uint8_t)sync_division;
+    parts[part].lfo.delay_ms = (uint16_t)delay_ms;
+    parts[part].lfo.fade_ms = (uint16_t)fade_ms;
+    return 0;
+}
+
 const char *orch_family_name(unsigned family)
 {
     switch (family) {
@@ -93,6 +113,10 @@ void orch_parts_init(void)
         part->player_cap = 2U;
         part->voice_ceiling = ORCH_PART_VOICE_CEIL;
         instrument_adsr(part->instrument, &part->adsr);
+        part->lfo.wave = ORCH_LFO_SINE;
+        part->lfo.destinations = 0U;
+        part->lfo.depth = 0U;
+        part->lfo.rate_millihz = 5000U;
     }
 }
 
