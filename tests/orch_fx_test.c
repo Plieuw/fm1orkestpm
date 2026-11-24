@@ -62,18 +62,18 @@ static void test_delay(void)
     orch_fx_init();
     only(ORCH_FX_DELAY);
     orch_fx_set_mix(ORCH_FX_DELAY, 100);
-    orch_fx_set_param_a(ORCH_FX_DELAY, 0);   /* shortest time: 60 ms = 2646 */
+    orch_fx_set_param_a(ORCH_FX_DELAY, 0);   /* shortest time: about 14 ms = 600 */
     orch_fx_set_param_b(ORCH_FX_DELAY, 50);
 
     memset(big, 0, sizeof big);
     big[0] = 400000;
     orch_fx_process(big, BIG);
 
-    const int32_t first = big[2646U * 2U];
+    const int32_t first = big[600U * 2U];
     /* ping-pong: the second echo of the left channel comes back on the right */
-    const int32_t second = big[(2646U * 2U) * 2U + 1U];
+    const int32_t second = big[(600U * 2U) * 2U + 1U];
     CHECK(first != 0);
-    CHECK(abs32(big[2600U * 2U]) < 1000);     /* silence before the echo */
+    CHECK(abs32(big[560U * 2U]) < 1000);     /* silence before the echo */
     CHECK(second != 0);
     CHECK(abs32(second) < abs32(first));      /* feedback decays */
     CHECK(first >= Q23_MIN && first <= Q23_MAX);
@@ -83,7 +83,7 @@ static void test_delay(void)
     memset(big, 0, sizeof big);
     big[0] = 400000;
     orch_fx_process(big, BIG);
-    CHECK(abs32(big[2646U * 2U]) < 2000);
+    CHECK(abs32(big[600U * 2U]) < 2000);
 }
 
 /* One run of the reverb, returning the energy of an early and a late window.
@@ -119,7 +119,7 @@ static void reverb_run(unsigned shimmer, int sine, uint64_t *early, uint64_t *la
             const int64_t v = block[f * 2U];
             const uint64_t a = (uint64_t)(v < 0 ? -v : v);
             if (n >= 2000U && n < 9000U) e1 += a;
-            if (n >= 30000U && n < 38000U) e2 += a;
+            if (n >= 14000U && n < 22000U) e2 += a;
         }
     }
     *early = e1;
