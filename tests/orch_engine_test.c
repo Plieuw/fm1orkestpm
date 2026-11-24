@@ -238,6 +238,32 @@ static void test_adsr_shapes_transient_energy(void)
     CHECK(fast > slow * 2);
 }
 
+static void test_overlapping_notes_use_legato_handover(void)
+{
+    solo_part(ORCH_FAM_STRINGS);
+    CHECK(orch_engine_set_player_cap(0U, 1U) == 0);
+    midi(0x90U, 60U, 96U);
+    render(24U);
+    CHECK(orch_voices_of_part(0U) == 1U);
+
+    /* A second pitch arrives before the first Note Off: this is a true
+     * overlapping legato handover, not a fresh attack from silence. */
+    midi(0x90U, 64U, 104U);
+    render(8U);
+    CHECK(orch_note_count(0U) == 2U);
+    CHECK(orch_voices_of_part(0U) == 1U);
+    CHECK(orch_active_voices() == 1U);
+
+    /* Releasing the older note must not release the reassigned voice. */
+    midi(0x80U, 60U, 0U);
+    render(2U);
+    CHECK(orch_voices_of_part(0U) == 1U);
+    midi(0x80U, 64U, 0U);
+    render(500U);
+    CHECK(orch_active_voices() == 0U);
+    orch_init();
+}
+
 static void test_connected_legato_preserves_waveguide(void)
 {
     int64_t before = 0;
