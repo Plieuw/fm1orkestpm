@@ -46,7 +46,6 @@ static uint8_t panel_dirty = 1U;
 static uint8_t panel_perf_page; /* 0 orchestra, 1 performance, 2 phrase detail */
 static struct orch_perf_config perf_config[PANEL_PARTS];
 static uint8_t selected_preset;
-static uint8_t preset_page_return;
 
 /* Factory scenes: four orchestral sections plus their adaptive performance
  * and master-effect starting points. The player's live MIDI input remains
@@ -68,7 +67,7 @@ static const orchestra_preset_t orchestra_presets[] = {
       {1,0,1,1},{22,0,18,34} },
     { "BRASS FAN", {0,10,11,12}, {0,3,0,3}, {1,3,3,2}, 0,0,0,0,104,4,76,2,3,72,2,
       {0,0,0,1},{0,0,0,22} },
-    { "PIZZ MOTION", {0,1,4,14}, {4,4,4,3}, {3,2,2,1}, 1,1,5,12,126,5,105,2,3,64,1,
+    { "PIZZ MOTION", {0,1,4,14}, {7,7,7,3}, {3,2,2,1}, 1,1,5,12,126,5,105,2,3,64,1,
       {1,1,0,1},{28,20,0,24} },
     { "AMBIENT", {2,3,5,17}, {0,0,0,0}, {2,2,2,2}, 0,1,0,19,68,6,72,4,2,36,3,
       {1,1,1,1},{38,42,36,48} },
