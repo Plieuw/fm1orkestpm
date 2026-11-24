@@ -10,7 +10,7 @@ Polyphonic physical-modeling firmware for the M-VAVE FM1 (JieLi WL82 / AC791N, P
 - Physical-modeling-first synthesis. The first prototype is a digital-waveguide string voice.
 - No audio-thread allocation, locks, file access, or display calls.
 
-## Status: 0.3.5-beta, host validation pending
+## Status: 0.3.5-beta, host-validated only
 
 **Nothing here has run on hardware.** Every source compiles with `-Werror`
 against the FM1 Core headers and the host tests pass; no `.fwsc` is built or
