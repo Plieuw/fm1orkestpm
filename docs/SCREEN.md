@@ -51,7 +51,7 @@ not the hall.
 Each menu has a band of its own under the work and above the knobs, and it is
 drawn the same way: once, when the page is entered. A knob turn on a menu
 repaints the values over it, not the picture, so the turn still costs what it
-did before the band existed — 539 fills on FX.
+did before the band existed — 507 fills on FX.
 
 ## What drawing costs
 
@@ -63,11 +63,11 @@ pages through the same controls as the preview and counts the calls:
 | STAGE, entered | 63 106 | 2 683 |
 | ARP | 9 370 | 1 150 |
 | SEQUENCE | 61 723 | 2 598 |
-| FX | 87 262 | 7 212 |
+| FX | 87 262 | 6 858 |
 | CONSOLE | 4 366 | 1 689 |
-| one knob turn | — | 539 |
+| one knob turn | — | 507 |
 | its highlight fading | 819 | 197 |
-| **five pages** | **225 827** | **23 839** |
+| **five pages** | **225 827** | **23 415** |
 
 The STAGE figure is entering the hall: the picture, the title, the marks and
 the strip. The lights are counted apart, because they are the part that runs on
@@ -84,7 +84,7 @@ knob turn costs, for a picture that had not moved. A step now repaints the band
 the lights are in rather than the hall (see below), there are two frames
 instead of three, and the cycle is slower — so the worst second of the
 animation went from 1 970 fills to 503, and the whole five-page visit from
-23 220 to 20 653. The menus' bands bring that visit back to 23 839: 3 186 fills
+23 220 to 20 653. The menus' bands bring that visit back to 23 415: 2 762 fills
 for four pictures, each of them paid once per visit, not once per frame. These
 are host numbers for the number of calls; they are not a measurement of the
 FM-1's own frame time, which needs the board.
@@ -263,10 +263,13 @@ all, the band: the console at the back of the hall, its own faders lit.
 
 *FX* — one line per effect: its name, its mix as a level bar and a lamp for on,
 the open effect marked with an amber edge. Under the list, the shape that
-effect gives a note, drawn from its own two parameters: a wobble for the chorus
-and the ensemble, echoes that decay for the delay, a long ringing tail for the
-shimmer. Its two parameter numbers are the only text on the card. Under the
-card, the band: the rack the effects live in.
+effect gives a note, drawn from its own first two parameters: a wobble for the
+chorus and the ensemble, echoes that decay for the delay, a long ringing tail
+for the shimmer. Under the curve, the effect's four parameters, two to a line:
+the pair the strip is on in white, the other two dim, so the card and the knobs
+agree on where the next turn goes. Only the delay's SYNC reads as a word rather
+than a number, because it is a division of the beat. Under the card, the band:
+the rack the effects live in.
 
 ## The files
 
