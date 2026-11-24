@@ -14,7 +14,8 @@
  *
  * The look is the browser page's: coffee, a hairline, amber for a value, green
  * for a section that is sounding — and it is drawn, not printed: the shapes the
- * pages are made of live in orch_ui_draw.inc.
+ * pages are made of live in orch_ui_draw.inc, and the hall on the stage page is
+ * a photograph in orch_ui_photo.inc.
  *
  * Nothing here runs in the audio interrupt: groove_screen_control() is the
  * control task. It shares the master gain and one byte per FX setting with the
@@ -115,7 +116,7 @@ static uint32_t next_scan;
 static uint32_t drawn_signature;   /* the page's own settings, as last drawn */
 static uint32_t drawn_live;        /* and its live values */
 static uint32_t drawn_strip;       /* and the knob strip */
-static uint8_t hall_static;        /* the hall's wall and floor are on screen */
+static uint8_t hall_static;        /* the hall's picture is on screen */
 
 
 /* --- strings -------------------------------------------------------------- */
@@ -168,6 +169,7 @@ static const char *page_name(unsigned p)
 #include "orch_ui_font.inc"    /* the 5x7 font and text() */
 #include "orch_ui_draw.inc"    /* colour, geometry, gradients, discs, arcs */
 #include "orch_ui_view.inc"    /* strings, rows, cards, meters */
+#include "orch_ui_photo.inc"   /* the hall, as a photograph in runs */
 #include "orch_ui_strip.inc"   /* the four knobs' cells along the bottom */
 #include "orch_ui_stage.inc"   /* the parts page and the hall */
 #include "orch_ui_pages.inc"   /* the arp and sequencer pages */
