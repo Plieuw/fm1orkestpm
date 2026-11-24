@@ -116,9 +116,11 @@ static uint32_t page_live_signature(void)
     case PAGE_ARP: return (uint32_t)orch_arp_held(ui.part) | 0x400U;
     case PAGE_SEQ: return (uint32_t)orch_seq_position() | 0x400U;
     case PAGE_HOME: {
-        /* the voices as four nibbles, and which of the hall's frames is on
-         * screen: the lights of a playing hall change on their own */
+        /* the voices as four nibbles, which of the hall's frames is on screen,
+         * and the output the light in front of the boards follows: the lights
+         * of a playing hall change on their own */
         uint32_t sig = 0x400U | ((uint32_t)(stage_frame() + 1U) << 20);
+        sig |= ((uint32_t)(orch_output_level() >> 3) & 0x1FU) << 24;
         for (unsigned p = 0; p < ORCH_PARTS; ++p)
             sig |= ((uint32_t)orch_voices_of_part(p) & 0xFU) << (4U * p);
         return sig;
@@ -129,8 +131,9 @@ static uint32_t page_live_signature(void)
 
 /* What a live value costs: the arp's row of dots, the two sequencer cells that
  * changed (the one that was playing and the one that is), or on the stage the
- * players and the lamps — and, when the hall's own lights step, the photograph
- * under them. Everything else stays as it was drawn. */
+ * players and the lamps — when the hall's own lights step, the photograph under
+ * them — and, when the output moves, the light in front of the boards.
+ * Everything else stays as it was drawn. */
 static void page_live(uint32_t was)
 {
     switch (ui.page) {
@@ -148,10 +151,22 @@ static void page_live(uint32_t was)
         break;
     }
     case PAGE_HOME: {
-        /* the hall's lights stepped, or only the players moved */
+        /* three things move here, each with its own cost: the hall's lights
+         * (the band), a part starting or stopping (the lamps and the players),
+         * and what comes out (the light in front of the boards) */
         const unsigned f = stage_frame();
-        if (((was >> 20) & 0xFU) != (unsigned)(f + 1U)) page_parts_photo(f);
-        else page_parts();
+        uint32_t voices = 0U;
+        for (unsigned p = 0; p < ORCH_PARTS; ++p)
+            voices |= ((uint32_t)orch_voices_of_part(p) & 0xFU) << (4U * p);
+        if (((was >> 20) & 0xFU) != (unsigned)(f + 1U)) {
+            page_parts_photo(f);
+            draw_stage_light(1);
+        } else if ((was & 0xFFFFU) != voices) {
+            page_parts();
+            draw_stage_light(1);
+        } else {
+            draw_stage_light(0);
+        }
         break;
     }
     default:
