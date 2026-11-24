@@ -15,7 +15,7 @@
  * buffer cost: about 100 KB of int16, which is the price of four real effects;
  * every effect is off by default.
  */
-#include <string.h>
+#include <stdint.h>
 
 #include "orch_engine.h"
 #include "orch_fx.h"
@@ -73,6 +73,12 @@ static volatile uint8_t fx_b[ORCH_FX_SLOT_COUNT];
 static volatile uint8_t reset_pending;
 
 /* --- helpers -------------------------------------------------------------- */
+
+static void fx_clear_bytes(void *ptr, unsigned bytes)
+{
+    uint8_t *p = (uint8_t *)ptr;
+    for (unsigned i = 0U; i < bytes; ++i) p[i] = 0U;
+}
 
 static int32_t clamp15(int32_t x)
 {
@@ -149,14 +155,14 @@ static int32_t shimmer_octave(int32_t in)
 
 static void clear_state(void)
 {
-    memset(mod_l, 0, sizeof mod_l);
-    memset(mod_r, 0, sizeof mod_r);
-    memset(dly_l, 0, sizeof dly_l);
-    memset(dly_r, 0, sizeof dly_r);
-    memset(comb_buf, 0, sizeof comb_buf);
-    memset(comb_lp, 0, sizeof comb_lp);
-    memset(ap_buf, 0, sizeof ap_buf);
-    memset(pb, 0, sizeof pb);
+    fx_clear_bytes(mod_l, (unsigned)sizeof mod_l);
+    fx_clear_bytes(mod_r, (unsigned)sizeof mod_r);
+    fx_clear_bytes(dly_l, (unsigned)sizeof dly_l);
+    fx_clear_bytes(dly_r, (unsigned)sizeof dly_r);
+    fx_clear_bytes(comb_buf, (unsigned)sizeof comb_buf);
+    fx_clear_bytes(comb_lp, (unsigned)sizeof comb_lp);
+    fx_clear_bytes(ap_buf, (unsigned)sizeof ap_buf);
+    fx_clear_bytes(pb, (unsigned)sizeof pb);
     mod_w = 0U;
     chorus_phase = ensemble_phase = 0U;
     dly_w = 0U;
