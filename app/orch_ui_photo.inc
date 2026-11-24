@@ -5,6 +5,8 @@
  * width in cells — one fm1_screen_fill each, so this is not only a
  * picture but the list of window commands that draw it.
  *
+ * from tools/panel_photo/hall-a.jpg, tools/panel_photo/hall-b.jpg
+ *     tools/panel_photo/hall-c.jpg
  * 240 x 164 at 2x2, 16 colours, dither 0.00, merge 24
  * 3 frame(s)
  */
@@ -17,8 +19,8 @@
 #define PHOTO_FRAMES 3U
 
 static const uint16_t photo_palette[PHOTO_COLOURS] = {
-    0x0020, 0x1861, 0x9B07, 0x4143, 0x7204, 0x28A1, 0xD56E, 0x38E1,
-    0xAC2B, 0xED6B, 0x4921, 0x6181, 0xDE31, 0xEF38, 0xC3A6, 0xE4C8,
+    0x0020, 0x1860, 0x9307, 0xD448, 0x4143, 0x7204, 0xAC2B, 0xE56B,
+    0x28A1, 0xD56E, 0x3901, 0xDE31, 0xEF18, 0x4921, 0x5961, 0x79C1,
 };
 
 #include "orch_ui_photo_0.inc"
