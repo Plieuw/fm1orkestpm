@@ -43,6 +43,7 @@ typedef struct {
     uint32_t len_q16, len_target_q16, len_step;
     uint32_t glide_left;
     uint32_t age, note_id;
+    uint32_t legato_transition_left;
     uint32_t loop_gain_q23; /* per-sample gain derived from per-round-trip loss */
     int32_t lp;      /* previous loop sample (the damping filter's state) */
     int32_t dc;      /* output DC blocker state */
@@ -504,6 +505,16 @@ static void voice_start(unsigned part, unsigned note, unsigned velocity,
     v->expr_depth = 0U;
     v->env_stage = 1U;
     v->auto_release = (uint8_t)(prof.pluck || excite == EXC_STRIKE);
+    /* A connected bow/breath change is blended in over a short window.
+     * Keep the resonator ringing; soften only the new excitation edge. */
+    if (legato_reuse) {
+        unsigned transition_ms = family == ORCH_FAM_STRINGS ? 28U :
+                                 family == ORCH_FAM_BRASS ? 18U : 22U;
+        if (in->down_bow) transition_ms += 5U;
+        v->legato_transition_left = transition_ms * ORCH_SAMPLE_RATE / 1000U;
+    } else {
+        v->legato_transition_left = 0U;
+    }
     v->strike_left = 0U;
 
     /* piano key -> string/bore length; flageolet sounds an octave higher */
@@ -1419,8 +1430,17 @@ static void voice_tick(voice_t *v)
         ? (ORCH_ENV_MAX - env_q15) : 0;
     const int32_t env_excitation_q15 = 16384 + (env_q15 >> 1);
     const int32_t expression_gain_q15 = 32767 + v->expr_q15;
-    const int32_t excitation_gain_q15 =
+    int32_t excitation_gain_q15 =
         (env_excitation_q15 * (expression_gain_q15 >> 1)) >> 14;
+    if (v->legato_transition_left) {
+        const uint32_t total = (ORCH_SAMPLE_RATE * 33U) / 1000U;
+        const uint32_t left = v->legato_transition_left;
+        const uint32_t elapsed = total > left ? total - left : 0U;
+        /* 72% -> 100% smooth excitation handover; no silence dip. */
+        const int32_t blend = 23593 + (int32_t)((uint64_t)elapsed * 9174U / total);
+        excitation_gain_q15 = (excitation_gain_q15 * blend) >> 15;
+        --v->legato_transition_left;
+    }
     int damp_value = v->damp ? v->damp : 2U;
     damp_value += (transient_q15 >> 13) + (v->excite_follow >> 14);
     if (damp_value > 6) damp_value = 6;
