@@ -86,6 +86,14 @@ static void hold(unsigned note, int down)
     orch_ui_handle(&feed);
 }
 
+/* A line of numbers without a PPM: what one action cost. */
+static void report(const char *label)
+{
+    printf("%-10s fills %6lu (%6lu px)  blits %3lu (%5lu px)\n", label,
+           fills, filled_px, blits, blitted_px);
+    fills = blits = filled_px = blitted_px = 0;
+}
+
 static void render(unsigned blocks)
 {
     for (unsigned i = 0; i < blocks; ++i) {
@@ -199,6 +207,15 @@ int main(int argc, char **argv)
     clock_ms += 40U;
     orch_ui_control();
     shot(base, "fx");
+
+    /* one knob turn, and the highlight fading back a second later: the strip is
+     * compared apart from the page, so the fade must not cost a page */
+    turn(2, 1);                        /* K1: the delay's mix, one detent */
+    report("knob turn");
+    clock_ms += 1200U;
+    orch_ui_control();
+    report("fade");
+    turn(2, -1);
 
     /* CONSOLE: tempo, transpose, scale inside the wooden frame */
     press(7);              /* GLO */
