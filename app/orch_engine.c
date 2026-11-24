@@ -1382,7 +1382,7 @@ static void seq_tick(void)
     if ((uint32_t)(sample_counter - step_start) >= step_samples) {
         step_start += step_samples;
         current_step = (uint8_t)((current_step + 1U) & 15U);
-        for (unsigned n = 0; n < ORCH_STEP_NOTES; ++n) {
+        for (unsigned n = 0; n < pattern_count[current_step]; ++n) {
             const struct orch_step_note *p = &pattern[current_step][n];
             if (!p->velocity) continue;
             /* In adaptive mode, keep the user's rhythm and step data, but
