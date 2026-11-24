@@ -62,7 +62,12 @@ Turning behaves as it does in HAWK CHUA (`knob_accel` in the same file):
 * one detent is still one step: a menu entry (part, family, instrument, arp
   mode, effect, scale, step) moves exactly one place a detent, so a quick turn
   cannot skip an entry;
-* turning the other way starts again at x1.
+* turning the other way starts again at x1;
+* the percentages — the FX mix and its two parameters, the arp gate, the step's
+  velocity and gate — keep the 5 % a detent the panel always had, so slow
+  turning is as fine as it was, and a fast turn only doubles that step: a range
+  never jumps the values the fine step exists for. The tempo and the transpose
+  do take the full x8.
 
 Two calls in the same millisecond are taken unscaled: a hand cannot do that,
 and it keeps the host tests deterministic. The board's knob (the volume pot) is
@@ -202,7 +207,8 @@ bug that is hidden.
 every button, every encoder role on every page, the note map, the flash save and
 reload (including the FX block) and that a recorded step sounds after `PLAY`.
 It also checks the knob speed: one detent alone, x2 at 20 a second, x8 at 40,
-back by halves when slowing and one detent after turning back. `tests/orch_arp_test.c`
+back by halves when slowing and one detent after turning back, and that a
+percentage reaches only x2 (the delay mix going 5 then 10 a detent). `tests/orch_arp_test.c`
 covers the arp. `tests/orch_fx_test.c` covers the effect chain: bypass is bit
 exact, the echo arrives at the set time and its feedback decays, the reverb tail
 decays, shimmer changes that tail, hard driving stays inside Q23, and panic

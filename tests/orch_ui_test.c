@@ -173,8 +173,8 @@ int main(void)
     CHECK(orch_arp_div_of(2U) == 3U);
     turn(E_KNOB2, 1);                     /* octaves */
     CHECK(orch_arp_octaves_of(2U) == 2U);
-    turn(E_KNOB3, 2);                     /* gate, 2 % a detent */
-    CHECK(orch_arp_gate_of(2U) == 64U);
+    turn(E_KNOB3, 2);                     /* gate, 5 % a detent */
+    CHECK(orch_arp_gate_of(2U) == 70U);
     turn(E_ALGO, 1);                      /* mode */
     CHECK(orch_arp_mode_of(2U) == ORCH_ARP_DOWN);
     press(B_ARP);
@@ -204,7 +204,7 @@ int main(void)
     /* GLOBAL: tempo, volume, and K4 is the panic */
     press(B_GLO);
     CHECK(orch_ui_page() == 3U);
-    turn(E_KNOB3, 3);                     /* 2 BPM a detent */
+    turn(E_KNOB3, 3);                     /* 2 BPM a detent, and the accel adds */
     CHECK(orch_ui_tempo() == 126U);
     turn(E_KNOB2, -5);                    /* semitone transpose from the global page */
     CHECK(orch_ui_transpose() == (unsigned)-5);
@@ -227,12 +227,12 @@ int main(void)
     CHECK(orch_ui_fx_selection() == 1U);      /* one detent, one effect */
     turn(E_ALGO, 1);
     CHECK(orch_ui_fx_selection() == 2U);      /* DELAY */
-    turn(E_KNOB1, 2);                         /* mix 25 -> 29 */
-    CHECK(orch_fx_mix(2U) == 29U);
-    turn(E_KNOB2, -1);                        /* time 50 -> 48 */
-    CHECK(orch_fx_param_a(2U) == 48U);
-    turn(E_KNOB3, 2);                         /* feedback 35 -> 39 */
-    CHECK(orch_fx_param_b(2U) == 39U);
+    turn(E_KNOB1, 2);                         /* mix 25 -> 35, 5 % a detent */
+    CHECK(orch_fx_mix(2U) == 35U);
+    turn(E_KNOB2, -1);                        /* time 50 -> 45 */
+    CHECK(orch_fx_param_a(2U) == 45U);
+    turn(E_KNOB3, 2);                         /* feedback 35 -> 45 */
+    CHECK(orch_fx_param_b(2U) == 45U);
     turn(E_KNOB4, 1);
     CHECK(orch_fx_enabled(2U) == 1U);
     turn(E_KNOB4, -1);
@@ -265,9 +265,9 @@ int main(void)
     orch_ui_init();
     orch_ui_control();       /* prime the scan timer after the re-init */
     CHECK(orch_fx_enabled(ORCH_FX_DELAY) == 1U);
-    CHECK(orch_fx_mix(ORCH_FX_DELAY) == 29U);
-    CHECK(orch_fx_param_a(ORCH_FX_DELAY) == 48U);
-    CHECK(orch_fx_param_b(ORCH_FX_DELAY) == 39U);
+    CHECK(orch_fx_mix(ORCH_FX_DELAY) == 35U);
+    CHECK(orch_fx_param_a(ORCH_FX_DELAY) == 45U);
+    CHECK(orch_fx_param_b(ORCH_FX_DELAY) == 45U);
 
     /* HOME returns to the parts page, and the scan is throttled */
     press(B_HOME);
@@ -302,6 +302,27 @@ int main(void)
     clock_ms += 25U;
     turn(E_KNOB3, -1);
     CHECK(orch_ui_tempo() == 154U);       /* turning back: one detent */
+
+    /* A percentage keeps its 5 % a detent, so slow turning is as fine as it
+     * ever was, and a fast turn only doubles that step: the delay mix goes up
+     * 5, then 10, not the 40 the full x8 would give it. */
+    press(B_FX);                          /* a fresh load selected the chorus */
+    turn(E_ALGO, 1);
+    turn(E_ALGO, 1);                      /* -> DELAY, whose mix the save kept */
+    CHECK(orch_ui_fx_selection() == 2U);
+    CHECK(orch_fx_mix(ORCH_FX_DELAY) == 35U);
+    clock_ms += 2000U;
+    turn(E_KNOB1, 1);
+    CHECK(orch_fx_mix(ORCH_FX_DELAY) == 40U);   /* alone: 5 */
+    clock_ms += 25U;
+    turn(E_KNOB1, 1);
+    CHECK(orch_fx_mix(ORCH_FX_DELAY) == 50U);   /* 40 a second: x8 asked, x2 given */
+    clock_ms += 25U;
+    turn(E_KNOB1, 1);
+    CHECK(orch_fx_mix(ORCH_FX_DELAY) == 60U);
+    clock_ms += 25U;
+    turn(E_KNOB1, -4);
+    CHECK(orch_fx_mix(ORCH_FX_DELAY) == 50U);   /* back, still one 10 % step */
 
     if (failures) {
         printf("orch_ui: %d failure(s)\n", failures);
