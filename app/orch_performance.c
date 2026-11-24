@@ -470,7 +470,7 @@ int orch_perf_note_event(unsigned part, unsigned note, unsigned velocity)
             p->held[p->held_count].velocity=(uint8_t)velocity;
             ++p->held_count;
         }
-        if(!p->running) {p->running=1U;p->first_pending=1U;p->step=p->phrase_step=0U;p->clock_count=0U;p->clock_phase=0U;}
+        if(!p->running) {p->running=1U;p->first_pending=(uint8_t)!p->cfg.external_clock;p->step=p->phrase_step=0U;p->clock_count=0U;p->clock_phase=0U;}
     } else {
         if(p->keys_down)--p->keys_down;
         if(!p->cfg.latch) {
@@ -490,7 +490,7 @@ void orch_perf_midi_realtime(unsigned status, uint32_t sample_now)
         perf_part_t *p=&parts[i];
         if(!p->cfg.external_clock || (!p->cfg.arp_enabled&&!p->cfg.phrase_enabled))continue;
         if(status==0xFAU) {
-            p->clock_count=0U;p->step=p->phrase_step=0U;p->first_pending=1U;p->running=1U;
+            p->clock_count=division_ticks[p->cfg.division%ORCH_PERF_DIVISIONS]-1U;p->step=p->phrase_step=0U;p->first_pending=0U;p->running=1U;
             p->ext_last_tick=sample_now;p->ext_tick_len=0U;
         } else if(status==0xFBU) {
             p->running=1U;
@@ -526,13 +526,13 @@ void orch_perf_advance_sample(uint32_t sample_now)
             perform_step(i,p,sample_now,p->step_len?p->step_len:1U);
         }
         if(!p->running || (!p->cfg.arp_enabled&&!p->cfg.phrase_enabled))continue;
-        if(p->first_pending) {
-            p->first_pending=0U;
-            clock_step(i,p,sample_now);
-        }
         if(p->cfg.external_clock) {
             if(p->ext_age<PERF_CLOCK_TIMEOUT)++p->ext_age;
             continue;
+        }
+        if(p->first_pending) {
+            p->first_pending=0U;
+            clock_step(i,p,sample_now);
         }
         const uint32_t inc=((uint32_t)p->cfg.bpm*24U*PERF_Q16)/(60U*ORCH_PERF_SAMPLE_RATE);
         p->clock_phase+=inc;
