@@ -172,3 +172,17 @@ The optional 16-step sequencer now uses a blended pitch target when adaptive mod
 - The sequencer stops applying stale player context after two seconds without a new input note; the programmed pattern then plays at its original pitch and density.
 - Existing chord-tone quantization and quiet-passage voice thinning remain in place.
 - Added regression coverage for register-following from a held C-major chord.
+
+
+## Phrase-arc pass (0.3.12 follow-up)
+
+The ARP/phrase engine and optional 16-step sequencer now share the same deterministic 16-step orchestral dynamic contour:
+
+- Steps 1–8 rise gradually toward the phrase peak.
+- Steps 9–12 ease away from the peak.
+- Steps 13–16 taper into the cadence, leaving more room before the next phrase.
+- The contour affects generated velocity and gate only; it never rewrites the user's stored sequencer note, velocity or gate values.
+- It is applied after the existing velocity/gate groove so the existing groove character and external clock subdivision remain intact.
+- Added host-only helper tests to verify the rise, peak and cadence shape in both performance and sequencer modules.
+
+The curve is fixed-point, table-driven and bounded; no floating-point or per-sample adaptive work was added.
