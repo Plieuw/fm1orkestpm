@@ -514,7 +514,7 @@ static void enqueue(unsigned ch, unsigned note, unsigned velocity, unsigned type
     const uint8_t next = (uint8_t)((event_write + 1U) & (EVENT_CAP - 1U));
     if (next == event_read) return;
     events[event_write].channel = (uint8_t)(ch & 15U);
-    events[event_write].note = (uint8_t)(note & 127U);
+    events[event_write].note = (uint8_t)(type == 3U ? note : (note & 127U));
     events[event_write].velocity = (uint8_t)(velocity & 127U);
     events[event_write].type = (uint8_t)type;
     event_write = next;
