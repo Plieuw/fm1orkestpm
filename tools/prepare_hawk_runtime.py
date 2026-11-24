@@ -118,7 +118,7 @@ def main() -> None:
                         '#include "orchestra/orch_hawk_bridge.h"\n'
                         "#define KB_SILENT 0xFFu\n")
     replace_once(keys, "    synth_all_off();\n    arp_reset();\n    karma_reset();\n",
-                        "    synth_all_off();\n    orch_hawk_panic();\n"
+                        "    synth_all_off();\n    orch_hawk_reset_notes();\n"
                         "    arp_reset();\n    karma_reset();\n")
     replace_once(keys,
         "            kb_note[k] = (uint8_t)n;\n"
