@@ -491,15 +491,16 @@ void orch_perf_midi_realtime(unsigned status, uint32_t sample_now)
         if(!p->cfg.external_clock || (!p->cfg.arp_enabled&&!p->cfg.phrase_enabled))continue;
         if(status==0xFAU) {
             p->clock_count=division_ticks[p->cfg.division%ORCH_PERF_DIVISIONS]-1U;p->step=p->phrase_step=0U;p->first_pending=0U;p->running=1U;
-            p->ext_last_tick=sample_now;p->ext_tick_len=0U;
+            p->ext_last_tick=sample_now;
         } else if(status==0xFBU) {
             p->running=1U;
         } else if(status==0xFCU) {
             release_all(i,p);p->running=p->first_pending=p->pending_step=0U;
+            p->clock_count=0U;p->ext_last_tick=0U;p->ext_age=0U;
         } else if(status==0xF8U) {
             if(p->ext_last_tick) {
                 const uint32_t d=sample_now-p->ext_last_tick;
-                p->ext_tick_len=p->ext_tick_len?(p->ext_tick_len*3U+d)/4U:d;
+                if(d) p->ext_tick_len=p->ext_tick_len?(p->ext_tick_len*3U+d)/4U:d;
             }
             p->ext_last_tick=sample_now;p->ext_age=0U;
             ++p->clock_count;
