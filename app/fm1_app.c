@@ -171,6 +171,21 @@ static void panel_apply_performance(unsigned part)
 
 static void panel_draw(void)
 {
+    if (panel_perf_page == 3U) {
+        static const uint16_t bg=0x0841U, ink=0xFFFFU, cyan=0x07FFU;
+        static const uint16_t amber=0xFD20U;
+        const orchestra_preset_t *p=&orchestra_presets[selected_preset];
+        fm1_screen_fill(0U,0U,FM1_SCREEN_WIDTH,FM1_SCREEN_HEIGHT,bg);
+        panel_text(8U,8U,"ORCHESTRA PRESETS",cyan);
+        panel_text(8U,38U,p->name,ink);
+        panel_text(8U,68U,"FACTORY SCENE",amber);
+        panel_text(8U,94U,"ENC1 SELECT",cyan);
+        panel_text(8U,118U,"B6 LOAD PRESET",cyan);
+        panel_text(8U,150U,"4 PARTS + DIVISI",ink);
+        panel_text(8U,174U,"ARP SEQ + FX",ink);
+        panel_text(8U,218U,"B14 PAGE",amber);
+        return;
+    }
     if (panel_perf_page == 2U) {
         static const uint16_t bg=0x0841U, ink=0xFFFFU, cyan=0x07FFU;
         static const uint16_t amber=0xFD20U;
@@ -421,7 +436,7 @@ void groove_screen_control(void)
         const uint8_t gate=(uint8_t)(5U+knob*95U/1023U);
         if(gate!=pc->gate){pc->gate=gate;changed=1U;}
         if(changed) panel_apply_performance(selected_part);
-    } else {
+    } else if (panel_perf_page == 2U) {
         struct orch_perf_config *pc=&perf_config[selected_part];
         uint8_t changed=0U;
         if (edges & (1UL<<5)) { pc->inverse=(uint8_t)!pc->inverse; changed=1U; }
@@ -457,6 +472,15 @@ void groove_screen_control(void)
         const uint8_t accent=(uint8_t)(knob*127U/1023U);
         if(accent!=pc->accent){pc->accent=accent;changed=1U;}
         if(changed)panel_apply_performance(selected_part);
+    } else {
+        if (controls.encoders[0]) {
+            int next=(int)selected_preset+controls.encoders[0];
+            while(next<0) next+=(int)ORCH_PRESET_COUNT;
+            while(next>=(int)ORCH_PRESET_COUNT) next-=(int)ORCH_PRESET_COUNT;
+            selected_preset=(uint8_t)next;
+            panel_dirty=1U;
+        }
+        if (edges & (1UL<<6)) panel_apply_preset(selected_preset);
     }
     for (unsigned b=0;b<14U;++b)
         fm1_led_set(b,(buttons>>b)&1U);
