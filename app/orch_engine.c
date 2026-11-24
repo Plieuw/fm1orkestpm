@@ -581,6 +581,12 @@ static void engine_note_on_part(unsigned part, unsigned note, unsigned velocity)
     }
 }
 
+static void engine_note_on(unsigned ch, unsigned note, unsigned velocity)
+{
+    const unsigned part=orch_part_for_channel(ch);
+    if(part!=0xFFU) engine_note_on_part(part,note,velocity);
+}
+
 static void engine_note_off_part(unsigned part, unsigned note, unsigned sustain_on)
 {
     if (part >= ORCH_PARTS) return;
