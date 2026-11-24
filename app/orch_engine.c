@@ -469,24 +469,29 @@ static unsigned pick_voice(unsigned part)
  * physical-model equivalent of a legato bow/breath connection. */
 static int find_legato_voice(unsigned part, unsigned player, unsigned family)
 {
-    int best = -1;
-    uint32_t newest_age = 0U;
+    int exact = -1;
+    int fallback = -1;
+    uint32_t exact_age = 0U;
+    uint32_t fallback_age = 0U;
     for (unsigned i = 0; i < ORCH_MAX_VOICES; ++i) {
         const voice_t *v = &voices[i];
-        /* During a connected handover, reuse the newest active resonator
-         * even if its amplitude envelope has nearly reached zero. The
-         * adaptive connection decision already bounds the gap; requiring
-         * an arbitrary envelope threshold can allocate a second voice and
-         * break legato after a quiet/short note. Percussive mallets are
-         * excluded by the caller. */
-        if (v->active && v->part == part &&
-            v->player == player && v->family == family &&
-            v->age >= newest_age) {
-            best = (int)i;
-            newest_age = v->age;
+        /* The divisi planner can renumber desks when a note is released.
+         * Prefer the same desk, but for a connected melody fall back to the
+         * newest resonator in this part/family if the desk index changed.
+         * The adaptive connection window bounds this reuse; no arbitrary
+         * envelope threshold should force a second voice after a quiet note.
+         * Percussive mallets are excluded by the caller. */
+        if (!v->active || v->part != part || v->family != family) continue;
+        if (v->player == player && v->age >= exact_age) {
+            exact = (int)i;
+            exact_age = v->age;
+        }
+        if (v->age >= fallback_age) {
+            fallback = (int)i;
+            fallback_age = v->age;
         }
     }
-    return best;
+    return exact >= 0 ? exact : fallback;
 }
 
 static void voice_start(unsigned part, unsigned note, unsigned velocity,
