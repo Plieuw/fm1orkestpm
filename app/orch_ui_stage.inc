@@ -6,8 +6,8 @@
  * of one colour; each run is one fill. On top of it the panel draws what moves:
  * the four lamps in the audience for the parts that sound, the players on the
  * boards, the listener's seat, the name of the instrument — and, while something
- * is sounding, the hall's own lights, cycling through the three frames the
- * source images gave us.
+ * is sounding, the hall's own lights, cycling through the frames the source
+ * images gave us: a band of rows, not the whole hall.
  *
  * 240 x 164 at 2 x 2 pixels, kept as the runs a row is made of: one fill per
  * stretch of one colour, about 1 500 for the whole hall. */
@@ -28,17 +28,23 @@
 #define STAGE_X1 178U
 #define SEAT_Y 148U
 
-/* The animation: the rest frame while the hall is quiet, and the two lit frames
- * in turn while a part is sounding. A slow cycle — the lights of a hall change
- * with the music, not with the frame rate. */
+/* The animation: the rest frame while the hall is quiet, and the lit frames of
+ * the source images in turn while a part is sounding. Only the rows in
+ * PHOTO_BAND_LO..PHOTO_BAND_HI differ between them — the stage and its curtains,
+ * above the boards — so a step redraws that band, not the hall. A slow cycle:
+ * the lights of a hall change with the music, not with the frame rate. */
+#define LIGHT_STEP_MS 2400U
 static unsigned stage_frame(void)
 {
     unsigned playing = 0;
     for (unsigned p = 0; p < ORCH_PARTS; ++p)
         if (orch_voices_of_part(p)) playing = 1;
     if (!playing || PHOTO_FRAMES < 2U) return 0U;
-    return 1U + (unsigned)((fm1_millis() / 1200U) % (PHOTO_FRAMES - 1U));
+    return (unsigned)((fm1_millis() / LIGHT_STEP_MS) % PHOTO_FRAMES);
 }
+
+static void draw_players(void);
+static void draw_instrument_name(void);
 
 static unsigned photo_cell(char c)
 {
@@ -49,12 +55,12 @@ static unsigned photo_cell(char c)
 /* The photograph: per row the runs it is made of, three hex characters each —
  * the palette index, then the run's width in cells. A row of the hall is ten
  * or so fills, not a hundred and twenty. */
-static void draw_photo(unsigned f)
+static void draw_photo_rows(unsigned f, unsigned first, unsigned last)
 {
     if (f >= PHOTO_FRAMES) f = 0U;
     const char *runs = photo_frame_runs[f];
     const uint16_t *rows = photo_frame_rows[f];
-    for (unsigned y = 0; y < PHOTO_ROWS; ++y) {
+    for (unsigned y = first; y <= last && y < PHOTO_ROWS; ++y) {
         const unsigned py = PHOTO_Y + y * PHOTO_BLOCK;
         unsigned px = 0;
         for (unsigned i = rows[y]; i < rows[y + 1U]; ++i) {
@@ -65,6 +71,21 @@ static void draw_photo(unsigned f)
             px += w * PHOTO_BLOCK;
         }
     }
+}
+
+static void draw_photo(unsigned f)
+{
+    draw_photo_rows(f, 0U, PHOTO_ROWS - 1U);
+}
+
+/* The lights stepped: only the band where the frames differ is repainted, and
+ * the players, who stand in it. The seats, the lamps and the front of the hall
+ * are the same picture they were, so they stay as they are. */
+static void draw_photo_band(unsigned f)
+{
+    draw_photo_rows(f, PHOTO_BAND_LO, PHOTO_BAND_HI);
+    draw_players();
+    draw_instrument_name();
 }
 
 /* A part: a narrow lamp in the seats that fills from the bottom up with the
@@ -110,23 +131,27 @@ static void draw_players(void)
     }
 }
 
-/* The listener's seat, amber among the seats, and the one word on the page: the
- * instrument of the selected part. */
+/* The one word on the page: the instrument of the selected part. It sits at the
+ * top of the photograph, inside the band the lights change in, so a step of the
+ * lights puts it back. */
+static void draw_instrument_name(void)
+{
+    const struct orch_part *part = orch_part_get(ui.part);
+    if (part)
+        text(10U, PHOTO_Y + 6U, inst_short(part->instrument), C_DIM, C_BG,
+             120U);
+}
+
+/* The listener's seat, amber among the seats, under the band and above the
+ * strip: it is drawn when the page is entered and when it is moved. */
 static void draw_hall_marks(void)
 {
     const unsigned cx = 120U;
-    {
-        const unsigned row = 1U - orch_stage_listener_depth() / 60U;
-        const unsigned half = 30U + row * 10U;
-        const int x = (int)cx + orch_stage_listener_x() * (int)half / 100;
-        disc((unsigned)x, SEAT_Y + row * 9U, 3U, C_AMBER2, C_AMBER, C_SHELL);
-    }
-    {
-        const struct orch_part *part = orch_part_get(ui.part);
-        if (part)
-            text(10U, PHOTO_Y + 6U, inst_short(part->instrument), C_DIM, C_BG,
-                 120U);
-    }
+    const unsigned row = 1U - orch_stage_listener_depth() / 60U;
+    const unsigned half = 30U + row * 10U;
+    const int x = (int)cx + orch_stage_listener_x() * (int)half / 100;
+    disc((unsigned)x, SEAT_Y + row * 9U, 3U, C_AMBER2, C_AMBER, C_SHELL);
+    draw_instrument_name();
 }
 
 /* Everything the panel puts over the photograph. */
@@ -152,9 +177,9 @@ static void page_parts(void)
     draw_hall_overlays();
 }
 
-/* The hall's lights changed: the frame is repainted under the marks. */
+/* The hall's lights changed: only the band that differs is repainted, under
+ * the marks — a step of the animation costs the band, not the hall. */
 static void page_parts_photo(unsigned f)
 {
-    draw_photo(f);
-    draw_hall_overlays();
+    draw_photo_band(f);
 }
