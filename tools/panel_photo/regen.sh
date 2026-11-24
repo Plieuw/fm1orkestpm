@@ -9,8 +9,12 @@
 #
 # Each menu has one picture: a band 240 x 30, the strip a page has free between
 # its work and its knobs. A night picture cropped through the middle is its
-# darkest part, so --pick-rows takes the window with the most light in it, and
-# --expose lifts it enough to carry the picture at a fifth of the panel.
+# darkest part, so the band is cut from the window with the most light in it and
+# lifted enough to carry the picture at a fifth of the panel. That is done once
+# with --pick-rows / --expose on the photograph itself, and band/ holds what came
+# out of it: the band at the panel's own size, in the sixteen colours it will
+# be drawn in, a kilobyte or two — so the picture can be committed beside the
+# tool and this script builds the same runs from it every time.
 set -eu
 
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
@@ -30,6 +34,5 @@ for pic in arp seq glo fx; do
     esac
     python3 tools/panel_photo.py --width 240 --height 30 --block 2 --colors 16 \
         --dither 0 --merge 24 --name "$name" --what "The band: $what" \
-        --pick-rows 30 --expose 1.35 --contrast 1.15 \
-        "tools/panel_photo/$pic.png" -o "app/orch_ui_pic_$pic.inc"
+        "tools/panel_photo/band/$pic.png" -o "app/orch_ui_pic_$pic.inc"
 done
