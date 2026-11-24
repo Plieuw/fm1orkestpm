@@ -483,9 +483,12 @@ static void voice_start(unsigned part, unsigned note, unsigned velocity,
     /* ADSR: instrument-shaped attack/decay/sustain/release. Adaptive intent
      * scales the authored attack/release; the model's damping is independent. */
     {
-        uint32_t atk_ms = (prof.attack_ms * in->attack_mul) >> 16;
-        uint32_t dec_ms = (uint32_t)prof.attack_ms * 2U + 40U;
-        uint32_t rel_ms = ((uint32_t)prof.release_ms * in->release_mul) >> 16;
+        const struct orch_adsr *adsr = cfg ? &cfg->adsr : 0;
+        uint32_t atk_base = (adsr && adsr->attack_ms) ? adsr->attack_ms : prof.attack_ms;
+        uint32_t dec_ms = (adsr && adsr->decay_ms) ? adsr->decay_ms : ((uint32_t)prof.attack_ms * 2U + 40U);
+        uint32_t rel_base = (adsr && adsr->release_ms) ? adsr->release_ms : prof.release_ms;
+        uint32_t atk_ms = (atk_base * in->attack_mul) >> 16;
+        uint32_t rel_ms = (rel_base * in->release_mul) >> 16;
         if (atk_ms < 2U) atk_ms = 2U;
         if (atk_ms > 400U) atk_ms = 400U;
         if (dec_ms < 20U) dec_ms = 20U;
@@ -502,8 +505,11 @@ static void voice_start(unsigned part, unsigned note, unsigned velocity,
         if (v->env_inc < 1) v->env_inc = 1;
         /* A modest held sustain leaves room for bow/breath dynamics. Plucks
          * use a lower sustain then enter release automatically after decay. */
-        v->sustain_level = v->auto_release ? (ORCH_ENV_MAX * 3) / 5
-                                           : (ORCH_ENV_MAX * 4) / 5;
+        {
+            unsigned sustain = (adsr && adsr->sustain_percent) ? adsr->sustain_percent : 80U;
+            if (v->auto_release && sustain > 60U) sustain = 60U;
+            v->sustain_level = (ORCH_ENV_MAX * (int32_t)sustain) / 100;
+        }
         v->env_decay_step = (ORCH_ENV_MAX - v->sustain_level) /
                             (int32_t)v->decay_left;
         if (v->env_decay_step < 1) v->env_decay_step = 1;
@@ -1381,6 +1387,11 @@ int orch_engine_set_articulation(unsigned part, unsigned articulation)
 int orch_engine_set_player_cap(unsigned part, unsigned cap)
 {
     return orch_part_set_player_cap(part, cap);
+}
+int orch_engine_set_adsr(unsigned part, unsigned attack_ms, unsigned decay_ms,
+                         unsigned sustain_percent, unsigned release_ms)
+{
+    return orch_part_set_adsr(part, attack_ms, decay_ms, sustain_percent, release_ms);
 }
 int orch_engine_set_voice_ceiling(unsigned part, unsigned voices_)
 {
