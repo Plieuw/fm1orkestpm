@@ -18,8 +18,11 @@ Every active voice is panned independently in the final stereo mixer.
 5. A part's divisi/player cap remains a musical arrangement limit for one
    incoming note; it is not a reservation of hardware voices.
 
-The initial code change in this branch replaces the old part-ceiling/fair-share
-allocator with this global eight-slot policy.
+The initial code change replaces the old part-ceiling/fair-share allocator with
+this global eight-slot policy. The engine now exposes eight parts, each mapped
+to one default MIDI channel (1-8), and the ARP/phrase state is expanded to eight
+independent parts. The panel's fourth encoder cycles all eight parts; B1-B4
+remain shortcuts for parts 1-4.
 
 ## Eight-part MIDI/control mapping
 
@@ -36,9 +39,10 @@ allocator with this global eight-slot policy.
 ## Note-off correctness
 
 A note-off must release only the matching part/channel and pitch. Divisi voices
-created for that note must release together. Repeated instances of the same
-pitch must be tracked as separate note instances (FIFO note IDs) so an older
-note-off cannot terminate a newer retrigger. Sustain-pedal release must apply
+created for that note must release together. Repeated instances of the same pitch are tracked as separate note instances
+(FIFO note IDs), so an older note-off cannot terminate a newer retrigger.
+Sequencer note-offs retain their own note IDs and cannot accidentally release
+a manually played note of the same pitch. Sustain-pedal release must apply
 only to the corresponding MIDI channel/part.
 
 ## Performance and acceptance checks
@@ -55,7 +59,5 @@ only to the corresponding MIDI channel/part.
 
 ## Scope status
 
-This branch contains the first allocator step only. The public part count,
-one-channel-per-part routing, eight-part panel/preset data, repeated-note ID
-tracking, and target regression tests are still required before this can be
+This branch contains the first allocator step only. Complete target validation and physical FM1 testing are still required before this can be
 called a complete eight-part implementation or flashed as a test build.
