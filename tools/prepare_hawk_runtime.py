@@ -20,6 +20,7 @@ FILES = (
     "orch_engine.c", "orch_engine.h",
     "orch_part.c", "orch_part.h",
     "orch_performance.c", "orch_performance.h",
+    "orch_fx.c", "orch_fx.h",
 )
 
 def replace_once(path: Path, old: str, new: str) -> None:
@@ -81,6 +82,7 @@ def main() -> None:
         '#include "orchestra/orch_part.c"\n'
         '#include "orchestra/orch_performance.c"\n'
         '#include "orchestra/orch_engine.c"\n'
+        '#include "orchestra/orch_fx.c"\n'
         '#include "orchestra/orch_hawk_bridge.c"\n'
         '#include "keys.c"\n#include "audio.c"\n')
 
