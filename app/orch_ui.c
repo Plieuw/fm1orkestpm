@@ -13,7 +13,8 @@
  * blitted in one transfer.
  *
  * The look is the browser page's: coffee, a hairline, amber for a value, green
- * for a section that is sounding, and the same one shape for every row.
+ * for a section that is sounding — and it is drawn, not printed: the shapes the
+ * pages are made of live in orch_ui_draw.inc.
  *
  * Nothing here runs in the audio interrupt: groove_screen_control() is the
  * control task. It shares the master gain and one byte per FX setting with the
@@ -116,15 +117,6 @@ static uint32_t drawn_signature;
 
 /* --- strings -------------------------------------------------------------- */
 
-static const char *art_short(unsigned a)
-{
-    static const char *const names[ORCH_ART_COUNT] = {
-        "AUTO", "PORTA", "LEGATO", "DETACHE", "MARTELE", "STACC", "SPICC",
-        "PIZZ", "FLAG", "TASTO", "PONT", "COLGNO"
-    };
-    return a < ORCH_ART_COUNT ? names[a] : "?";
-}
-
 static const char *inst_short(unsigned instrument)
 {
     static const char *const names[ORCH_INST_COUNT] = {
@@ -171,6 +163,7 @@ static const char *page_name(unsigned p)
  * pages that use them, then the edits and the entry points. Nothing here is
  * compiled on its own. */
 #include "orch_ui_font.inc"    /* the 5x7 font and text() */
+#include "orch_ui_draw.inc"    /* gradients, discs, arcs, curves */
 #include "orch_ui_view.inc"    /* strings, rows, cards, meters */
 #include "orch_ui_strip.inc"   /* the four knobs' cells along the bottom */
 #include "orch_ui_stage.inc"   /* the parts page and the hall */
