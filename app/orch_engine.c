@@ -147,20 +147,20 @@ static int32_t lfo_wave_value(unsigned wave, uint32_t phase, uint32_t *hold)
 }
 static uint32_t lfo_phase_increment(const struct orch_lfo *lfo)
 {
-    uint64_t numerator, denominator = (uint64_t)ORCH_SAMPLE_RATE * 1000U;
     if (!lfo) return 0U;
     if (lfo->sync_division) {
         static const uint8_t mul[5] = {0U,1U,2U,4U,4U};
         static const uint8_t div[5] = {1U,1U,1U,1U,3U};
         const unsigned d = lfo->sync_division;
-        numerator = (uint64_t)tempo * mul[d] * 0x100000000ULL;
-        denominator = (uint64_t)60U * ORCH_SAMPLE_RATE * div[d];
-    } else {
-        numerator = (uint64_t)lfo->rate_millihz * 0x100000000ULL;
+        /* 2^32 / (60 * 44100) ~= 1626.02. Use integer arithmetic
+         * and a small constant divisor; avoid unavailable __udivdi3. */
+        const uint32_t numerator = (uint32_t)tempo * mul[d] * 1626U;
+        return numerator / div[d];
     }
-    uint64_t inc = numerator / denominator;
-    if (inc > 0x7fffffffULL) inc = 0x7fffffffULL;
-    return (uint32_t)inc;
+    /* 2^32 / (44100 * 1000) ~= 97.45. The 9/20 correction
+     * keeps free-rate tuning within a few hundredths of a percent. */
+    return (uint32_t)lfo->rate_millihz * 97U +
+           ((uint32_t)lfo->rate_millihz * 9U) / 20U;
 }
 static uint32_t loop_gain_per_sample_q23(unsigned trip_gain_q15, unsigned samples)
 {
