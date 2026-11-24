@@ -152,3 +152,16 @@ retained across a connected legato handover. Host checks cover the gain limits
 and velocity scaling. Final matching still needs listening across all factory
 instruments and registers on the FM1; this is approximate balancing, not a
 claim of laboratory-calibrated LUFS equality.
+
+
+### Register-aware loudness refinement
+
+The velocity-aware output follower now uses a restrained, continuous pitch-register
+target contour as well as its per-note level estimate. The lowest register receives
+up to +8% target level, the central register remains the reference, and the extreme
+upper register receives up to -6%. Linear ramps avoid abrupt register boundaries.
+The existing gain safety range remains unchanged, and MIDI velocity still scales
+the target. A connected-note fallback also ensures that a connected lead note is
+realized if divisi hysteresis temporarily leaves the new note unassigned; it uses
+the last active desk rather than silently dropping the melody. Host tests check
+the register contour and preserve the existing overlapping-note ownership test.
