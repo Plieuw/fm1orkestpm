@@ -46,13 +46,18 @@ static void page_knobs(void)
     }
 }
 
+/* The arp's card runs from the top of the page down to the picture band: a plot
+ * of 100 rows, so the card ends two pixels above the band's hairline. */
+#define ARP_PLOT_H 100U
+#define ARP_CARD_H (ARP_PLOT_H + 22U)
+
 /* The keys that are held, as dots under the axis. The arp itself does not move
  * once a mode is chosen, so this row is all a new chord has to repaint. */
 static void draw_arp_keys(void)
 {
     const unsigned held = orch_arp_held(ui.part);
     const unsigned x0 = 12U, w = SW - 24U;
-    const unsigned axis = BODY_Y + 10U + 84U;
+    const unsigned axis = BODY_Y + 10U + ARP_PLOT_H;
 
     fm1_screen_fill(x0, axis + 6U, w, 8U, C_CARD);
     for (unsigned i = 0; i < 8U; ++i) {
@@ -72,12 +77,12 @@ static void page_arp(void)
     const unsigned oct = orch_arp_octaves_of(ui.part);
     const unsigned gate = orch_arp_gate_of(ui.part);
     const unsigned on = orch_arp_enabled(ui.part);
-    const unsigned top = BODY_Y + 10U, h = 84U;
+    const unsigned top = BODY_Y + 10U, h = ARP_PLOT_H;
     const unsigned x0 = 12U, w = SW - 24U;
     const unsigned axis = top + h;
 
     /* the frame the pattern is drawn in */
-    card(6U, BODY_Y + 4U, SW - 12U, h + 22U, C_CARD);
+    card(6U, BODY_Y + 4U, SW - 12U, ARP_CARD_H, C_CARD);
     fm1_screen_fill(x0, axis, w, 1U, C_LINE);
 
     /* which way it runs: up, down, up-down, random, as played */
@@ -169,7 +174,7 @@ static void page_seq(void)
         draw_step_cell(i);
 
     /* the selected step's notes as a line over the whole range of the keys */
-    card(6U, BODY_Y + 50U, SW - 12U, 62U, C_CARD);
+    card(6U, BODY_Y + 50U, SW - 12U, 76U, C_CARD);
     unsigned char pitch[ORCH_SEQ_STEPS];
     unsigned count = 0U;
     unsigned lo = 127U, hi = 0U;
@@ -187,15 +192,15 @@ static void page_seq(void)
         curve_v[i] = pitch[i] <= hi
                          ? (unsigned char)(4U + (pitch[i] - lo) * 92U / (hi - lo))
                          : 4U;
-    curve(curve_v, count, 10U, BODY_Y + 58U, SW - 20U, 46U,
+    curve(curve_v, count, 10U, BODY_Y + 58U, SW - 20U, 60U,
           ui.seq_on ? C_METER : C_AMBER, C_CARD);
 
     /* the step that is open, at its own height, amber */
     {
         const unsigned i = ui.seq_step < count ? ui.seq_step : 0U;
         const unsigned x = 10U + i * (SW - 21U) / (count - 1U);
-        const unsigned yy = BODY_Y + 58U + 46U - 1U -
-            (unsigned)(curve_v[i] * 45U / 100U);
+        const unsigned yy = BODY_Y + 58U + 60U - 1U -
+            (unsigned)(curve_v[i] * 59U / 100U);
         disc(x, yy, 3U, C_AMBER2, C_AMBER, C_CARD);
     }
 

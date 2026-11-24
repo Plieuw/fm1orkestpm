@@ -23,6 +23,9 @@ static void page_global(void)
         fm1_screen_fill(x, y, 1U, BODY_Y + 80U - y, C_AMBER);
         fm1_screen_fill(x - 5U, y - 4U, 11U, 8U, C_ROW);
         fm1_screen_fill(x - 5U, y - 4U, 11U, 1U, C_TEXT);
+        /* the two words under a fader are cleared first: a value that grows a
+         * digit must not leave the old one on the picture behind it */
+        fm1_screen_fill(x - 14U, BODY_Y + 89U, 28U, 24U, C_BG);
         text_center(x, BODY_Y + 92U, label[i], C_DIM, C_BG);
         text_center(x, BODY_Y + 104U, value[i], C_TEXT, C_BG);
     }
@@ -35,6 +38,7 @@ static void page_global(void)
             disc(x0, y, 4U, ui.scale != SCALE_OFF ? C_AMBER2 : C_ROW,
                  ui.scale != SCALE_OFF ? C_AMBER : C_ROW, C_BG);
         }
+        fm1_screen_fill(x0 - 14U, BODY_Y + 98U, SW - (x0 - 14U), 10U, C_BG);
         text(x0 - 14U, BODY_Y + 100U, scale_name(ui.scale), C_DIM, C_BG, 60U);
     }
 
@@ -97,8 +101,8 @@ static void page_fx(void)
     const unsigned sel = ui.fx_sel < ORCH_FX_SLOT_COUNT ? ui.fx_sel : 0U;
     const int on = (int)orch_fx_enabled(sel);
     const unsigned top = y0 + ORCH_FX_SLOT_COUNT * 17U + 4U;
-    card(6U, top, SW - 12U, 58U, C_CARD);
-    fx_shape(sel, 12U, top + 8U, SW - 24U, 26U,
+    card(6U, top, SW - 12U, 44U, C_CARD);
+    fx_shape(sel, 12U, top + 6U, SW - 24U, 20U,
              on ? mix565(C_METER, C_TEXT, 60U) : C_DIM, C_CARD);
 
     /* the two parameters of the open effect, one line */
@@ -111,6 +115,7 @@ static void page_fx(void)
         n = put(line, n, sizeof line, orch_fx_param_b_name(sel));
         n = put(line, n, sizeof line, " ");
         put_num(line, n, sizeof line, orch_fx_param_b(sel), 2U);
-        text_center(SW / 2U, top + 44U, line, C_TEXT, C_CARD);
+        fm1_screen_fill(12U, top + 28U, SW - 24U, 10U, C_CARD);
+        text_center(SW / 2U, top + 30U, line, C_TEXT, C_CARD);
     }
 }
