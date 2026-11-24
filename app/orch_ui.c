@@ -14,8 +14,9 @@
  *
  * The look is the browser page's: coffee, a hairline, amber for a value, green
  * for a section that is sounding — and it is drawn, not printed: the shapes the
- * pages are made of live in orch_ui_draw.inc, and the hall on the stage page is
- * a photograph in orch_ui_photo.inc.
+ * pages are made of live in orch_ui_draw.inc. Five things on the panel are
+ * photographs instead: the hall on the stage page (orch_ui_photo.inc), and the
+ * band under the work of each of the four menus (orch_ui_pictures.inc).
  *
  * Nothing here runs in the audio interrupt: groove_screen_control() is the
  * control task. It shares the master gain and one byte per FX setting with the
@@ -118,6 +119,8 @@ static uint32_t drawn_signature;   /* the page's own settings, as last drawn */
 static uint32_t drawn_live;        /* and its live values */
 static uint32_t drawn_strip;       /* and the knob strip */
 static uint8_t hall_static;        /* the hall's picture is on screen */
+static uint8_t page_pic_page = 0xFFU; /* the page whose picture is on screen */
+static uint8_t page_pic_static;    /* and that it is there, under the values */
 
 
 /* --- strings -------------------------------------------------------------- */
@@ -171,6 +174,8 @@ static const char *page_name(unsigned p)
 #include "orch_ui_draw.inc"    /* colour, geometry, gradients, discs, arcs */
 #include "orch_ui_view.inc"    /* strings, rows, cards, meters */
 #include "orch_ui_photo.inc"   /* the hall, as a photograph in runs */
+#include "orch_ui_picture.inc" /* drawing any picture the panel holds */
+#include "orch_ui_pictures.inc" /* the four menus' pictures, and which is whose */
 #include "orch_ui_strip.inc"   /* the four knobs' cells along the bottom */
 #include "orch_level.inc"     /* the output the light over the boards follows */
 #include "orch_ui_stage.inc"   /* the parts page and the hall */
