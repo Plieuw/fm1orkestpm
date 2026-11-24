@@ -21,8 +21,8 @@ encoders  0 SELECT  1 ALGORITHM  2 KNOB1  3 KNOB2  4 KNOB3  5 KNOB4  6 PRESETS
 | `PRESETS` | next/previous instrument inside the current family, wrapping |
 | `KNOB1` | divisi players 1..4 / arp rate / step velocity / FX mix |
 | `KNOB2` | voice ceiling / octaves / step gate / semitone transpose / FX parameter A |
-| `KNOB3` | tempo / arp gate / FX parameter B |
-| `KNOB4` | semitone transpose / arp mode / clear step / FX on-off / **panic** on GLOBAL |
+| `KNOB3` | listener across the stage / arp gate / step tempo / tempo on GLOBAL and SEQUENCER / FX parameter B |
+| `KNOB4` | listener depth (how far back) / arp mode / clear step / FX on-off / **panic** on GLOBAL |
 | `OCT-` `OCT+` | transpose the part an octave down or up (clamped to ±24) |
 | `FX` | open the FX page (chorus, ensemble, delay, shimmer reverb). Pressed again on that page it is the old sound check: a four-part chord, released after 900 ms |
 | `SCL` | cycle the note map: OFF, MAJOR, MINOR, PENTA |
@@ -46,7 +46,7 @@ context.
 The four knob cells at the bottom of the screen are the page's menu: each cell
 is a small knob with its label under it and the value under that, and the value
 lights for a second after its knob moves, so the eye finds the one that changed.
-The cells change with the page: players, voices, tempo and transpose on PARTS;
+The cells change with the page: players, voices, listener and depth on PARTS;
 rate, octaves, gate and mode on ARP; the selected step's velocity, gate and
 tempo plus clear on SEQUENCER; scale, transpose, tempo and panic on GLOBAL; and
 the selected effect's mix, its two parameters and its power on FX. This is HAWK
@@ -82,8 +82,10 @@ PRESETS is encoder 6 and KNOB1..4 are 2..5.
 There are five pages: **PARTS**, **ARP**, **SEQUENCER**, **GLOBAL**, **FX**.
 
 *PARTS* — one row per part: family, instrument and articulation, the player
-count, and a live meter of the voices it is using. The help lines under the
-rows list the shortcuts.
+count, and a live meter of the voices it is using. Under the rows is the stage
+picture: a bar with a square for each part at its section's place and a yellow
+mark for the listener's seat, plus the shortcuts. `KNOB3` moves the listener
+across the stage and `KNOB4` moves it back.
 
 *ARP* — mode, octaves, rate, gate and the number of held keys, plus what the
 encoders do on this page.
@@ -108,7 +110,8 @@ To look at a page without a board, render it on the host:
 ```sh
 cc -std=c11 -O2 -DFM1_HOST_TEST -I../fm1-core/include -Iapp \
    tests/panel_preview.c app/orch_ui.c app/orch_engine.c app/orch_fx.c \
-   app/orch_adaptive.c app/orch_divisi.c app/orch_part.c -o /tmp/panel_preview -lm
+   app/orch_adaptive.c app/orch_divisi.c app/orch_part.c app/orch_stage.c \
+   -o /tmp/panel_preview -lm
 /tmp/panel_preview /tmp/p
 python3 tools/panel_png.py /tmp/p-parts.ppm /tmp/p-parts.png
 python3 tools/panel_png.py /tmp/p-arp.ppm   /tmp/p-arp.png
@@ -116,11 +119,51 @@ python3 tools/panel_png.py /tmp/p-seq.ppm   /tmp/p-seq.png
 python3 tools/panel_png.py /tmp/p-fx.ppm    /tmp/p-fx.png
 ```
 
-`panel_preview` writes four pages as PPM: the PARTS page with a four-part
-chord sounding, the ARP page with three held keys, the SEQUENCER page with
-three recorded steps and the playing step marked, and the FX page with all four
-effects on and the delay row selected. The PNGs are not committed, because they
-are output of that command and would go stale.
+`panel_preview` writes four pages as PPM: the PARTS page with an orchestra on
+the stage and a four-part chord sounding, the ARP page with three held keys,
+the SEQUENCER page with three recorded steps and the playing step marked, and
+the FX page with all four effects on and the delay row selected. The PNGs are
+not committed, because they are output of that command and would go stale.
+
+## Stage and listener
+
+The pan of a voice is not a fixed pattern for every part: it follows the seat
+of the instrument's section, seen from the audience.
+
+| Section | Instruments | Pan |
+| --- | --- | --- |
+| strings, left | violins, harp | 40, 56 |
+| strings, middle | violas | 100 |
+| strings, right | cellos, double basses | 180, 216 |
+| woodwinds | clarinet, flute, piccolo, oboe, bassoon | 92..158 |
+| brass | French horn, trumpet, trombone, tuba | 168..232 |
+| percussion | marimba, xylophone, timpani | 176..240 |
+| choir | choir | 128 (back centre) |
+
+The players of one part spread evenly over the width of their own section
+(`orch_divisi.c`): one player stands in the middle, two at ±48, three at
+-48/0/+48 and four at -48/-16/+16/+48, relative to the section's centre. The
+seats are in `app/orch_stage.c`, and the seat of a part comes from its
+instrument, so the sequencer, the arpeggiator and MIDI all put a note in the
+same place.
+
+The listener is the one control over that image (`KNOB3` and `KNOB4` on the
+PARTS page, and in the save record):
+
+* **left/right** (-100..100) shifts the whole orchestra; 5 a detent, at most 10
+  when flicked;
+* **depth** (0..100) moves the seat back, which narrows the stage to 40 % of its
+  width, and forward again to open it up. Depth changes no level: it moves the
+  image, it is not a room simulation, so a part that was audible stays audible.
+
+Both are clamped at the edges. Moving either redraws the stage picture and the
+two cells under the knobs, so the seat is visible while it moves. The listener
+block is appended after the FX block with its own checksum, so a record written
+before it existed still loads its parts and its FX.
+
+Not measured: that the seating sounds like an orchestra. The pans are numbers
+in the render; the host test checks their order and the listener's clamping,
+not the sound.
 
 ## Arpeggiator
 
@@ -193,9 +236,11 @@ reads it back and applies it only when the magic and the checksum both match, so
 a blank or half-written sector is ignored rather than loaded.
 
 The FX block (on/off, mix, both parameters per effect) is appended **after** the
-original checksum with its own FNV-1a checksum. That keeps the old record layout
-intact: a record written before the FX existed still loads its parts, and only
-the FX block is skipped, because its checksum cannot match erased flash.
+original checksum with its own FNV-1a checksum, and the listener's seat
+(left/right and depth) is appended after that with a checksum of its own. That
+keeps the old record layout intact: a record written before the FX or the
+listener existed still loads its parts, and only the block whose checksum
+cannot match erased flash is skipped.
 
 The sequencer's note pattern is **not** in the record yet: the panel mirrors what
 it wrote, and a power cycle leaves the pattern empty. That is a known gap, not a
@@ -205,14 +250,16 @@ bug that is hidden.
 
 `tests/orch_ui_test.c` drives the panel with stubbed board services and checks
 every button, every encoder role on every page, the note map, the flash save and
-reload (including the FX block) and that a recorded step sounds after `PLAY`.
-It also checks the knob speed: one detent alone, x2 at 20 a second, x8 at 40,
-back by halves when slowing and one detent after turning back, and that a
-percentage reaches only x2 (the delay mix going 5 then 10 a detent). `tests/orch_arp_test.c`
-covers the arp. `tests/orch_fx_test.c` covers the effect chain: bypass is bit
-exact, the echo arrives at the set time and its feedback decays, the reverb tail
-decays, shimmer changes that tail, hard driving stays inside Q23, and panic
-empties the buffers. `tests/panel_preview.c` renders the four pages above.
+reload (including the FX and listener blocks) and that a recorded step sounds
+after `PLAY`. It also checks the knob speed: one detent alone, x2 at 20 a
+second, x8 at 40, back by halves when slowing and one detent after turning back,
+and that a percentage reaches only x2 (the delay mix going 5 then 10 a detent).
+`tests/orch_stage_test.c` checks the seating order, the section spread and that
+the listener clamps at both ends. `tests/orch_arp_test.c` covers the arp.
+`tests/orch_fx_test.c` covers the effect chain: bypass is bit exact, the echo
+arrives at the set time and its feedback decays, the reverb tail decays,
+shimmer changes that tail, hard driving stays inside Q23, and panic empties the
+buffers. `tests/panel_preview.c` renders the four pages above.
 
 Not tested, because there is no hardware in this environment:
 
