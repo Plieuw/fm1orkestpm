@@ -750,6 +750,11 @@ static void seq_learn_input(unsigned part, unsigned note, unsigned velocity)
     for (unsigned i = 0; i < 12U; ++i)
         if (seq_input_pc_count[part][i])
             seq_input_chord_mask[part] |= (uint16_t)(1U << i);
+    if (!seq_input_chord_mask[part]) {
+        seq_input_have_note[part] = 0U;
+        seq_input_velocity[part] = 0U;
+        seq_input_direction[part] = 0;
+    }
 
     seq_input_activity[part] = 100U;
     if (seq_input_ioi[part]) {
