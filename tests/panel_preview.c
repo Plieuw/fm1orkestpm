@@ -11,6 +11,7 @@
 #include "fm1.h"
 #include "orch_engine.h"
 #include "orch_fx.h"
+#include "orch_level.h"
 #include "orch_ui.h"
 
 static uint16_t fb[240 * 240];
@@ -82,6 +83,9 @@ static void render(unsigned blocks)
     for (unsigned i = 0; i < blocks; ++i) {
         memset(block, 0, sizeof block);
         orch_render_q23(block, 128U);
+        /* the same feed the app's audio callback gives the panel's meter, so
+         * the picture shows the light the instrument would be casting */
+        orch_level_take(block, 2U * 128U);
     }
 }
 
