@@ -1290,7 +1290,7 @@ static void voice_tick(voice_t *v)
     /* ADSR also shapes excitation timbre. A rectified follower tracks recent
      * acoustic energy; the attack contour supplies a short-lived transient. */
     {
-        int32_t target = smoothed < 0 ? -smoothed : smoothed;
+        int32_t target = v->out < 0 ? -v->out : v->out;
         if (target > 32767) target = 32767;
         const int32_t delta = target - v->excite_follow;
         v->excite_follow += delta >> (delta > 0 ? 2 : 6);
