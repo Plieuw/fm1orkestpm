@@ -106,3 +106,24 @@ sequencer inherit it through the shared note-start path. A host regression test
 checks that a connected transition preserves audible energy and does not add a
 second voice. Full target-build, CPU and FM1 listening validation remain
 required.
+
+
+## Overlapping legato and section-transition refinement
+
+The adaptive interpreter now tracks the number of currently held notes. A new
+note arriving while another note in the same part is still held is treated as
+part of the current phrase rather than a phrase restart, and can request a
+connected transition even when there is no gap to measure. Note-off decrements
+the held-note count; phrase reset clears it.
+
+For non-mallet families, connected notes reuse the existing player waveguide
+and retune it rather than starting from silence. The new bow/breath excitation
+is blended in from 72% to full level over a short family-sensitive transition
+(roughly 18-33 ms), while the resonator continues ringing. Pitch glide and the
+existing envelope handover remain active. This avoids a hard re-trigger edge
+and preserves the older note's resonant body during the change.
+
+A regression test covers overlapping notes with a one-player part, confirms
+that the same voice is reused, and checks that releasing the older note does
+not release the reassigned voice. ARP and sequencer notes use this same path.
+Target audio quality and CPU headroom still require listening on physical FM1.
