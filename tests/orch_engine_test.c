@@ -53,6 +53,7 @@ static uint32_t q23_power(uint32_t base, unsigned exponent)
 }
 
 extern uint16_t orch_test_level_compensation_gain(unsigned velocity, uint32_t level);
+extern uint16_t orch_test_register_target_scale_q15(unsigned note);
 
 static void test_instrument_level_compensation_bounds(void)
 {
