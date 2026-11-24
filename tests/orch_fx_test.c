@@ -44,13 +44,22 @@ static void test_api(void)
     orch_fx_init();
     CHECK(orch_fx_set_mix(ORCH_FX_CHORUS, 250) == 0);
     CHECK(orch_fx_mix(ORCH_FX_CHORUS) == 100U);
-    CHECK(orch_fx_set_param_a(ORCH_FX_REVERB, 101) == 0);
-    CHECK(orch_fx_param_a(ORCH_FX_REVERB) == 100U);
+    CHECK(orch_fx_set_param(ORCH_FX_REVERB, 0U, 101) == 0);
+    CHECK(orch_fx_param(ORCH_FX_REVERB, 0U) == 100U);
+    CHECK(orch_fx_set_param(ORCH_FX_CHORUS, ORCH_FX_PARAMS, 50) == -1);
+    CHECK(orch_fx_param(ORCH_FX_CHORUS, ORCH_FX_PARAMS) == 0U);
     CHECK(orch_fx_set_enabled(99U, 1U) == -1);
     CHECK(orch_fx_enabled(99U) == 0U);
     CHECK(orch_fx_name(ORCH_FX_DELAY) != 0);
-    CHECK(strcmp(orch_fx_param_a_name(ORCH_FX_DELAY), "TIME") == 0);
-    CHECK(strcmp(orch_fx_param_b_name(ORCH_FX_REVERB), "SHIM") == 0);
+    /* four parameters an effect, and each one says what it is */
+    CHECK(strcmp(orch_fx_param_name(ORCH_FX_DELAY, 0U), "TIME") == 0);
+    CHECK(strcmp(orch_fx_param_name(ORCH_FX_DELAY, 2U), "SYNC") == 0);
+    CHECK(strcmp(orch_fx_param_name(ORCH_FX_DELAY, 3U), "DAMP") == 0);
+    CHECK(strcmp(orch_fx_param_name(ORCH_FX_REVERB, 1U), "SHIM") == 0);
+    CHECK(strcmp(orch_fx_param_name(ORCH_FX_REVERB, 2U), "EARLY") == 0);
+    CHECK(strcmp(orch_fx_param_name(ORCH_FX_CHORUS, 3U), "TONE") == 0);
+    CHECK(strcmp(orch_fx_param_name(ORCH_FX_ENSEMBLE, 2U), "WIDTH") == 0);
+    CHECK(strcmp(orch_fx_param_name(99U, 0U), "?") == 0);
     for (unsigned s = 0; s < ORCH_FX_SLOT_COUNT; ++s) CHECK(orch_fx_enabled(s) == 0U);
     CHECK(orch_fx_any_enabled() == 0U);
     orch_fx_set_enabled(ORCH_FX_DELAY, 1U);
@@ -62,8 +71,8 @@ static void test_delay(void)
     orch_fx_init();
     only(ORCH_FX_DELAY);
     orch_fx_set_mix(ORCH_FX_DELAY, 100);
-    orch_fx_set_param_a(ORCH_FX_DELAY, 0);   /* shortest time: 60 ms = 2646 */
-    orch_fx_set_param_b(ORCH_FX_DELAY, 50);
+    orch_fx_set_param(ORCH_FX_DELAY, 0U, 0);   /* shortest time: 60 ms = 2646 */
+    orch_fx_set_param(ORCH_FX_DELAY, 1U, 50);
 
     memset(big, 0, sizeof big);
     big[0] = 400000;
@@ -86,6 +95,34 @@ static void test_delay(void)
     CHECK(abs32(big[2646U * 2U]) < 2000);
 }
 
+/* SYNC puts the echo on the beat instead of where the time knob points: at
+ * 120 BPM a sixteenth is 5 512 samples, and the free time the knob asked for
+ * (60 ms) stays empty. */
+static void test_sync(void)
+{
+    orch_fx_init();
+    orch_fx_set_tempo(120U);
+    only(ORCH_FX_DELAY);
+    orch_fx_set_mix(ORCH_FX_DELAY, 100);
+    orch_fx_set_param(ORCH_FX_DELAY, 0U, 0);     /* free time would be 2646 */
+    orch_fx_set_param(ORCH_FX_DELAY, 1U, 0);     /* one echo, no tail */
+    orch_fx_set_param(ORCH_FX_DELAY, 2U, 10);    /* SYNC: a sixteenth */
+
+    memset(big, 0, sizeof big);
+    big[0] = 400000;
+    orch_fx_process(big, BIG);
+    CHECK(abs32(big[5512U * 2U]) > 10000);       /* on the beat */
+    CHECK(abs32(big[2646U * 2U]) < 2000);        /* not on the knob's time */
+
+    /* slower tempo, later echo: 60 BPM doubles it */
+    orch_fx_set_tempo(60U);
+    orch_fx_reset();
+    memset(big, 0, sizeof big);
+    big[0] = 400000;
+    orch_fx_process(big, BIG);
+    CHECK(abs32(big[5512U * 2U]) < 2000);
+}
+
 /* One run of the reverb, returning the energy of an early and a late window.
  * With `sine` the input is a short tone burst, otherwise an impulse. */
 static void reverb_run(unsigned shimmer, int sine, uint64_t *early, uint64_t *late)
@@ -93,8 +130,8 @@ static void reverb_run(unsigned shimmer, int sine, uint64_t *early, uint64_t *la
     orch_fx_init();
     only(ORCH_FX_REVERB);
     orch_fx_set_mix(ORCH_FX_REVERB, 100);
-    orch_fx_set_param_a(ORCH_FX_REVERB, 60);
-    orch_fx_set_param_b(ORCH_FX_REVERB, shimmer);
+    orch_fx_set_param(ORCH_FX_REVERB, 0U, 60);
+    orch_fx_set_param(ORCH_FX_REVERB, 1U, shimmer);
 
     uint64_t e1 = 0, e2 = 0;
     for (unsigned base = 0; base < 40000U; base += FRAMES) {
@@ -148,8 +185,8 @@ static void test_bounded(void)
     for (unsigned s = 0; s < ORCH_FX_SLOT_COUNT; ++s) {
         orch_fx_set_enabled(s, 1U);
         orch_fx_set_mix(s, 100U);
-        orch_fx_set_param_a(s, 100U);
-        orch_fx_set_param_b(s, 100U);
+        for (unsigned i = 0; i < ORCH_FX_PARAMS; ++i)
+            orch_fx_set_param(s, i, 100U);
     }
     int32_t peak = 0;
     uint32_t phase = 0;
@@ -188,6 +225,7 @@ int main(void)
     test_bypass();
     test_api();
     test_delay();
+    test_sync();
     test_reverb();
     test_bounded();
 
