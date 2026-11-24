@@ -132,7 +132,7 @@ static uint32_t fx_record_check(const struct save_record *r)
 {
     const uint8_t *b = (const uint8_t *)&r->fx_on[0];
     uint32_t sum = 2166136261UL;
-    for (unsigned i = 0; i < ORCH_FX_SLOT_COUNT * 4U; ++i) {
+    for (unsigned i = 0; i < ORCH_FX_SLOT_COUNT * 6U; ++i) {
         sum ^= b[i];
         sum *= 16777619UL;
     }
@@ -176,8 +176,8 @@ static void save_state(void)
     for (unsigned s = 0; s < ORCH_FX_SLOT_COUNT; ++s) {
         r.fx_on[s] = (uint8_t)orch_fx_enabled(s);
         r.fx_mix[s] = (uint8_t)orch_fx_mix(s);
-        r.fx_a[s] = (uint8_t)orch_fx_param_a(s);
-        r.fx_b[s] = (uint8_t)orch_fx_param_b(s);
+        for (unsigned i = 0; i < ORCH_FX_PARAMS; ++i)
+            r.fx_p[s][i] = (uint8_t)orch_fx_param(s, i);
     }
     r.fx_check = fx_record_check(&r);
     r.listener_x = (int8_t)orch_stage_listener_x();
@@ -204,6 +204,7 @@ static void load_state(void)
     ui.scale = r.scale < SCALE_COUNT ? r.scale : SCALE_OFF;
     ui.part = r.part < ORCH_PARTS ? r.part : 0U;
     orch_seq_set_tempo(ui.tempo);
+    orch_fx_set_tempo(ui.tempo);
     ui.seq_on = r.seq_on ? 1U : 0U;
     orch_seq_set_enabled(ui.seq_on);
     for (unsigned p = 0; p < ORCH_PARTS; ++p) {
@@ -227,8 +228,8 @@ static void load_state(void)
         for (unsigned s = 0; s < ORCH_FX_SLOT_COUNT; ++s) {
             orch_fx_set_enabled(s, r.fx_on[s]);
             orch_fx_set_mix(s, r.fx_mix[s]);
-            orch_fx_set_param_a(s, r.fx_a[s]);
-            orch_fx_set_param_b(s, r.fx_b[s]);
+            for (unsigned i = 0; i < ORCH_FX_PARAMS; ++i)
+                orch_fx_set_param(s, i, r.fx_p[s][i]);
         }
     }
     if (r.stage_check == stage_record_check(&r))
