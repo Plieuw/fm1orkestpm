@@ -17,10 +17,14 @@ new panel page or remap a physical control.
 
 ## Current engine facts
 
-The current orchestral voice already has a per-voice amplitude envelope, but
-it is a simple attack plus gate sustain plus release ramp. Instrument and
-articulation profiles set attack/release times, and adaptive intent scales
-those times. It is not yet a full four-stage ADSR.
+The orchestral voice now has a four-stage per-voice ADSR contour: attack,
+decay, sustain and release. Note-off enters release from the current level;
+release duration is derived from that level. Pluck/strike voices complete
+their attack and decay before automatically entering release, preserving a
+natural modeled tail. Instrument-specific defaults are stored per part, and
+`orch_engine_set_adsr()` allows scene/preset code to override attack, decay,
+sustain and release independently. Adaptive intent remains a bounded
+modifier for attack/release timing.
 
 There is already delayed, ramped per-voice vibrato. The FX engine also has
 internal modulation rates for chorus and ensemble. There is not yet a
@@ -110,5 +114,7 @@ Scene intent:
    M-Flasher package path remain unchanged.
 8. Test both known flash variants and preserve boot-area safety checks.
 
-This document is a design/acceptance contract, not a claim that ADSR or the
-general LFO implementation is already complete.
+The ADSR voice contour and per-part configuration API are implemented in the
+current feature branch. Scene-specific ADSR values still need to be assigned
+by the factory preset recall code. The general-purpose LFO, separate VCA
+response/velocity curves and FM1 hardware verification remain future work.
