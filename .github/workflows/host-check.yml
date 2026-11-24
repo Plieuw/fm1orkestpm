@@ -47,10 +47,10 @@ jobs:
           grep -q 'orch_hawk_render_q15' hawk-chua/firmware/src/audio.c
           grep -q 'orchestra/orch_engine.c' hawk-chua/firmware/src/felucca.c
           grep -q 'orch_hawk_init' hawk-chua/firmware/src/main.c
-      - name: Verify OTA boot-area protection
-        run: python3 tools/check_boot_safety.py "$PWD/hawk-chua"
       - name: Run host tests
         run: FM1_CORE="$PWD/fm1-core" sh tests/run_tests.sh
+      - name: Verify OTA boot-area protection
+        run: python3 tools/check_boot_safety.py "$PWD/hawk-chua"
 
   hawk-target-build:
     runs-on: ubuntu-latest
