@@ -32,6 +32,7 @@ It uses only documented FM1 Core interfaces from `fm1.h`, `fm1_app.h` and
 | Button bit 4 | Panic |
 | Button bit 5 | Advance articulation |
 | Button bit 6 | Cycle Divisi cap |
+| Button bit 13 | Cycle pages: orchestra → performance → phrase detail |
 
 Local keyboard channels are the first channel of each default group:
 part 1 = MIDI channel 1, part 2 = 5, part 3 = 9, part 4 = 13.
@@ -56,3 +57,13 @@ the build, then test keys, MIDI, screen refresh and audio on hardware.
 The FM1 Core API exposes no named button labels in `fm1_controls`; this
 mapping intentionally uses stable numeric button indices 0–6. Verify the
 physical button numbering against the actual FM1 panel before relying on it.
+
+
+## Performance pages — 0.3.6 feature branch
+
+The page cycle uses button bit 13 (physical label still needs confirmation):
+
+- **Performance:** buttons 0–3 select parts; bit 4 panic; bits 5/6 cycle velocity/gate grooves; bits 7/8 toggle ARP/phrase sequencer; bit 9 latch; bit 10 logic; bit 11 external clock; bit 12 quantization. Encoder 1 selects ARP pattern (when ARP is on) or phrase profile (when ARP is off); encoder 2 tempo; encoder 3 subdivision; encoder 4 swing; main knob gate.
+- **Phrase detail:** encoder 1 density; encoder 2 octave range; encoder 3 cluster size; encoder 4 repeats; main knob accent. Button bit 5 toggles inverse, bit 6 cycles root C–B, bit 7 returns to automatic root, bit 8 cycles quantization.
+
+These are source-level mappings, not confirmed physical button labels. The panel adapter pauses/resumes the engine only when a setting changes; physical encoder/button indices and knob scaling must be checked on the FM1.
