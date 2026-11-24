@@ -3,13 +3,14 @@
  * the only way to look at the screen without an FM-1 attached; it is a preview
  * of the layout, not evidence that the ST7789 shows it.
  *
- *   ./panel_preview /tmp/panel      -> /tmp/panel-parts.ppm, -arp.ppm, -seq.ppm
+ *   ./panel_preview /tmp/panel  -> /tmp/panel-{parts,arp,seq,fx}.ppm
  */
 #include <stdio.h>
 #include <string.h>
 
 #include "fm1.h"
 #include "orch_engine.h"
+#include "orch_fx.h"
 #include "orch_ui.h"
 
 static uint16_t fb[240 * 240];
@@ -109,6 +110,7 @@ int main(int argc, char **argv)
     const char *base = argc > 1 ? argv[1] : "/tmp/panel";
 
     orch_init();
+    orch_fx_init();
     memset(&feed, 0, sizeof feed);
     feed.knob = 820U;
     orch_ui_init();
@@ -116,8 +118,10 @@ int main(int argc, char **argv)
     /* PARTS: part 3 on strings, a chord sounding */
     turn(0, 2);            /* SELECT -> part 3 */
     turn(1, 1);            /* ALGORITHM -> strings? brass is 2, so this is choir */
-    turn(1, 1);            /* -> strings (wraps to family 0) */
-    press(2);              /* FX: the four-part chord */
+    turn(1, 1);            /* -> strings (wraps to famille 0) */
+    press(2);              /* opens the FX page */
+    press(2);              /* on that page: the four-part chord */
+    press(8);              /* HOME, back to PARTS */
     render(400);
     clock_ms += 40U;
     orch_ui_control();
@@ -158,6 +162,24 @@ int main(int argc, char **argv)
     clock_ms += 40U;
     orch_ui_control();
     shot(base, "seq");
+
+    /* FX: all four effects on, the delay row selected */
+    press(2);              /* FX page */
+    turn(5, 1);            /* K4: chorus on */
+    turn(2, 1);            /* K1: chorus mix 40 -> 45 */
+    turn(1, 1);            /* select ensemble */
+    turn(5, 1);            /* on */
+    turn(1, 1);            /* select delay */
+    turn(5, 1);            /* on */
+    turn(3, -1);           /* K2: delay time 50 -> 45 */
+    turn(1, 1);            /* select shimmer */
+    turn(5, 1);            /* on */
+    turn(4, 1);            /* K3: shimmer amount 25 -> 30 */
+    turn(1, -1);           /* back to the delay row */
+    render(200);
+    clock_ms += 40U;
+    orch_ui_control();
+    shot(base, "fx");
 
     return 0;
 }

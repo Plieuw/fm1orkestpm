@@ -7,6 +7,7 @@
 
 #include "fm1.h"
 #include "orch_engine.h"
+#include "orch_fx.h"
 #include "orch_part.h"
 #include "orch_ui.h"
 
@@ -16,6 +17,7 @@ static uint32_t clock_ms;
 static struct fm1_controls feed;
 static int32_t block[256];
 static int saved_record_ok;
+static uint8_t flash_mem[4096];
 
 #define CHECK(cond) do { \
     if (!(cond)) { printf("FAIL %s:%d %s\n", __FILE__, __LINE__, #cond); ++failures; } \
@@ -48,19 +50,27 @@ int fm1_screen_blit(unsigned x, unsigned y, unsigned w, unsigned h,
 void fm1_led_set(unsigned key, int on) { (void)key; (void)on; ++leds; }
 uint32_t fm1_millis(void) { return clock_ms; }
 
-uint32_t fm1_flash_size(void) { return 4096U; }
-int fm1_flash_erase(uint32_t offset) { (void)offset; ++flash_erases; return 0; }
+uint32_t fm1_flash_size(void) { return sizeof flash_mem; }
+int fm1_flash_erase(uint32_t offset)
+{
+    if (offset + 4096U > sizeof flash_mem) return -1;
+    memset(flash_mem + offset, 0xFF, 4096U);
+    ++flash_erases;
+    return 0;
+}
 int fm1_flash_write(uint32_t offset, const void *data, size_t bytes)
 {
-    (void)offset; (void)data; (void)bytes;
+    if (offset + bytes > sizeof flash_mem) return -1;
+    memcpy(flash_mem + offset, data, bytes);
     ++flash_writes;
     saved_record_ok = 1;
     return 0;
 }
 int fm1_flash_read(uint32_t offset, void *data, size_t bytes)
 {
-    (void)offset; (void)data; (void)bytes;
-    return -1;   /* empty flash: nothing to load */
+    if (offset + bytes > sizeof flash_mem) return -1;
+    memcpy(data, flash_mem + offset, bytes);
+    return 0;
 }
 
 /* --- helpers -------------------------------------------------------------- */
@@ -91,6 +101,7 @@ static void key(unsigned note, int down)
 int main(void)
 {
     orch_init();
+    orch_fx_init();
     memset(&feed, 0, sizeof feed);
     orch_ui_init();
 
@@ -201,8 +212,29 @@ int main(void)
     orch_ui_handle(&feed);
     CHECK(orch_ui_master_q23 == 0U);
 
-    /* the sound check button starts a chord and it stops again */
+    /* FX: the button opens the FX page; the encoders pick an effect and edit
+     * its mix and its two parameters, K4 switches it on and off */
     press(B_FX);
+    CHECK(orch_ui_page() == 4U);
+    CHECK(orch_ui_fx_selection() == 0U);
+    turn(E_ALGO, 2);
+    CHECK(orch_ui_fx_selection() == 2U);     /* DELAY */
+    turn(E_KNOB1, 2);                         /* mix 25 -> 35 */
+    CHECK(orch_fx_mix(2U) == 35U);
+    turn(E_KNOB2, -1);                        /* time 50 -> 45 */
+    CHECK(orch_fx_param_a(2U) == 45U);
+    turn(E_KNOB3, 2);                         /* feedback 35 -> 45 */
+    CHECK(orch_fx_param_b(2U) == 45U);
+    turn(E_KNOB4, 1);
+    CHECK(orch_fx_enabled(2U) == 1U);
+    turn(E_KNOB4, -1);
+    CHECK(orch_fx_enabled(2U) == 0U);
+    turn(E_KNOB4, 1);                         /* leave it on, SAVE keeps it */
+    CHECK(orch_fx_any_enabled() == 1U);
+
+    /* on the FX page the same button is still the four-part sound check */
+    press(B_FX);
+    CHECK(orch_ui_page() == 4U);
     memset(block, 0, sizeof block);
     orch_render_q23(block, 128U);
     CHECK(orch_active_voices() > 0U);
@@ -218,6 +250,16 @@ int main(void)
     CHECK(flash_writes == 1U);
     CHECK(saved_record_ok == 1);
     CHECK(orch_ui_saved() == 1U);
+
+    /* the FX block travels in the record: a fresh panel load brings it back */
+    orch_fx_set_enabled(ORCH_FX_DELAY, 0U);
+    orch_fx_set_mix(ORCH_FX_DELAY, 10U);
+    orch_ui_init();
+    orch_ui_control();       /* prime the scan timer after the re-init */
+    CHECK(orch_fx_enabled(ORCH_FX_DELAY) == 1U);
+    CHECK(orch_fx_mix(ORCH_FX_DELAY) == 35U);
+    CHECK(orch_fx_param_a(ORCH_FX_DELAY) == 45U);
+    CHECK(orch_fx_param_b(ORCH_FX_DELAY) == 45U);
 
     /* HOME returns to the parts page, and the scan is throttled */
     press(B_HOME);
