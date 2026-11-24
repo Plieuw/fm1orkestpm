@@ -1041,7 +1041,7 @@ void orch_init(void)
     }
     sample_counter = step_start = 0U;
     for (unsigned n = 0; n < ORCH_STEP_NOTES; ++n) {
-        seq_active[n] = 0U; seq_off_at[n] = 0U; seq_note[n] = 0U;
+        seq_active[n] = 0U; seq_off_at[n] = 0U; seq_note[n] = 0U; seq_note_id[n] = 0U;
     }
 }
 
