@@ -74,8 +74,10 @@ automation, generated MIDI output, or the original ARP's complete pattern
 catalogue.
 
 External MIDI realtime bytes are accepted by the application's short-message
-path. The separate FM1 Core TRS transport/clock callback still needs to be
-verified and connected if the platform delivers DIN clock outside that path.
+path. The FM1 Core `groove_midi_transport()` and `groove_midi_clock()` hooks
+are also connected to the scheduler's transport and tempo queues. Confirm on
+the device that the runtime delivers every DIN F8 pulse and START/CONTINUE/STOP
+through those hooks; host compilation cannot prove the physical TRS route.
 
 ## FM1 panel controls
 
