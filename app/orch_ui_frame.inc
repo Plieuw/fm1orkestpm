@@ -35,8 +35,11 @@ static void draw_page(void)
     draw_strip();
 }
 
-/* The pages show live values (a running step, held arp notes). The control task
- * compares what it drew with what the engine says, and repaints on a change. */
+/* The pages show live values (a running step, held arp notes) next to values
+ * that only change when a control does. The control task compares them apart:
+ * a live change repaints the few pixels it moves, and only a change to the
+ * page's own settings repaints the page. */
+
 static uint32_t page_signature(void)
 {
     uint32_t sig = (uint32_t)ui.page * 0x9E3779B1UL;
@@ -44,7 +47,6 @@ static uint32_t page_signature(void)
         sig ^= 0x40U | ((uint32_t)ui.hot_cell << 8);   /* the lit cell, and back */
     switch (ui.page) {
     case PAGE_ARP:
-        sig ^= (uint32_t)orch_arp_held(ui.part) * 31U;
         sig ^= (uint32_t)orch_arp_enabled(ui.part) << 8;
         sig ^= (uint32_t)orch_arp_mode_of(ui.part) << 12;
         sig ^= (uint32_t)orch_arp_octaves_of(ui.part) << 16;
@@ -52,10 +54,11 @@ static uint32_t page_signature(void)
         sig ^= (uint32_t)orch_arp_gate_of(ui.part) << 24;
         break;
     case PAGE_SEQ:
-        sig ^= (uint32_t)orch_seq_position() << 1;
         sig ^= (uint32_t)ui.seq_on << 9;
         sig ^= (uint32_t)ui.rec << 10;
         sig ^= (uint32_t)ui.seq_step << 12;
+        sig ^= (uint32_t)seq_notes[ui.seq_step][0].velocity << 16;
+        sig ^= (uint32_t)seq_notes[ui.seq_step][0].gate_percent << 24;
         break;
     case PAGE_FX:
         for (unsigned s = 0; s < ORCH_FX_SLOT_COUNT; ++s)
@@ -73,14 +76,58 @@ static uint32_t page_signature(void)
     return sig;
 }
 
+static uint32_t page_live_signature(void)
+{
+    switch (ui.page) {
+    case PAGE_ARP: return (uint32_t)orch_arp_held(ui.part) | 0x400U;
+    case PAGE_SEQ: return (uint32_t)orch_seq_position() | 0x400U;
+    case PAGE_HOME: {
+        uint32_t sig = 0x400U;
+        for (unsigned p = 0; p < ORCH_PARTS; ++p)
+            sig = sig * 31U + orch_voices_of_part(p);
+        return sig;
+    }
+    default: return 0x400U;
+    }
+}
+
+/* What a live value costs: the arp's row of dots, the two sequencer cells that
+ * changed (the one that was playing and the one that is), or the players on the
+ * stage. Everything else on the page stays as it was drawn. */
+static void page_live(uint32_t was)
+{
+    switch (ui.page) {
+    case PAGE_ARP:
+        draw_arp_keys();
+        break;
+    case PAGE_SEQ: {
+        const unsigned now = orch_seq_position();
+        const unsigned before = (was != 0x400U) ? (unsigned)(was & 0x3FFU)
+                                                : now;
+        if (before != now) {
+            draw_step_cell(before % ORCH_SEQ_STEPS);
+            draw_step_cell(now % ORCH_SEQ_STEPS);
+        }
+        break;
+    }
+    case PAGE_HOME:
+        draw_players();
+        break;
+    default:
+        break;
+    }
+}
+
 static void update_meters(void)
 {
     if (ui.page != PAGE_HOME) return;
+    int players = 0;
     for (unsigned p = 0; p < ORCH_PARTS; ++p) {
         const struct orch_part *part = orch_part_get(p);
         const unsigned ceiling = part->voice_ceiling ? part->voice_ceiling : 1U;
         unsigned voices = orch_voices_of_part(p);
         if (voices > ceiling) voices = ceiling;
-        if (voices != shown_voices[p]) draw_desk(p);
+        if (voices != shown_voices[p]) { draw_desk(p); players = 1; }
     }
+    if (players) draw_players();
 }
