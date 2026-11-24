@@ -52,6 +52,9 @@ typedef struct {
     int32_t accent_q16;
     int32_t energy_q16;
     int32_t excite_follow; /* rectified model-energy follower, Q15 */
+    uint32_t expr_phase, expr_inc;
+    int32_t expr_q15;
+    uint16_t expr_depth;
     uint16_t vib_phase, vib_inc;
     uint32_t lfo_phase, lfo_inc, lfo_delay_left, lfo_fade_frames, lfo_fade_gain;
     uint32_t lfo_hold;
@@ -469,6 +472,10 @@ static void voice_start(unsigned part, unsigned note, unsigned velocity,
     v->releasing = 0U;
     v->struck = 0U;
     v->excite_follow = 0;
+    v->expr_phase = rng;
+    v->expr_inc = 0U;
+    v->expr_q15 = 0;
+    v->expr_depth = 0U;
     v->env_stage = 1U;
     v->auto_release = (uint8_t)(prof.pluck || excite == EXC_STRIKE);
     v->strike_left = 0U;
@@ -555,6 +562,32 @@ static void voice_start(unsigned part, unsigned note, unsigned velocity,
         if (v->env_decay_step < 1) v->env_decay_step = 1;
         v->env_dec = ORCH_ENV_MAX / (int32_t)(v->release_frames ? v->release_frames : 1U);
         if (v->env_dec < 1) v->env_dec = 1;
+    }
+
+    /* Slow phrase breath: family-specific, deterministic micro-dynamics.
+     * Strings swell through bow pressure, winds/choir through breath support;
+     * struck instruments deliberately receive no sustain wobble. */
+    {
+        unsigned depth = 0U;
+        switch (family) {
+        case ORCH_FAM_STRINGS: depth = 1500U; break;  /* +/- 4.6% */
+        case ORCH_FAM_WOODWINDS: depth = 1850U; break;/* +/- 5.6% */
+        case ORCH_FAM_BRASS: depth = 1050U; break;    /* +/- 3.2% */
+        case ORCH_FAM_CHOIR: depth = 2100U; break;    /* +/- 6.4% */
+        case ORCH_FAM_MALLETS:
+        default: depth = 0U; break;
+        }
+        /* More expressive intent and phrase peaks can breathe a little more,
+         * but the ceiling stays musical and never changes the panel ADSR. */
+        if (in->new_high) depth += depth / 8U;
+        if (depth > 2400U) depth = 2400U;
+        v->expr_depth = (uint16_t)depth;
+        {
+            const unsigned rate_millihz = 120U +
+                (unsigned)in->density * 18U + (in->new_high ? 25U : 0U);
+            v->expr_inc = rate_millihz * 97U +
+                          (rate_millihz * 9U) / 20U;
+        }
     }
 
     v->energy_q16 = (int32_t)in->energy;
@@ -1225,6 +1258,21 @@ static void voice_tick(voice_t *v)
         --v->glide_left;
         len = v->len_q16;
     }
+    /* Phrase-shaped sustain expression, about 0.14-0.30 Hz. A smooth
+     * triangle-derived sine avoids abrupt corners and runs only while the
+     * note is sustaining/releasing. Its depth is instrument-family specific. */
+    if (v->expr_depth && (v->env_stage == 3U || v->env_stage == 4U)) {
+        v->expr_phase += v->expr_inc;
+        {
+            int32_t tri = triangle32(v->expr_phase);
+            const int32_t mag = tri < 0 ? -tri : tri;
+            const int32_t sine = (tri * (49152 - (mag >> 1))) >> 15;
+            v->expr_q15 = (sine * (int32_t)v->expr_depth) >> 15;
+        }
+    } else {
+        v->expr_q15 = 0;
+    }
+
     /* General LFO runs independently of the legacy expressive vibrato. */
     {
         const struct orch_part *cfg = orch_part_get(v->part);
@@ -1299,7 +1347,10 @@ static void voice_tick(voice_t *v)
         (v->env > ORCH_ENV_MAX ? ORCH_ENV_MAX : v->env);
     const int32_t transient_q15 = (v->env_stage == 1U)
         ? (ORCH_ENV_MAX - env_q15) : 0;
-    const int32_t excitation_gain_q15 = 16384 + (env_q15 >> 1);
+    const int32_t env_excitation_q15 = 16384 + (env_q15 >> 1);
+    const int32_t expression_gain_q15 = 32767 + v->expr_q15;
+    const int32_t excitation_gain_q15 =
+        (env_excitation_q15 * (expression_gain_q15 >> 1)) >> 14;
     int damp_value = v->damp ? v->damp : 2U;
     damp_value += (transient_q15 >> 13) + (v->excite_follow >> 14);
     if (damp_value > 6) damp_value = 6;
@@ -1471,6 +1522,7 @@ void orch_render_q23(int32_t *out, unsigned frames)
             if (!v->active) continue;
             ++active;
             int32_t amp = (v->out * v->env >> 15);
+            amp = (amp * (32767 + v->expr_q15)) >> 15;
             {
                 const struct orch_part *cfg = orch_part_get(v->part);
                 const struct orch_lfo *lfo = cfg ? &cfg->lfo : 0;
