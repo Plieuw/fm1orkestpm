@@ -5,6 +5,7 @@
 #include <stdint.h>
 #include "orch_adaptive.h"
 #include "orch_part.h"
+#include "orch_performance.h"
 
 #define ORCH_MAX_VOICES 12U
 #define ORCH_MIDI_CHANNELS 16U
@@ -21,6 +22,8 @@ void orch_render_q23(int32_t *stereo, unsigned frames);
 
 /* Event input: MIDI 1.0 channel voice, channel 0..15. */
 void orch_midi_short_message(const uint8_t *message, unsigned bytes);
+void orch_midi_realtime(unsigned status);
+void orch_midi_clock_tempo(unsigned bpm);
 void orch_note_event(unsigned channel, unsigned note, unsigned velocity);
 void orch_panic(void);
 

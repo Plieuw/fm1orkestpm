@@ -42,6 +42,8 @@ static uint32_t previous_buttons;
 static uint32_t last_panel_poll;
 static uint16_t key_velocity = 96U;
 static uint8_t panel_dirty = 1U;
+static uint8_t panel_perf_page;
+static struct orch_perf_config perf_config[PANEL_PARTS];
 
 /* A tiny 3x5 uppercase font. Drawing is control-task-only and uses the
  * platform's documented RGB565 rectangle primitive; no hidden SDK symbols. */
@@ -124,8 +126,72 @@ static void panel_apply_articulation(unsigned part, unsigned index)
     panel_dirty=1U;
 }
 
+static void panel_apply_performance(unsigned part)
+{
+    if (part >= PANEL_PARTS) return;
+    fm1_engine_pause();
+    (void)orch_perf_set_config(part, &perf_config[part]);
+    fm1_engine_resume();
+    panel_dirty = 1U;
+}
+
 static void panel_draw(void)
 {
+    if (panel_perf_page) {
+        static const uint16_t bg=0x0841U, ink=0xFFFFU, cyan=0x07FFU;
+        static const uint16_t amber=0xFD20U, green=0x07E0U;
+        static const char *const logic_names[] = {"OR","AND","XOR","NOR","ALT","S/R"};
+        static const char *const part_labels[PANEL_PARTS] = {
+            "PART 1 CH 1-4", "PART 2 CH 5-8",
+            "PART 3 CH 9-12", "PART 4 CH 13-16"
+        };
+        struct orch_perf_config *pc=&perf_config[selected_part];
+        char line[24];
+        fm1_screen_fill(0U,0U,FM1_SCREEN_WIDTH,FM1_SCREEN_HEIGHT,bg);
+        panel_text(8U,8U,"FM1 PERFORMANCE",cyan);
+        panel_text(8U,30U,part_labels[selected_part],ink);
+        panel_text(8U,52U,pc->arp_enabled?"ARP ON":"ARP OFF",amber);
+        panel_text(120U,52U,pc->phrase_enabled?"SEQ ON":"SEQ OFF",amber);
+        line[0]='B';line[1]='P';line[2]='M';line[3]=' ';
+        line[4]=(char)('0'+(pc->bpm/100U)%10U);
+        line[5]=(char)('0'+(pc->bpm/10U)%10U);
+        line[6]=(char)('0'+pc->bpm%10U);line[7]=0;
+        panel_text(8U,76U,line,ink);
+        line[0]='D';line[1]='I';line[2]='V';line[3]=' ';
+        line[4]=(char)('0'+pc->division+1U);line[5]=0;
+        panel_text(120U,76U,line,ink);
+        line[0]='A';line[1]='R';line[2]='P';line[3]=' ';
+        line[4]=(char)('0'+(pc->arp_type/10U)%10U);
+        line[5]=(char)('0'+pc->arp_type%10U);line[6]=0;
+        panel_text(8U,100U,line,ink);
+        line[0]='G';line[1]='E';line[2]=' ';
+        line[3]=(char)('0'+(pc->phrase_ge/10U)%10U);
+        line[4]=(char)('0'+pc->phrase_ge%10U);line[5]=0;
+        panel_text(120U,100U,line,ink);
+        line[0]='G';line[1]='A';line[2]='T';line[3]='E';line[4]=' ';
+        line[5]=(char)('0'+(pc->gate/100U)%10U);
+        line[6]=(char)('0'+(pc->gate/10U)%10U);
+        line[7]=(char)('0'+pc->gate%10U);line[8]=0;
+        panel_text(8U,124U,line,ink);
+        line[0]='S';line[1]='W';line[2]='I';line[3]='N';line[4]='G';line[5]=' ';
+        line[6]=(char)('0'+(pc->swing/100U)%10U);
+        line[7]=(char)('0'+(pc->swing/10U)%10U);
+        line[8]=(char)('0'+pc->swing%10U);line[9]=0;
+        panel_text(120U,124U,line,ink);
+        panel_text(8U,148U,logic_names[pc->logic%ORCH_PERF_LOGIC_COUNT],amber);
+        panel_text(72U,148U,pc->latch?"LATCH ON":"LATCH OFF",ink);
+        panel_text(8U,172U,pc->external_clock?"CLOCK EXT":"CLOCK INT",cyan);
+        line[0]='V';line[1]='G';line[2]=' ';line[3]=(char)('0'+pc->velocity_groove);line[4]=0;
+        panel_text(120U,172U,line,ink);
+        line[0]='G';line[1]='G';line[2]=' ';line[3]=(char)('0'+pc->gate_groove);line[4]=0;
+        panel_text(168U,172U,line,ink);
+        const unsigned step=orch_perf_current_step(selected_part)&15U;
+        fm1_screen_fill(8U,196U,216U,6U,0x39E7U);
+        fm1_screen_fill(8U,196U,(216U*step)/15U,6U,green);
+        panel_text(8U,208U,"B8 ARP B9 SEQ B10 HOLD",cyan);
+        panel_text(8U,228U,"B11 LOGIC B12 CLK B13 QTZ B14 PAGE",amber);
+        return;
+    }
     static const uint16_t bg=0x0841U, ink=0xFFFFU, cyan=0x07FFU;
     static const uint16_t amber=0xFD20U, green=0x07E0U, red=0xF800U;
     const unsigned p=selected_part;
@@ -147,7 +213,7 @@ static void panel_draw(void)
     fm1_screen_fill(8U,188U,216U,8U,0x39E7U);
     fm1_screen_fill(8U,188U,(216U*selected_cap[p])/4U,8U,green);
     panel_text(8U,204U,"ENC1 INST ENC2 CAP",cyan);
-    panel_text(8U,224U,"B1-4 PART B5 PANIC",red);
+    panel_text(8U,224U,"B1-4 PART B5 PANIC B14 PERF",red);
 }
 
 static void panel_part_select(unsigned part)
@@ -166,12 +232,15 @@ void groove_screen_init(void)
         selected_instrument[p]=instrument_default[p];
         selected_cap[p]=2U;
         selected_art[p]=0U;
+        orch_perf_default_config(&perf_config[p]);
+        (void)orch_perf_set_config(p,&perf_config[p]);
     }
     for (unsigned k=0;k<PANEL_KEY_COUNT;++k) key_channel[k]=0U;
     previous_keys=0U;
     previous_buttons=0U;
     last_panel_poll=0U;
     key_velocity=96U;
+    panel_perf_page=0U;
     panel_dirty=1U;
     panel_draw();
 }
@@ -212,36 +281,84 @@ void groove_screen_control(void)
     for (unsigned p=0;p<PANEL_PARTS;++p)
         if (edges & (1UL<<p)) panel_part_select(p);
     if (edges & (1UL<<4)) orch_panic();
-    if (edges & (1UL<<5)) panel_apply_articulation(selected_part,selected_art[selected_part]+1U);
-    if (edges & (1UL<<6)) panel_apply_cap(selected_part,(selected_cap[selected_part]%4U)+1U);
-
-    const int instrument_delta=controls.encoders[0];
-    if (instrument_delta) {
-        int next=(int)selected_instrument[selected_part]+instrument_delta;
-        while (next<0) next+=(int)ORCH_INST_COUNT;
-        while (next>=(int)ORCH_INST_COUNT) next-=(int)ORCH_INST_COUNT;
-        panel_apply_instrument(selected_part,(unsigned)next);
-    }
-    if (controls.encoders[1]) {
-        int next=(int)selected_cap[selected_part]+controls.encoders[1];
-        if (next<1) next=1;
-        if (next>4) next=4;
-        panel_apply_cap(selected_part,(unsigned)next);
-    }
-    if (controls.encoders[2]) {
-        int next=(int)selected_art[selected_part]+controls.encoders[2];
-        const int count=(int)(sizeof articulation_values/sizeof articulation_values[0]);
-        while (next<0) next+=count;
-        while (next>=count) next-=count;
-        panel_apply_articulation(selected_part,(unsigned)next);
-    }
-    if (controls.encoders[3]) {
-        int next=(int)selected_part+controls.encoders[3];
-        while (next<0) next+=(int)PANEL_PARTS;
-        while (next>=(int)PANEL_PARTS) next-=(int)PANEL_PARTS;
-        panel_part_select((unsigned)next);
-    }
-
+    if (edges & (1UL<<13)) { panel_perf_page=(uint8_t)!panel_perf_page; panel_dirty=1U; }
+    if (!panel_perf_page) {
+        if (edges & (1UL<<5)) panel_apply_articulation(selected_part,selected_art[selected_part]+1U);
+        if (edges & (1UL<<6)) panel_apply_cap(selected_part,(selected_cap[selected_part]%4U)+1U);
+        const int instrument_delta=controls.encoders[0];
+        if (instrument_delta) {
+            int next=(int)selected_instrument[selected_part]+instrument_delta;
+            while(next<0)next+=(int)ORCH_INST_COUNT;
+            while(next>=(int)ORCH_INST_COUNT)next-=(int)ORCH_INST_COUNT;
+            panel_apply_instrument(selected_part,(unsigned)next);
+        }
+        if (controls.encoders[1]) {
+            int next=(int)selected_cap[selected_part]+controls.encoders[1];
+            if(next<1) next=1;
+            if(next>4) next=4;
+            panel_apply_cap(selected_part,(unsigned)next);
+        }
+        if (controls.encoders[2]) {
+            int next=(int)selected_art[selected_part]+controls.encoders[2];
+            const int count=(int)(sizeof articulation_values/sizeof articulation_values[0]);
+            while(next<0) next+=count;
+            while(next>=count) next-=count;
+            panel_apply_articulation(selected_part,(unsigned)next);
+        }
+        if (controls.encoders[3]) {
+            int next=(int)selected_part+controls.encoders[3];
+            while(next<0)next+=(int)PANEL_PARTS;
+            while(next>=(int)PANEL_PARTS)next-=(int)PANEL_PARTS;
+            panel_part_select((unsigned)next);
+        }
+    } else {
+        struct orch_perf_config *pc=&perf_config[selected_part];
+        uint8_t changed=0U;
+        if (edges & (1UL<<5)) { pc->velocity_groove=(uint8_t)((pc->velocity_groove+1U)&7U); changed=1U; }
+        if (edges & (1UL<<6)) { pc->gate_groove=(uint8_t)((pc->gate_groove+1U)&7U); changed=1U; }
+        if (edges & (1UL<<7)) { pc->arp_enabled=(uint8_t)!pc->arp_enabled; changed=1U; }
+        if (edges & (1UL<<8)) { pc->phrase_enabled=(uint8_t)!pc->phrase_enabled; changed=1U; }
+        if (edges & (1UL<<9)) { pc->latch=(uint8_t)!pc->latch; changed=1U; }
+        if (edges & (1UL<<10)) { pc->logic=(uint8_t)((pc->logic+1U)%ORCH_PERF_LOGIC_COUNT); changed=1U; }
+        if (edges & (1UL<<11)) { pc->external_clock=(uint8_t)!pc->external_clock; changed=1U; }
+        if (edges & (1UL<<12)) { pc->quantize=(uint8_t)((pc->quantize+1U)%18U); changed=1U; }
+        if (controls.encoders[0]) {
+            if (pc->arp_enabled) {
+                int next=(int)pc->arp_type+controls.encoders[0];
+                while(next<0)next+=(int)ORCH_PERF_ARP_TYPES;
+                while(next>=(int)ORCH_PERF_ARP_TYPES)next-=(int)ORCH_PERF_ARP_TYPES;
+                pc->arp_type=(uint8_t)next;
+            } else {
+                int next=(int)pc->phrase_ge+controls.encoders[0];
+                while(next<0)next+=(int)ORCH_PERF_GE_COUNT;
+                while(next>=(int)ORCH_PERF_GE_COUNT)next-=(int)ORCH_PERF_GE_COUNT;
+                pc->phrase_ge=(uint8_t)next;
+            }
+            changed=1U;
+        }
+        if (controls.encoders[1]) {
+            int next=(int)pc->bpm+controls.encoders[1];
+            if(next<40)next=40;
+            if(next>250)next=250;
+            pc->bpm=(uint16_t)next; changed=1U;
+        }
+        if (controls.encoders[2]) {
+            int next=(int)pc->division+controls.encoders[2];
+            while(next<0)next+=(int)ORCH_PERF_DIVISIONS;
+            while(next>=(int)ORCH_PERF_DIVISIONS)next-=(int)ORCH_PERF_DIVISIONS;
+            pc->division=(uint8_t)next; changed=1U;
+        }
+        if (controls.encoders[3]) {
+            int next=(int)pc->swing+controls.encoders[3]*4;
+            if(next<0)next=0;
+            if(next>127)next=127;
+            pc->swing=(uint8_t)next; changed=1U;
+        }
+        unsigned knob=controls.knob;
+        if(knob>1023U) knob=1023U;
+        const uint8_t gate=(uint8_t)(5U+knob*95U/1023U);
+        if(gate!=pc->gate){pc->gate=gate;changed=1U;}
+        if(changed) panel_apply_performance(selected_part);    }
     for (unsigned b=0;b<14U;++b)
         fm1_led_set(b,(buttons>>b)&1U);
     for (unsigned k=0;k<PANEL_KEY_COUNT;++k)
@@ -252,7 +369,12 @@ void groove_screen_control(void)
     }
 }
 
-void groove_midi_init(void) { orch_init(); }
+void groove_midi_init(void)
+{
+    orch_init();
+    for(unsigned p=0U;p<PANEL_PARTS;++p)
+        (void)orch_perf_set_config(p,&perf_config[p]);
+}
 void groove_midi_poll(void) {}
 void groove_midi_panic(void) { orch_panic(); }
 unsigned groove_midi_mode(unsigned track) { (void)track; return 0U; }
@@ -261,6 +383,9 @@ void groove_midi_note(unsigned track,unsigned note,unsigned velocity)
     orch_note_event(track&15U,note,velocity);
 }
 void groove_midi_track_reset(unsigned track) { (void)track; }
+void groove_midi_transport(unsigned owner,uint8_t status) { (void)owner; orch_midi_realtime(status); }
+void groove_midi_clock(unsigned owner,unsigned tempo) { (void)owner; orch_midi_clock_tempo(tempo); }
+void groove_midi_clock_reset(void) { orch_midi_realtime(0xFCU); }
 
 void fm1_app_midi_received(unsigned source,const uint8_t *message,size_t bytes)
 {

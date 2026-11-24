@@ -10,7 +10,7 @@ Polyphonic physical-modeling firmware for the M-VAVE FM1 (JieLi WL82 / AC791N, P
 - Physical-modeling-first synthesis. The first prototype is a digital-waveguide string voice.
 - No audio-thread allocation, locks, file access, or display calls.
 
-## Status: 0.3.4-beta, host-validated only
+## Status: 0.3.5-beta, host-validated only
 
 **Nothing here has run on hardware.** Every source compiles with `-Werror`
 against the FM1 Core headers and the host tests pass; no `.fwsc` is built or
@@ -29,9 +29,10 @@ The FM1 uses JieLi WL82/AC791N. Himalia firmware targets a different MCU, so Him
 - 18 instrument profiles (violin, viola, cello, bass, harp, flute, piccolo, clarinet, oboe, bassoon, trumpet, horn, trombone, tuba, marimba, xylophone, timpani, choir) with body/bore resonators.
 - MIDI Note On/Off, velocity and sustain pedal.
 - 16-step polyphonic sequencer pattern, up to four notes per step, with per-note gate and internal tempo.
+- Per-part ARP and generated-phrase engine: 31 ARP patterns, 46 phrase profiles, ten subdivisions, internal/external clock, groove, latch and stream logic. See [docs/HAWK_CHUA_PERFORMANCE_PORT.md](docs/HAWK_CHUA_PERFORMANCE_PORT.md).
 - Fixed-point synthesis, one waveguide per player, stereo Q23 output.
 
-The 12-voice ceiling is provisional and must be measured on real FM1 hardware. The goal is the highest stable polyphony that fits the audio interrupt budget. The 0.3.4 branch adds local key input, panel controls and an RGB565 status screen; see [docs/FM1_PANEL.md](docs/FM1_PANEL.md).
+The 12-voice ceiling is provisional and must be measured on real FM1 hardware. The goal is the highest stable polyphony that fits the audio interrupt budget. The 0.3.4 branch adds local key input, panel controls and an RGB565 status screen; see [docs/FM1_PANEL.md](docs/FM1_PANEL.md). The 0.3.5 feature branch adds the ARP/phrase performance page and per-part playback controls.
 
 ## Host tests
 
@@ -43,7 +44,7 @@ FM1_CORE=../fm1-core sh tests/run_tests.sh
 
 Covers adaptive classification and velocity reaction, divisi distribution and
 stability, channel routing, per-instrument selection, release, sustain, panic,
-sequencer gates, the Q23 range and a DC regression guard on the bowed strings.
+sequencer gates, the Q23 range, ARP capture/release, phrase generation and a DC regression guard on the bowed strings.
 The host workflow also compiles the FM1 app adapter and panel code against the
 FM1 Core API headers.
 CI compiles every source with `-Werror` and runs the same script.

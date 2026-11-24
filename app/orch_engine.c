@@ -13,6 +13,7 @@
  */
 #include "fm1.h"
 #include "orch_engine.h"
+#include "orch_performance.h"
 
 #define ORCH_AUDIO FM1_AUDIO_CODE
 
@@ -513,7 +514,7 @@ static void enqueue(unsigned ch, unsigned note, unsigned velocity, unsigned type
     const uint8_t next = (uint8_t)((event_write + 1U) & (EVENT_CAP - 1U));
     if (next == event_read) return;
     events[event_write].channel = (uint8_t)(ch & 15U);
-    events[event_write].note = (uint8_t)(note & 127U);
+    events[event_write].note = (uint8_t)(type == 3U ? note : (note & 127U));
     events[event_write].velocity = (uint8_t)(velocity & 127U);
     events[event_write].type = (uint8_t)type;
     event_write = next;
@@ -525,9 +526,28 @@ void orch_note_event(unsigned ch, unsigned note, unsigned velocity)
 }
 void orch_panic(void) { enqueue(0U, 0U, 0U, 2U); }
 
+void orch_midi_realtime(unsigned status)
+{
+    if(status==0xF8U || status==0xFAU || status==0xFBU || status==0xFCU)
+        enqueue(0U,status,0U,3U);
+}
+
+void orch_midi_clock_tempo(unsigned bpm)
+{
+    if(!bpm)return;
+    if(bpm<40U)bpm=40U;
+    if(bpm>250U)bpm=250U;
+    enqueue(0U,bpm&127U,(bpm>>7)&127U,4U);
+}
+
 void orch_midi_short_message(const uint8_t *m, unsigned bytes)
 {
-    if (!m || bytes < 2U || m[0] < 0x80U || m[0] >= 0xf0U) return;
+    if (!m || !bytes) return;
+    if (m[0] == 0xF8U || m[0] == 0xFAU || m[0] == 0xFBU || m[0] == 0xFCU) {
+        orch_midi_realtime(m[0]);
+        return;
+    }
+    if (bytes < 2U || m[0] < 0x80U || m[0] >= 0xf0U) return;
     const unsigned kind = m[0] & 0xf0U, ch = m[0] & 15U;
     if ((kind == 0x80U || kind == 0x90U) && bytes >= 3U)
         enqueue(ch, m[1], (kind == 0x80U || m[2] == 0U) ? 0U : m[2], 0U);
@@ -536,10 +556,9 @@ void orch_midi_short_message(const uint8_t *m, unsigned bytes)
 }
 
 /* The note-on path: interpret, plan divisi, realize the players. */
-static void engine_note_on(unsigned ch, unsigned note, unsigned velocity)
+static void engine_note_on_part(unsigned part, unsigned note, unsigned velocity)
 {
-    const unsigned part = orch_part_for_channel(ch);
-    if (part == 0xFFU || !velocity) return;
+    if (part >= ORCH_PARTS || !velocity) return;
     struct orch_part *cfg = orch_part_get(part);
     if (!cfg) return;
 
@@ -576,10 +595,15 @@ static void engine_note_on(unsigned ch, unsigned note, unsigned velocity)
     }
 }
 
-static void engine_note_off(unsigned ch, unsigned note, unsigned sustain_on)
+static void engine_note_on(unsigned ch, unsigned note, unsigned velocity)
 {
-    const unsigned part = orch_part_for_channel(ch);
-    if (part == 0xFFU) return;
+    const unsigned part=orch_part_for_channel(ch);
+    if(part!=0xFFU) engine_note_on_part(part,note,velocity);
+}
+
+static void engine_note_off_part(unsigned part, unsigned note, unsigned sustain_on)
+{
+    if (part >= ORCH_PARTS) return;
     struct orch_part *cfg = orch_part_get(part);
     if (cfg) orch_adaptive_off(&cfg->adaptive, sample_counter);
 
@@ -590,6 +614,12 @@ static void engine_note_off(unsigned ch, unsigned note, unsigned sustain_on)
         if (!sustain_on) v->releasing = 1U;
     }
     if (!sustain_on) part_note_remove(part, note);
+}
+
+static void engine_note_off(unsigned ch, unsigned note, unsigned sustain_on)
+{
+    const unsigned part=orch_part_for_channel(ch);
+    if(part!=0xFFU) engine_note_off_part(part,note,sustain_on);
 }
 
 static void engine_sustain(unsigned ch, unsigned on)
@@ -614,14 +644,30 @@ static void drain_events(void)
             for (unsigned i = 0; i < ORCH_MAX_VOICES; ++i) voice_stop(i);
             for (unsigned c = 0; c < ORCH_MIDI_CHANNELS; ++c) sustain[c] = 0U;
             part_notes_reset();
+            orch_perf_panic();
+        } else if (e.type == 3U) {
+            orch_perf_midi_realtime(e.note,sample_counter);
+        } else if (e.type == 4U) {
+            orch_perf_set_external_tempo((unsigned)e.note | ((unsigned)e.velocity<<7));
         } else if (e.type == 1U) {
             engine_sustain(e.channel, e.velocity);
-        } else if (e.velocity) {
-            engine_note_on(e.channel, e.note, e.velocity);
         } else {
-            engine_note_off(e.channel, e.note, e.channel < ORCH_MIDI_CHANNELS &&
-                                                    sustain[e.channel]);
+            const unsigned part=orch_part_for_channel(e.channel);
+            if (!orch_perf_note_event(part,e.note,e.velocity)) {
+                if (e.velocity) engine_note_on(e.channel,e.note,e.velocity);
+                else engine_note_off(e.channel,e.note,e.channel<ORCH_MIDI_CHANNELS &&
+                                                        sustain[e.channel]);
+            }
         }
+    }
+}
+
+static void drain_performance_events(void)
+{
+    struct orch_perf_event e;
+    while(orch_perf_pop_event(&e)) {
+        if(e.note_on) engine_note_on_part(e.part,e.note,e.velocity);
+        else engine_note_off_part(e.part,e.note,0U);
     }
 }
 
@@ -652,6 +698,7 @@ void orch_init(void)
     orch_parts_init();
     part_notes_reset();
     orch_seq_clear();
+    orch_perf_init();
     tempo = 120U;
     seq_enabled = seq_started = seq_stop_pending = 0U;
     seq_part = 0U;
@@ -919,6 +966,8 @@ void orch_render_q23(int32_t *out, unsigned frames)
     if (!out) return;
     drain_events();
     for (unsigned f = 0; f < frames; ++f) {
+        orch_perf_advance_sample(sample_counter);
+        drain_performance_events();
         seq_tick();
         int64_t left = 0, right = 0;
         unsigned active = 0U;

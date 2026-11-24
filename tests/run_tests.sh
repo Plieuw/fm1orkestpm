@@ -16,11 +16,12 @@ if [ ! -f "$CORE/include/fm1.h" ]; then
 fi
 
 status=0
-for test in orch_adaptive orch_divisi orch_engine; do
+for test in orch_adaptive orch_divisi orch_performance orch_engine; do
     case "$test" in
         orch_adaptive) src="$ROOT/app/orch_adaptive.c" ;;
         orch_divisi)   src="$ROOT/app/orch_divisi.c" ;;
-        orch_engine)   src="$ROOT/app/orch_adaptive.c $ROOT/app/orch_divisi.c $ROOT/app/orch_part.c $ROOT/app/orch_engine.c" ;;
+        orch_performance) src="$ROOT/app/orch_performance.c" ;;
+        orch_engine)   src="$ROOT/app/orch_adaptive.c $ROOT/app/orch_divisi.c $ROOT/app/orch_part.c $ROOT/app/orch_performance.c $ROOT/app/orch_engine.c" ;;
     esac
     # shellcheck disable=SC2086
     if ! $CC $CFLAGS "$ROOT/tests/${test}_test.c" $src -o "$OUT/$test"; then
