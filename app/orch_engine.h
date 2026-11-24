@@ -58,6 +58,7 @@ unsigned orch_active_voices(void);
 /* Introspection for the panel and the host tests. */
 #ifdef FM1_HOST_TEST
 uint32_t orch_test_loop_gain_per_sample_q23(unsigned trip_gain_q15, unsigned samples);
+int32_t orch_test_expression_q15(void);
 unsigned orch_test_seq_adapt_note(unsigned part, unsigned note);
 unsigned orch_test_seq_phrase_arc_velocity(unsigned velocity, unsigned position);
 #endif
