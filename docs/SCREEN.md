@@ -53,30 +53,39 @@ pages through the same controls as the preview and counts the calls:
 
 | what | fills before | fills now |
 | --- | --- | --- |
-| STAGE | 63 106 | 8 557 |
+| STAGE | 63 106 | 7 773 |
 | ARP | 9 370 | 1 013 |
 | SEQUENCE | 61 723 | 2 150 |
 | FX | 87 262 | 7 152 |
 | CONSOLE | 4 366 | 1 241 |
 | one knob turn | — | 554 |
 | its highlight fading | 819 | 197 |
-| **five pages** | **225 827** | **20 864** |
+| **five pages** | **225 827** | **20 080** |
 
 The STAGE figure is the whole visit, as the bench makes it: the page is entered
-on the photograph (2 356 fills for the picture, the title, the marks and the
-strip), and the hall's lights then step twice while the chord lasts (2 617 and
-981). The picture alone is 1 495 fills — a quarter of what the drawn hall cost
-and a fortieth of what it cost at the start. The photograph is why the total is
-higher than the drawn hall's 17 047: realism and animation are what those three
-thousand fills buy. These are host numbers for the number of calls; they are not
-a measurement of the FM-1's own frame time, which needs the board.
+on the photograph (the picture, the title, the marks and the strip), and the
+hall's lights then step twice while the chord lasts. The picture alone is 1 190
+fills — a fifth of what the drawn hall cost and a fiftieth of what it cost at
+the start. The photograph is why the total is higher than the drawn hall's
+17 047: realism and animation are what those three thousand fills buy. These
+are host numbers for the number of calls; they are not a measurement of the
+FM-1's own frame time, which needs the board.
 
 ## The hall is a photograph
 
 `tools/panel_photo.py` turns photographs — or stills from a film — into the
-panel's own picture format. It centre-crops each image to 240 × 164, mixes it
-down to sixteen colours taken from the images themselves, averages every 2 × 2
-block to one cell, and writes, for every row, the runs that row is made of:
+panel's own picture format. The three frames it was used on are in
+`tools/panel_photo/` (240 × 164, a few kilobytes each, committed beside the
+tool), so the picture in `app/orch_ui_photo.inc` can be rebuilt from the
+repository alone:
+
+```sh
+sh tools/panel_photo/regen.sh   # same bytes, every time
+```
+
+The tool centre-crops each image to 240 × 164, mixes it down to sixteen colours
+taken from the images themselves, averages every 2 × 2 block to one cell, and
+writes, for every row, the runs that row is made of:
 
 * three hex characters a run: the palette index, then the run's width in cells;
 * a row table per frame, so `draw_photo()` starts at the right run;
@@ -96,20 +105,22 @@ hall in the panel has three: the house before the music, the stage with its
 lights up, and one spotlight. While a part is sounding the page steps between
 the lit frames every 1.2 s; when the hall is quiet it stays on the first.
 
-To change the picture, replace the frames and run:
+To change the picture, replace the frames in `tools/panel_photo/` and run the
+same script — it is this command, with those three files:
 
 ```sh
 python3 tools/panel_photo.py --parts --width 240 --height 164 --block 2 \
-    --colors 16 --dither 0 --merge 24 frame-a.jpg frame-b.jpg frame-c.jpg \
-    -o app/orch_ui_photo.inc
+    --colors 16 --dither 0 --merge 24 \
+    tools/panel_photo/hall-a.jpg tools/panel_photo/hall-b.jpg \
+    tools/panel_photo/hall-c.jpg -o app/orch_ui_photo.inc
 ```
 
 `--parts` writes each frame to `app/orch_ui_photo_<n>.inc`, included by
 `orch_ui_photo.inc`; `--preview out.png` writes what the panel will show, which
 is how the palette and the merge were chosen. Any PNG or JPEG works — a
-photograph of a real hall, a frame from a concert film, a drawing. The source
-frames used here are not committed (they are photographs of several hundred
-kilobytes); the generated include is.
+photograph of a real hall, a frame from a concert film, a drawing; give it at
+the panel's size and it stays a few kilobytes, so the source travels with the
+code. The generated include names the frames it came from in its header.
 
 ## One palette, the page's own
 
