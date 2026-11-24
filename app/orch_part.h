@@ -33,9 +33,15 @@ enum orch_instrument {
     ORCH_INST_CHOIR, ORCH_INST_COUNT
 };
 
+struct orch_adsr {
+    uint16_t attack_ms, decay_ms, release_ms;
+    uint8_t sustain_percent;
+};
+
 struct orch_part {
     struct orch_adaptive adaptive;
     struct orch_divisi_state divisi;
+    struct orch_adsr adsr;
     uint16_t channels;     /* bit 0 = MIDI channel 1 */
     uint8_t family;
     uint8_t instrument;
@@ -54,6 +60,8 @@ int orch_part_configure(unsigned part, unsigned family, uint16_t channels);
 int orch_part_set_instrument(unsigned part, unsigned instrument);
 int orch_part_set_articulation(unsigned part, unsigned articulation);
 int orch_part_set_player_cap(unsigned part, unsigned cap);
+int orch_part_set_adsr(unsigned part, unsigned attack_ms, unsigned decay_ms,
+                       unsigned sustain_percent, unsigned release_ms);
 
 const char *orch_family_name(unsigned family);
 
