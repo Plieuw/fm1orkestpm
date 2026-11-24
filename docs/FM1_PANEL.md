@@ -33,6 +33,12 @@ It uses only documented FM1 Core interfaces from `fm1.h`, `fm1_app.h` and
 | Button bit 5 | Advance articulation |
 | Button bit 6 | Cycle Divisi cap |
 | Button bit 13 | Cycle pages: orchestra → performance → phrase detail |
+| Physical PRESETS encoder (matrix encoder 6) | Select and immediately load the previous/next factory orchestra scene, on every page |
+
+The PRESETS encoder follows HAWK-CHUA's dedicated physical encoder role; it is
+not Encoder 1 and does not open a separate preset page. Turning it applies the
+selected scene immediately to all four parts, performance settings and FX.
+There is no additional confirmation/load button.
 
 Local keyboard channels are the first channel of each default group:
 part 1 = MIDI channel 1, part 2 = 5, part 3 = 9, part 4 = 13.
@@ -67,3 +73,31 @@ The page cycle uses button bit 13 (physical label still needs confirmation):
 - **Phrase detail:** encoder 1 density; encoder 2 octave range; encoder 3 cluster size; encoder 4 repeats; main knob accent. Button bit 5 toggles inverse, bit 6 cycles root C–B, bit 7 returns to automatic root, bit 8 cycles quantization.
 
 These are source-level mappings, not confirmed physical button labels. The panel adapter pauses/resumes the engine only when a setting changes; physical encoder/button indices and knob scaling must be checked on the FM1.
+
+
+## Factory presets — HAWK-CHUA PRESETS encoder
+
+The dedicated PRESETS encoder is matrix encoder 6, matching HAWK-CHUA's
+physical panel map. Its detents are read from `controls.encoders[6]`.
+Turning PRESETS selects and immediately applies the next/previous factory
+orchestra scene; it works from the orchestra, performance and phrase-detail
+pages. It is not mapped to Encoder 1, does not open a separate page and needs
+no confirmation button.
+
+The scene is applied as one control-task transaction while the engine is
+paused. It updates all four parts, their instruments/articulations/divisi
+caps, the complete ARP/phrase-sequencer configuration (pattern/profile,
+tempo, division, gate, swing, logic, quantization, density, range, cluster,
+accent, repeat, groove, latch and clock mode), and all four master FX slots
+(enable, mix, parameter A and parameter B). It also recalls a dedicated 16-step orchestral motif (including rests, velocity accents and gate lengths), selects its instrument part, enables adaptive chord/contour revoicing, and configures the scene's call-and-response pairing. The live adaptive learner
+continues responding to incoming player notes after loading.
+
+Factory scenes: Cinema Strings, Baroque, Wind Choir, Brass Fan, Pizz Motion,
+Ambient, Ostinato and Full Orchestra. These are starting points, not saved
+user slots. The matrix-encoder index follows the stable HAWK-CHUA physical
+mapping; confirm detent direction and behavior on the actual FM1 hardware.
+
+
+For the musical intent and scope of each complete factory scene, see
+[`FACTORY_PRESETS_ORCHESTRAL.md`](FACTORY_PRESETS_ORCHESTRAL.md). This catalog
+also documents the current fixed FX-chain limitation and adaptive-play design.

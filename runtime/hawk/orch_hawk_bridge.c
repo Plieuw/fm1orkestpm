@@ -77,8 +77,8 @@ void orch_hawk_midi_realtime(uint8_t status)
     orch_midi_realtime((unsigned)status);
 }
 
-void orch_hawk_panic(void)
+void orch_hawk_reset_notes(void)
 {
-    orch_panic();
+    orch_reset_notes();
     orch_fx_reset();
 }

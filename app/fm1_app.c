@@ -9,6 +9,7 @@
 #include "fm1_app.h"
 #include "fm1_engine_control.h"
 #include "orch_engine.h"
+#include "orch_fx.h"
 
 #define PANEL_KEY_COUNT 27U
 #define PANEL_FIRST_NOTE 53U /* F3; FM1 key bitmap is F3..G5. */
@@ -44,6 +45,76 @@ static uint16_t key_velocity = 96U;
 static uint8_t panel_dirty = 1U;
 static uint8_t panel_perf_page; /* 0 orchestra, 1 performance, 2 phrase detail */
 static struct orch_perf_config perf_config[PANEL_PARTS];
+static uint8_t selected_preset;
+
+/* Factory scenes: four orchestral sections plus their adaptive performance
+ * and master-effect starting points. The player's live MIDI input remains
+ * the source for adaptive phrasing; presets only choose its musical context. */
+typedef struct {
+    const char *name;
+    uint8_t inst[PANEL_PARTS], art[PANEL_PARTS], cap[PANEL_PARTS];
+    uint8_t arp, phrase, arp_type, phrase_ge, bpm, division;
+    uint8_t density, range, cluster, accent, quantize;
+    uint8_t fx_on[ORCH_FX_SLOT_COUNT], fx_mix[ORCH_FX_SLOT_COUNT];
+} orchestra_preset_t;
+
+static const orchestra_preset_t orchestra_presets[] = {
+    { "CINEMA STR", {0,1,2,3}, {0,0,0,0}, {4,3,3,2}, 0,0,0,0,88,4,92,3,2,58,1,
+      {1,1,0,1},{24,32,0,30} },
+    { "BAROQUE", {0,1,4,5}, {2,2,0,0}, {3,2,2,1}, 1,0,2,0,112,4,80,2,2,42,2,
+      {1,0,0,1},{18,0,0,20} },
+    { "WIND CHOIR", {0,5,7,8}, {0,0,0,0}, {2,3,2,2}, 0,1,0,8,76,5,88,3,2,50,1,
+      {1,0,1,1},{22,0,18,34} },
+    { "BRASS FAN", {0,10,11,12}, {0,3,0,3}, {1,3,3,2}, 0,0,0,0,104,4,76,2,3,72,2,
+      {0,0,0,1},{0,0,0,22} },
+    { "PIZZ MOTION", {0,1,4,14}, {4,4,4,3}, {3,2,2,1}, 1,1,5,12,126,5,105,2,3,64,1,
+      {1,1,0,1},{28,20,0,24} },
+    { "AMBIENT", {2,3,5,17}, {0,0,0,0}, {2,2,2,2}, 0,1,0,19,68,6,72,4,2,36,3,
+      {1,1,1,1},{38,42,36,48} },
+    { "OSTINATO", {0,2,5,10}, {1,1,0,0}, {3,3,2,2}, 1,1,8,26,120,4,100,2,2,55,1,
+      {1,0,1,0},{20,0,24,0} },
+    { "FULL ORCH", {0,2,5,10}, {0,0,0,0}, {4,4,3,3}, 0,0,0,0,100,4,90,3,3,60,0,
+      {1,1,0,1},{25,25,0,28} }
+};
+#define ORCH_PRESET_COUNT ((unsigned)(sizeof orchestra_presets / sizeof orchestra_presets[0]))
+
+/* Independent 16-step orchestral motifs. 60 is a neutral pitch anchor;
+ * adaptive mode revoices against the player's live chord/contour. Zero
+ * velocity is a rest. Each row is one complete scene's step/velocity/gate
+ * contour, not a replacement for the live ARP or phrase generator. */
+typedef struct { uint8_t note, velocity, gate; } preset_step_t;
+static const preset_step_t preset_steps[8][ORCH_SEQ_STEPS] = {
+ /* Cinema: spacious pulse, phrase-shaped rests */
+ {{60,72,92},{0,0,0},{64,62,92},{0,0,0},{67,76,96},{0,0,0},{64,60,92},{0,0,0},
+  {62,70,92},{0,0,0},{65,62,92},{0,0,0},{69,80,96},{0,0,0},{65,58,88},{0,0,0}},
+ /* Baroque: measured eighth-note motion */
+ {{60,88,68},{64,66,68},{67,76,68},{64,66,68},{62,84,68},{65,64,68},{69,74,68},{65,64,68},
+  {64,86,68},{67,66,68},{71,76,68},{67,66,68},{65,82,68},{69,64,68},{72,76,68},{69,64,68}},
+ /* Wind choir: breath-like spaced entries */
+ {{60,72,96},{0,0,0},{0,0,0},{64,62,96},{0,0,0},{67,74,100},{0,0,0},{0,0,0},
+  {62,70,96},{0,0,0},{0,0,0},{65,62,96},{0,0,0},{69,76,100},{0,0,0},{0,0,0}},
+ /* Brass fanfare: dotted ceremonial calls */
+ {{60,110,62},{0,0,0},{67,92,62},{0,0,0},{72,112,72},{0,0,0},{67,84,62},{0,0,0},
+  {65,104,62},{0,0,0},{69,90,62},{0,0,0},{74,116,76},{0,0,0},{69,88,62},{0,0,0}},
+ /* Pizz motion: syncopated short notes */
+ {{60,94,42},{0,0,0},{64,68,38},{67,82,42},{0,0,0},{64,72,38},{0,0,0},{69,90,42},
+  {0,0,0},{67,70,38},{64,82,42},{0,0,0},{62,72,38},{0,0,0},{65,92,42},{0,0,0}},
+ /* Ambient: sparse slow anchors */
+ {{60,58,100},{0,0,0},{0,0,0},{0,0,0},{67,52,100},{0,0,0},{0,0,0},{0,0,0},
+  {62,56,100},{0,0,0},{0,0,0},{0,0,0},{69,54,100},{0,0,0},{0,0,0},{0,0,0}},
+ /* Ostinato: interlocking pulse with rests */
+ {{60,90,74},{0,0,0},{67,72,62},{0,0,0},{60,84,74},{64,66,58},{0,0,0},{67,76,62},
+  {60,88,74},{0,0,0},{67,70,62},{64,66,58},{60,82,74},{0,0,0},{69,80,62},{0,0,0}},
+ /* Full orchestra: broad anchor + cadence */
+ {{60,76,84},{0,0,0},{64,62,84},{0,0,0},{67,80,90},{0,0,0},{69,66,84},{0,0,0},
+  {67,74,84},{0,0,0},{65,62,84},{0,0,0},{64,76,88},{0,0,0},{60,68,96},{0,0,0}}
+};
+static const uint8_t preset_seq_enabled[8] = {0,1,0,0,1,0,1,0};
+static const uint8_t preset_seq_part[8] = {0,0,1,2,0,1,0,0};
+static const uint8_t preset_response_enabled[8] = {1,1,1,1,0,1,1,1};
+static const uint8_t preset_response_leader[8] = {0,0,1,2,0,1,0,0};
+static const uint8_t preset_response_follower[8] = {1,1,0,3,2,3,2,1};
+static const int8_t preset_response_interval[8] = {12,7,-5,12,0,7,5,0};
 
 /* A tiny 3x5 uppercase font. Drawing is control-task-only and uses the
  * platform's documented RGB565 rectangle primitive; no hidden SDK symbols. */
@@ -135,6 +206,164 @@ static void panel_apply_performance(unsigned part)
     panel_dirty = 1U;
 }
 
+static void panel_apply_preset(unsigned index)
+{
+    /* Per-scene, per-section ADSR: time values are milliseconds and sustain
+     * is percent. These contours shape the VCA only; model damping remains
+     * an independent physical-instrument property. */
+    static const struct {
+        uint16_t a, d, r;
+        uint8_t s;
+    } scene_adsr[8][PANEL_PARTS] = {
+        {{45,240,900,88},{50,260,950,90},{65,320,1100,90},{75,350,1200,90}},
+        {{20,120,260,80},{24,140,300,82},{28,150,350,82},{8,80,500,65}},
+        {{60,220,520,85},{45,200,480,88},{70,240,600,88},{85,280,700,90}},
+        {{12,100,220,82},{22,150,360,86},{25,170,380,86},{35,180,450,88}},
+        {{3,70,420,45},{3,80,480,45},{4,100,550,50},{2,65,320,42}},
+        {{90,400,1500,90},{100,450,1600,90},{110,500,1800,92},{120,550,1900,92}},
+        {{18,110,260,78},{25,140,340,82},{35,160,400,84},{12,100,250,80}},
+        {{32,180,420,82},{58,240,560,86},{38,170,360,84},{12,120,260,80}}
+    };
+    /* Scene modulation: restrained per-section movement, synchronized
+     * where it supports the rhythmic character. sync_division: 0=free,
+     * 1=quarter, 2=eighth, 3=sixteenth, 4=dotted eighth. */
+    static const struct {
+        uint8_t wave, dest, depth, sync;
+        uint16_t rate, delay, fade;
+    } scene_lfo[8][PANEL_PARTS] = {
+        {{0,1,14,0,4200,180,700},{0,1,12,0,3900,220,800},{0,1,10,0,3400,260,900},{0,1,8,0,3000,300,1000}},
+        {{1,1,10,4,5000,40,250},{1,1,8,4,5000,60,300},{1,1,7,4,4500,80,350},{0,0,0,0,5000,0,0}},
+        {{0,1,8,0,2800,300,900},{0,1,10,0,3200,250,800},{0,1,8,0,2600,350,1000},{0,1,6,0,2400,400,1100}},
+        {{0,0,0,0,5000,0,0},{0,0,0,0,5000,0,0},{0,0,0,0,5000,0,0},{1,2,10,2,5000,0,250}},
+        {{1,2,12,2,5000,0,120},{1,2,10,2,5000,0,150},{1,2,8,2,5000,0,180},{1,2,8,2,5000,0,100}},
+        {{0,5,18,0,900,500,1800},{0,5,16,0,750,650,2000},{0,5,14,0,650,800,2200},{0,5,12,0,550,900,2400}},
+        {{3,2,12,2,5000,0,120},{3,2,10,2,5000,0,150},{1,1,8,2,5000,80,250},{3,2,8,2,5000,0,100}},
+        {{0,1,10,0,3600,180,700},{0,1,10,0,3300,200,750},{0,1,8,0,3000,250,850},{0,1,8,0,2800,300,900}}
+    };
+    /* Full performance snapshots: ARP + phrase sequencer share the same
+     * timing/groove/clock controls, but each scene gets its own character. */
+    static const uint8_t fx_a[8][ORCH_FX_SLOT_COUNT] = {
+        {28,34,42,62}, {18,22,28,38}, {24,42,36,48}, {20,26,32,30},
+        {36,30,44,52}, {16,38,56,78}, {22,28,30,36}, {26,32,40,58}
+    };
+    static const uint8_t fx_b[8][ORCH_FX_SLOT_COUNT] = {
+        {32,46,28,42}, {18,30,22,18}, {40,54,34,36}, {24,42,20,16},
+        {48,38,46,34}, {62,72,58,86}, {28,34,24,20}, {36,48,38,44}
+    };
+    if (index >= ORCH_PRESET_COUNT) return;
+    const orchestra_preset_t *p = &orchestra_presets[index];
+    fm1_engine_pause();
+    for (unsigned part=0U; part<PANEL_PARTS; ++part) {
+        (void)orch_engine_set_instrument(part,p->inst[part]);
+        (void)orch_engine_set_articulation(part,articulation_values[p->art[part]]);
+        (void)orch_engine_set_player_cap(part,p->cap[part]);
+        (void)orch_engine_set_adsr(part,scene_adsr[index][part].a,
+            scene_adsr[index][part].d,scene_adsr[index][part].s,
+            scene_adsr[index][part].r);
+        (void)orch_engine_set_lfo(part,scene_lfo[index][part].wave,
+            scene_lfo[index][part].dest,scene_lfo[index][part].depth,
+            scene_lfo[index][part].rate,scene_lfo[index][part].sync,
+            scene_lfo[index][part].delay,scene_lfo[index][part].fade);
+        selected_instrument[part]=p->inst[part];
+        selected_art[part]=p->art[part];
+        selected_cap[part]=p->cap[part];
+        orch_perf_default_config(&perf_config[part]);
+        perf_config[part].arp_enabled=p->arp;
+        perf_config[part].phrase_enabled=p->phrase;
+        perf_config[part].arp_type=p->arp_type;
+        perf_config[part].phrase_ge=p->phrase_ge;
+        perf_config[part].bpm=p->bpm;
+        perf_config[part].division=p->division;
+        perf_config[part].density=p->density;
+        perf_config[part].range=p->range;
+        perf_config[part].cluster=p->cluster;
+        perf_config[part].accent=p->accent;
+        perf_config[part].quantize=p->quantize;
+        /* Complete ARP/SEQ state, not just the pattern selector. */
+        switch (index) {
+        case 0U: /* Cinema: broad, legato phrases */
+            perf_config[part].gate=88U; perf_config[part].swing=8U;
+            perf_config[part].logic=ORCH_PERF_OR; perf_config[part].inverse=0U;
+            perf_config[part].root=0U; perf_config[part].repeat=1U;
+            perf_config[part].velocity_groove=4U; perf_config[part].gate_groove=0U;
+            perf_config[part].latch=0U; perf_config[part].external_clock=0U; break;
+        case 1U: /* Baroque: measured pulse and light ornament */
+            perf_config[part].gate=72U; perf_config[part].swing=0U;
+            perf_config[part].logic=ORCH_PERF_ALT; perf_config[part].inverse=0U;
+            perf_config[part].root=0U; perf_config[part].repeat=2U;
+            perf_config[part].velocity_groove=1U; perf_config[part].gate_groove=1U;
+            perf_config[part].latch=1U; perf_config[part].external_clock=0U; break;
+        case 2U: /* Wind choir: breathing, spacious phrase */
+            perf_config[part].gate=92U; perf_config[part].swing=12U;
+            perf_config[part].logic=ORCH_PERF_OR; perf_config[part].inverse=0U;
+            perf_config[part].root=0U; perf_config[part].repeat=1U;
+            perf_config[part].velocity_groove=4U; perf_config[part].gate_groove=0U;
+            perf_config[part].latch=0U; perf_config[part].external_clock=0U; break;
+        case 3U: /* Brass: strong accents, compact notes */
+            perf_config[part].gate=68U; perf_config[part].swing=0U;
+            perf_config[part].logic=ORCH_PERF_AND; perf_config[part].inverse=0U;
+            perf_config[part].root=0U; perf_config[part].repeat=0U;
+            perf_config[part].velocity_groove=2U; perf_config[part].gate_groove=6U;
+            perf_config[part].latch=0U; perf_config[part].external_clock=0U; break;
+        case 4U: /* Pizzicato: short, syncopated, repeating */
+            perf_config[part].gate=54U; perf_config[part].swing=24U;
+            perf_config[part].logic=ORCH_PERF_ALT; perf_config[part].inverse=0U;
+            perf_config[part].root=0U; perf_config[part].repeat=2U;
+            perf_config[part].velocity_groove=6U; perf_config[part].gate_groove=7U;
+            perf_config[part].latch=1U; perf_config[part].external_clock=0U; break;
+        case 5U: /* Ambient: long gates, slow evolving movement */
+            perf_config[part].gate=100U; perf_config[part].swing=16U;
+            perf_config[part].logic=ORCH_PERF_OR; perf_config[part].inverse=0U;
+            perf_config[part].root=0U; perf_config[part].repeat=3U;
+            perf_config[part].velocity_groove=4U; perf_config[part].gate_groove=0U;
+            perf_config[part].latch=1U; perf_config[part].external_clock=0U; break;
+        case 6U: /* Ostinato: interlocking rhythmic motion */
+            perf_config[part].gate=76U; perf_config[part].swing=18U;
+            perf_config[part].logic=ORCH_PERF_XOR; perf_config[part].inverse=0U;
+            perf_config[part].root=0U; perf_config[part].repeat=1U;
+            perf_config[part].velocity_groove=2U; perf_config[part].gate_groove=3U;
+            perf_config[part].latch=1U; perf_config[part].external_clock=0U; break;
+        default: /* Full orchestra: balanced, adaptable foundation */
+            perf_config[part].gate=84U; perf_config[part].swing=6U;
+            perf_config[part].logic=ORCH_PERF_OR; perf_config[part].inverse=0U;
+            perf_config[part].root=0U; perf_config[part].repeat=1U;
+            perf_config[part].velocity_groove=0U; perf_config[part].gate_groove=0U;
+            perf_config[part].latch=0U; perf_config[part].external_clock=0U; break;
+        }
+        (void)orch_perf_set_config(part,&perf_config[part]);
+    }
+    /* Recall the independent 16-step sequencer as well as the phrase ARP.
+     * Adaptive revoicing listens only to live player MIDI; the stored motif
+     * remains intact. One sequencer lane is selected per scene to respect
+     * the current FM1 sequencer architecture. */
+    orch_seq_set_enabled(0U);
+    orch_seq_clear();
+    orch_seq_set_tempo(p->bpm);
+    orch_seq_set_part(preset_seq_part[index]);
+    orch_seq_set_adaptive(1U);
+    for (unsigned step=0U; step<ORCH_SEQ_STEPS; ++step) {
+        struct orch_step_note n;
+        n.note=preset_steps[index][step].note;
+        n.velocity=preset_steps[index][step].velocity;
+        n.gate_percent=preset_steps[index][step].gate;
+        (void)orch_seq_set_step(step,0U,&n);
+    }
+    orch_seq_set_enabled(preset_seq_enabled[index]);
+    orch_call_response_configure(preset_response_enabled[index],
+        preset_response_leader[index],preset_response_follower[index],
+        preset_response_interval[index]);
+
+    for (unsigned fx=0U; fx<ORCH_FX_SLOT_COUNT; ++fx) {
+        (void)orch_fx_set_enabled(fx,p->fx_on[fx]);
+        (void)orch_fx_set_mix(fx,p->fx_mix[fx]);
+        (void)orch_fx_set_param_a(fx,fx_a[index][fx]);
+        (void)orch_fx_set_param_b(fx,fx_b[index][fx]);
+    }
+    fm1_engine_resume();
+    selected_preset=(uint8_t)index;
+    panel_dirty=1U;
+}
+
 static void panel_draw(void)
 {
     if (panel_perf_page == 2U) {
@@ -221,7 +450,7 @@ static void panel_draw(void)
         return;
     }
     static const uint16_t bg=0x0841U, ink=0xFFFFU, cyan=0x07FFU;
-    static const uint16_t amber=0xFD20U, green=0x07E0U, red=0xF800U;
+    static const uint16_t amber=0xFD20U, green=0x07E0U;
     const unsigned p=selected_part;
     static const char *const part_labels[PANEL_PARTS] = {
         "PART 1 CH 1-4", "PART 2 CH 5-8",
@@ -241,7 +470,7 @@ static void panel_draw(void)
     fm1_screen_fill(8U,188U,216U,8U,0x39E7U);
     fm1_screen_fill(8U,188U,(216U*selected_cap[p])/4U,8U,green);
     panel_text(8U,204U,"ENC1 INST ENC2 CAP",cyan);
-    panel_text(8U,224U,"B1-4 PART B5 PANIC B14 PERF",red);
+    panel_text(8U,224U,"B1-4 PART B14 PERF",cyan);
 }
 
 static void panel_part_select(unsigned part)
@@ -308,7 +537,6 @@ void groove_screen_control(void)
     previous_buttons=buttons;
     for (unsigned p=0;p<PANEL_PARTS;++p)
         if (edges & (1UL<<p)) panel_part_select(p);
-    if (edges & (1UL<<4)) orch_panic();
     if (edges & (1UL<<13)) { panel_perf_page=(uint8_t)((panel_perf_page+1U)%3U); panel_dirty=1U; }
     if (!panel_perf_page) {
         if (edges & (1UL<<5)) panel_apply_articulation(selected_part,selected_art[selected_part]+1U);
@@ -387,7 +615,7 @@ void groove_screen_control(void)
         const uint8_t gate=(uint8_t)(5U+knob*95U/1023U);
         if(gate!=pc->gate){pc->gate=gate;changed=1U;}
         if(changed) panel_apply_performance(selected_part);
-    } else {
+    } else if (panel_perf_page == 2U) {
         struct orch_perf_config *pc=&perf_config[selected_part];
         uint8_t changed=0U;
         if (edges & (1UL<<5)) { pc->inverse=(uint8_t)!pc->inverse; changed=1U; }
@@ -424,6 +652,14 @@ void groove_screen_control(void)
         if(accent!=pc->accent){pc->accent=accent;changed=1U;}
         if(changed)panel_apply_performance(selected_part);
     }
+    /* HAWK-CHUA physical PRESETS encoder: matrix encoder 6. Selecting a
+     * factory scene applies it immediately; no extra page or load button. */
+    if (controls.encoders[6]) {
+        int next=(int)selected_preset+controls.encoders[6];
+        while(next<0) next+=(int)ORCH_PRESET_COUNT;
+        while(next>=(int)ORCH_PRESET_COUNT) next-=(int)ORCH_PRESET_COUNT;
+        panel_apply_preset((unsigned)next);
+    }
     for (unsigned b=0;b<14U;++b)
         fm1_led_set(b,(buttons>>b)&1U);
     for (unsigned k=0;k<PANEL_KEY_COUNT;++k)
@@ -441,7 +677,6 @@ void groove_midi_init(void)
         (void)orch_perf_set_config(p,&perf_config[p]);
 }
 void groove_midi_poll(void) {}
-void groove_midi_panic(void) { orch_panic(); }
 unsigned groove_midi_mode(unsigned track) { (void)track; return 0U; }
 void groove_midi_note(unsigned track,unsigned note,unsigned velocity)
 {

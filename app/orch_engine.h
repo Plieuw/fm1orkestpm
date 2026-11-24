@@ -25,13 +25,18 @@ void orch_midi_short_message(const uint8_t *message, unsigned bytes);
 void orch_midi_realtime(unsigned status);
 void orch_midi_clock_tempo(unsigned bpm);
 void orch_note_event(unsigned channel, unsigned note, unsigned velocity);
-void orch_panic(void);
+void orch_reset_notes(void);
 
 /* Parts: channel routing, family, articulation and divisi ceiling. */
 int orch_engine_configure_part(unsigned part, unsigned family, uint16_t channels);
 int orch_engine_set_instrument(unsigned part, unsigned instrument);
 int orch_engine_set_articulation(unsigned part, unsigned articulation);
 int orch_engine_set_player_cap(unsigned part, unsigned cap);
+int orch_engine_set_adsr(unsigned part, unsigned attack_ms, unsigned decay_ms,
+                         unsigned sustain_percent, unsigned release_ms);
+int orch_engine_set_lfo(unsigned part, unsigned wave, unsigned destinations,
+                        unsigned depth, unsigned rate_millihz,
+                        unsigned sync_division, unsigned delay_ms, unsigned fade_ms);
 int orch_engine_set_voice_ceiling(unsigned part, unsigned voices);
 unsigned orch_voices_of_part(unsigned part);
 unsigned orch_note_count(unsigned part);

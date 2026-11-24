@@ -322,6 +322,30 @@ static void test_strings_are_not_dc(void)
     orch_init();
 }
 
+static void test_assignable_lfo(void)
+{
+    solo_part(ORCH_FAM_STRINGS);
+    CHECK(orch_engine_set_lfo(0U, ORCH_LFO_SINE,
+          ORCH_LFO_PITCH | ORCH_LFO_TREMOLO | ORCH_LFO_BRIGHTNESS,
+          50U, 5000U, 0U, 120U, 300U) == 0);
+    midi(0x90U, 60U, 100U);
+    CHECK(render_energy(40U) > 0);
+    midi(0x80U, 60U, 0U);
+    render(500U);
+    CHECK(orch_active_voices() == 0U);
+
+    /* Tempo-synchronised dotted-eighth and all waveform selectors validate. */
+    CHECK(orch_engine_set_lfo(0U, ORCH_LFO_SAMPLE_HOLD,
+          ORCH_LFO_TREMOLO, 35U, 5000U, 4U, 0U, 150U) == 0);
+    CHECK(orch_engine_set_lfo(0U, ORCH_LFO_SAMPLE_HOLD,
+          ORCH_LFO_TREMOLO, 35U, 5000U, 5U, 0U, 150U) == -1);
+    CHECK(orch_engine_set_lfo(0U, 9U, ORCH_LFO_PITCH,
+          20U, 5000U, 0U, 0U, 0U) == -1);
+    CHECK(orch_engine_set_lfo(ORCH_PARTS, ORCH_LFO_SINE,
+          ORCH_LFO_PITCH, 20U, 5000U, 0U, 0U, 0U) == -1);
+    orch_init();
+}
+
 static void test_articulation(void)
 {
     solo_part(ORCH_FAM_STRINGS);
@@ -353,6 +377,7 @@ int main(void)
     test_external_midi_clock();
     test_strings_are_not_dc();
     test_articulation();
+    test_assignable_lfo();
     if (failures) { printf("%u engine test(s) failed\n", failures); return 1; }
     printf("orch_engine: all checks passed\n");
     return 0;

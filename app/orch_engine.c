@@ -47,14 +47,20 @@ typedef struct {
     int32_t lp;      /* previous loop sample (the damping filter's state) */
     int32_t dc;      /* output DC blocker state */
     int32_t out;     /* last radiated sample */
-    int32_t env, env_inc, env_dec;
+    int32_t env, env_inc, env_dec, env_decay_step;
+    int32_t sustain_level;
     int32_t accent_q16;
     int32_t energy_q16;
     uint16_t vib_phase, vib_inc;
+    uint32_t lfo_phase, lfo_inc, lfo_delay_left, lfo_fade_frames, lfo_fade_gain;
+    uint32_t lfo_hold;
+    int16_t lfo_value;
+    uint8_t lfo_depth;
     uint32_t vib_depth, vib_depth_max, vib_ramp;
     uint32_t vib_delay;
     uint32_t stroke_left;
-    uint32_t attack_left;
+    uint32_t attack_left, decay_left, release_frames;
+    uint8_t env_stage, auto_release;
     uint16_t strike_left;
     int16_t pan_l, pan_r;
     uint8_t note, channel, part, family, instrument, artic, player, excite, damp;
@@ -118,6 +124,43 @@ static int32_t clamp16(int32_t x)
     if (x > 32767) return 32767;
     if (x < -32768) return -32768;
     return x;
+}
+
+static int32_t triangle32(uint32_t phase);
+
+/* Cheap fixed-point LFO waveform generation; no floating point in the ISR. */
+static int32_t lfo_wave_value(unsigned wave, uint32_t phase, uint32_t *hold)
+{
+    const int32_t tri = triangle32(phase);
+    switch (wave) {
+    case ORCH_LFO_TRIANGLE: return tri;
+    case ORCH_LFO_SAW: return (int32_t)(phase >> 16) - 32768;
+    case ORCH_LFO_SQUARE: return (phase & 0x80000000U) ? 32767 : -32768;
+    case ORCH_LFO_SAMPLE_HOLD:
+        return (int32_t)(*hold >> 16) - 32768;
+    case ORCH_LFO_SINE:
+    default: {
+        const int32_t a = tri < 0 ? -tri : tri;
+        return (tri * (49152 - (a >> 1))) >> 15;
+    }
+    }
+}
+static uint32_t lfo_phase_increment(const struct orch_lfo *lfo)
+{
+    if (!lfo) return 0U;
+    if (lfo->sync_division) {
+        static const uint8_t mul[5] = {0U,1U,2U,4U,4U};
+        static const uint8_t div[5] = {1U,1U,1U,1U,3U};
+        const unsigned d = lfo->sync_division;
+        /* 2^32 / (60 * 44100) ~= 1626.02. Use integer arithmetic
+         * and a small constant divisor; avoid unavailable __udivdi3. */
+        const uint32_t numerator = (uint32_t)tempo * mul[d] * 1626U;
+        return numerator / div[d];
+    }
+    /* 2^32 / (44100 * 1000) ~= 97.45. The 9/20 correction
+     * keeps free-rate tuning within a few hundredths of a percent. */
+    return (uint32_t)lfo->rate_millihz * 97U +
+           ((uint32_t)lfo->rate_millihz * 9U) / 20U;
 }
 static uint32_t loop_gain_per_sample_q23(unsigned trip_gain_q15, unsigned samples)
 {
@@ -427,6 +470,8 @@ static void voice_start(unsigned part, unsigned note, unsigned velocity,
     v->gate = (prof.pluck || excite == EXC_STRIKE) ? 0U : 1U;
     v->releasing = 0U;
     v->struck = 0U;
+    v->env_stage = 1U;
+    v->auto_release = (uint8_t)(prof.pluck || excite == EXC_STRIKE);
     v->strike_left = 0U;
 
     /* piano key -> string/bore length; flageolet sounds an octave higher */
@@ -476,21 +521,40 @@ static void voice_start(unsigned part, unsigned note, unsigned velocity,
         v->pan_r = (int16_t)pan;
     }
 
-    /* envelopes: attack from the intent and the articulation */
-    uint32_t atk_ms = (prof.attack_ms * in->attack_mul) >> 16;
-    if (atk_ms < 2U) atk_ms = 2U;
-    if (atk_ms > 400U) atk_ms = 400U;
-    v->env = 0;
+    /* ADSR: instrument-shaped attack/decay/sustain/release. Adaptive intent
+     * scales the authored attack/release; the model's damping is independent. */
     {
-        const uint32_t frames = (atk_ms * ORCH_SAMPLE_RATE) / 1000U;
-        v->env_inc = (int32_t)(ORCH_ENV_MAX / (frames ? frames : 1U));
-        if (v->env_inc < 1) v->env_inc = 1;
-        v->attack_left = frames ? frames : 1U;
-        uint32_t rel_ms = ((uint32_t)prof.release_ms * in->release_mul) >> 16;
+        const struct orch_adsr *adsr = cfg ? &cfg->adsr : 0;
+        uint32_t atk_base = (adsr && adsr->attack_ms) ? adsr->attack_ms : prof.attack_ms;
+        uint32_t dec_ms = (adsr && adsr->decay_ms) ? adsr->decay_ms : ((uint32_t)prof.attack_ms * 2U + 40U);
+        uint32_t rel_base = (adsr && adsr->release_ms) ? adsr->release_ms : prof.release_ms;
+        uint32_t atk_ms = (atk_base * in->attack_mul) >> 16;
+        uint32_t rel_ms = (rel_base * in->release_mul) >> 16;
+        if (atk_ms < 2U) atk_ms = 2U;
+        if (atk_ms > 400U) atk_ms = 400U;
+        if (dec_ms < 20U) dec_ms = 20U;
+        if (dec_ms > 800U) dec_ms = 800U;
         if (rel_ms < 30U) rel_ms = 30U;
         if (rel_ms > 3000U) rel_ms = 3000U;
-        const uint32_t rel_frames = (rel_ms * ORCH_SAMPLE_RATE) / 1000U;
-        v->env_dec = (int32_t)(ORCH_ENV_MAX / (rel_frames ? rel_frames : 1U));
+        const uint32_t atk_frames = (atk_ms * ORCH_SAMPLE_RATE) / 1000U;
+        const uint32_t dec_frames = (dec_ms * ORCH_SAMPLE_RATE) / 1000U;
+        v->release_frames = (rel_ms * ORCH_SAMPLE_RATE) / 1000U;
+        v->attack_left = atk_frames ? atk_frames : 1U;
+        v->decay_left = dec_frames ? dec_frames : 1U;
+        v->env = 0;
+        v->env_inc = ORCH_ENV_MAX / (int32_t)v->attack_left;
+        if (v->env_inc < 1) v->env_inc = 1;
+        /* A modest held sustain leaves room for bow/breath dynamics. Plucks
+         * use a lower sustain then enter release automatically after decay. */
+        {
+            unsigned sustain = adsr ? adsr->sustain_percent : 80U;
+            if (v->auto_release && sustain > 60U) sustain = 60U;
+            v->sustain_level = (ORCH_ENV_MAX * (int32_t)sustain) / 100;
+        }
+        v->env_decay_step = (ORCH_ENV_MAX - v->sustain_level) /
+                            (int32_t)v->decay_left;
+        if (v->env_decay_step < 1) v->env_decay_step = 1;
+        v->env_dec = ORCH_ENV_MAX / (int32_t)(v->release_frames ? v->release_frames : 1U);
         if (v->env_dec < 1) v->env_dec = 1;
     }
 
@@ -504,6 +568,31 @@ static void voice_start(unsigned part, unsigned note, unsigned velocity,
         uint32_t loop_samples = v->len_target_q16 >> 16;
         if (loop_samples < 4U) loop_samples = 4U;
         v->loop_gain_q23 = loop_gain_per_sample_q23((unsigned)trip_gain, loop_samples);
+    }
+
+    /* Assignable part LFO. Each voice has independent phase and fade state. */
+    {
+        const struct orch_lfo *lfo = cfg ? &cfg->lfo : 0;
+        v->lfo_phase = rng;
+        v->lfo_hold = rng ^ 0xa5a5f00dU;
+        v->lfo_inc = lfo_phase_increment(lfo);
+        if (lfo) {
+            /* Let the adaptive phrase intent breathe the modulation gently:
+             * 0.85..1.15x rate and 0.60..1.20x depth, always bounded. */
+            const uint32_t rate_scale = 55705U +
+                (uint32_t)(((uint64_t)in->vib_intent * 19661U) >> 16);
+            const uint32_t depth_scale = 39322U +
+                (uint32_t)(((uint64_t)in->vib_intent * 39322U) >> 16);
+            v->lfo_inc = (uint32_t)(((uint64_t)v->lfo_inc * rate_scale) >> 16);
+            unsigned depth = (unsigned)(((uint32_t)lfo->depth * depth_scale) >> 16);
+            v->lfo_depth = (uint8_t)(depth > 100U ? 100U : depth);
+        } else {
+            v->lfo_depth = 0U;
+        }
+        v->lfo_delay_left = lfo ? ((uint32_t)lfo->delay_ms * ORCH_SAMPLE_RATE) / 1000U : 0U;
+        v->lfo_fade_frames = lfo ? ((uint32_t)lfo->fade_ms * ORCH_SAMPLE_RATE) / 1000U : 0U;
+        v->lfo_fade_gain = v->lfo_fade_frames ? 0U : 32767U;
+        v->lfo_value = 0;
     }
 
     /* vibrato: a rate per player, depth from the intent, delayed onset */
@@ -563,7 +652,7 @@ void orch_note_event(unsigned ch, unsigned note, unsigned velocity)
 {
     if (ch < 16U && note < 128U && velocity < 128U) enqueue(ch, note, velocity, 0U);
 }
-void orch_panic(void) { enqueue(0U, 0U, 0U, 2U); }
+void orch_reset_notes(void) { enqueue(0U, 0U, 0U, 2U); }
 
 void orch_midi_realtime(unsigned status)
 {
@@ -765,7 +854,7 @@ static void drain_events(void)
             for (unsigned i = 0; i < ORCH_MAX_VOICES; ++i) voice_stop(i);
             for (unsigned c = 0; c < ORCH_MIDI_CHANNELS; ++c) sustain[c] = 0U;
             part_notes_reset();
-            orch_perf_panic();
+            orch_perf_reset_notes();
         } else if (e.type == 3U) {
             orch_perf_midi_realtime(e.note,sample_counter);
         } else if (e.type == 4U) {
@@ -1128,6 +1217,38 @@ static void voice_tick(voice_t *v)
         --v->glide_left;
         len = v->len_q16;
     }
+    /* General LFO runs independently of the legacy expressive vibrato. */
+    {
+        const struct orch_part *cfg = orch_part_get(v->part);
+        const struct orch_lfo *lfo = cfg ? &cfg->lfo : 0;
+        if (lfo && lfo->destinations && v->lfo_depth) {
+            if (v->lfo_delay_left) --v->lfo_delay_left;
+            else {
+                const uint32_t old_phase = v->lfo_phase;
+                v->lfo_phase += v->lfo_inc;
+                if (lfo->wave == ORCH_LFO_SAMPLE_HOLD && v->lfo_phase < old_phase)
+                    v->lfo_hold = v->lfo_hold * 1664525U + 1013904223U;
+                if (v->lfo_fade_gain < 32767U) {
+                    const uint32_t step = v->lfo_fade_frames
+                        ? (32767U / v->lfo_fade_frames) + 1U : 32767U;
+                    v->lfo_fade_gain += step;
+                    if (v->lfo_fade_gain > 32767U) v->lfo_fade_gain = 32767U;
+                }
+                int32_t value = lfo_wave_value(lfo->wave, v->lfo_phase, &v->lfo_hold);
+                value = (value * (int32_t)v->lfo_fade_gain) >> 15;
+                v->lfo_value = (int16_t)value;
+                if (lfo->destinations & ORCH_LFO_PITCH) {
+                    const int32_t cents = ((int32_t)v->lfo_depth * 50) / 100;
+                    const int32_t delta = (int32_t)(((int64_t)len * cents * 38 * value) >> 31);
+                    const int32_t modulated = (int32_t)len + delta;
+                    if (modulated > 16) len = (uint32_t)modulated;
+                }
+            }
+        } else {
+            v->lfo_value = 0;
+        }
+    }
+
     /* vibrato: delayed, then growing; a triangle on the loop length */
     if (v->vib_depth_max) {
         if (v->vib_delay) {
@@ -1158,7 +1279,19 @@ static void voice_tick(voice_t *v)
      * fundamental over a round trip (0.994^200 is 0.28), so the loop uses a
      * two-tap smoother instead: highs die within a round trip, the
      * fundamental rings for seconds. More damping = darker and shorter. */
-    const unsigned damp = v->damp ? v->damp : 2U; /* 1 dark .. 4+ bright */
+    int damp_value = v->damp ? v->damp : 2U;
+    {
+        const struct orch_part *cfg = orch_part_get(v->part);
+        const struct orch_lfo *lfo = cfg ? &cfg->lfo : 0;
+        if (lfo && (lfo->destinations & ORCH_LFO_BRIGHTNESS)) {
+            const int bounded_depth = v->lfo_depth > 24U ? 24 : (int)v->lfo_depth;
+            const int shift = ((int)v->lfo_value * bounded_depth) / (32768 * 12);
+            damp_value += shift;
+            if (damp_value < 1) damp_value = 1;
+            if (damp_value > 6) damp_value = 6;
+        }
+    }
+    const unsigned damp = (unsigned)damp_value; /* 1 dark .. 6 bright */
     int32_t smoothed = delayed;
     if (damp <= 3U) smoothed = (delayed + v->lp) >> 1;
     if (damp <= 2U) smoothed = (smoothed + v->lp) >> 1;
@@ -1237,17 +1370,47 @@ static void voice_tick(voice_t *v)
         v->out = body_out - v->dc;
     }
 
-    /* the envelope: the attack runs even for a pluck (the gate is already
-     * closed), then a held note sustains and a released one decays */
-    if (v->attack_left) {
-        --v->attack_left;
+    /* Four-stage per-voice ADSR. A MIDI note-off can enter release from
+     * any point in the contour. Plucks/strikes complete attack + decay before
+     * their automatic release, so the physical model is allowed to ring. */
+    if (v->releasing && v->env_stage != 4U) {
+        v->env_stage = 4U;
+        v->env_dec = (int32_t)(v->env / (int32_t)(v->release_frames ? v->release_frames : 1U));
+        if (v->env_dec < 1) v->env_dec = 1;
+    }
+    switch (v->env_stage) {
+    case 1U: /* attack */
+        if (v->attack_left) --v->attack_left;
         v->env += v->env_inc;
-        if (v->env > ORCH_ENV_MAX) v->env = ORCH_ENV_MAX;
-    } else if (v->gate) {
-        v->env = ORCH_ENV_MAX;
-    } else {
+        if (!v->attack_left || v->env >= ORCH_ENV_MAX) {
+            v->env = ORCH_ENV_MAX;
+            v->env_stage = 2U;
+        }
+        break;
+    case 2U: /* decay */
+        if (v->decay_left) --v->decay_left;
+        v->env -= v->env_decay_step;
+        if (!v->decay_left || v->env <= v->sustain_level) {
+            v->env = v->sustain_level;
+            v->env_stage = 3U;
+        }
+        break;
+    case 3U: /* sustain */
+        v->env = v->sustain_level;
+        if (!v->gate || v->auto_release) {
+            v->releasing = 1U;
+            v->env_stage = 4U;
+            v->env_dec = (int32_t)(v->env / (int32_t)(v->release_frames ? v->release_frames : 1U));
+            if (v->env_dec < 1) v->env_dec = 1;
+        }
+        break;
+    case 4U: /* release */
         v->env -= v->env_dec;
         if (v->env <= 8) voice_stop((unsigned)(v - voices));
+        break;
+    default:
+        voice_stop((unsigned)(v - voices));
+        break;
     }
     if (v->stroke_left) {
         if (!--v->stroke_left) v->gate = 0U;
@@ -1274,7 +1437,16 @@ void orch_render_q23(int32_t *out, unsigned frames)
             voice_tick(v);
             if (!v->active) continue;
             ++active;
-            const int32_t amp = (v->out * v->env >> 15);
+            int32_t amp = (v->out * v->env >> 15);
+            {
+                const struct orch_part *cfg = orch_part_get(v->part);
+                const struct orch_lfo *lfo = cfg ? &cfg->lfo : 0;
+                if (lfo && (lfo->destinations & ORCH_LFO_TREMOLO)) {
+                    const int32_t depth = (int32_t)v->lfo_depth * 245 / 100;
+                    const int32_t gain = 32767 - ((v->lfo_value + 32768) * depth >> 16);
+                    amp = (amp * gain) >> 15;
+                }
+            }
             const int32_t g = (amp * (int32_t)v->velocity) >> 7;
             left += g * (int32_t)v->pan_l;
             right += g * (int32_t)v->pan_r;
@@ -1334,6 +1506,18 @@ int orch_engine_set_articulation(unsigned part, unsigned articulation)
 int orch_engine_set_player_cap(unsigned part, unsigned cap)
 {
     return orch_part_set_player_cap(part, cap);
+}
+int orch_engine_set_adsr(unsigned part, unsigned attack_ms, unsigned decay_ms,
+                         unsigned sustain_percent, unsigned release_ms)
+{
+    return orch_part_set_adsr(part, attack_ms, decay_ms, sustain_percent, release_ms);
+}
+int orch_engine_set_lfo(unsigned part, unsigned wave, unsigned destinations,
+                        unsigned depth, unsigned rate_millihz,
+                        unsigned sync_division, unsigned delay_ms, unsigned fade_ms)
+{
+    return orch_part_set_lfo(part, wave, destinations, depth, rate_millihz,
+                             sync_division, delay_ms, fade_ms);
 }
 int orch_engine_set_voice_ceiling(unsigned part, unsigned voices_)
 {
