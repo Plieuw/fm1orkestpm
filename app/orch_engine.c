@@ -15,6 +15,10 @@
 #include "orch_engine.h"
 #include "orch_performance.h"
 
+#ifndef FM1_AUDIO_DATA
+#define FM1_AUDIO_DATA __attribute__((section(".pool")))
+#endif
+
 #define ORCH_AUDIO FM1_AUDIO_CODE
 
 #define DELAY_SIZE 2048U
@@ -73,7 +77,7 @@ typedef struct {
 
 typedef struct { uint8_t channel, note, velocity, type; } event_t;
 
-static voice_t voices[ORCH_MAX_VOICES];
+static voice_t voices[ORCH_MAX_VOICES] FM1_AUDIO_DATA;
 static event_t events[EVENT_CAP];
 static part_runtime_t runtime[ORCH_PARTS];
 static volatile uint8_t event_write, event_read;
