@@ -21,9 +21,9 @@ static void draw_title(void)
 }
 
 /* The page's own content: the knob cells first (the strip reads them), then
- * whatever the page draws. On the stage page the hall's art is left alone once
- * it is on screen — a knob turn there repaints the desks, the players and the
- * name, not the wall and the audience. */
+ * whatever the page draws. On the stage page the photograph is left alone once
+ * it is on screen — a knob turn there repaints the lamps, the players and the
+ * marks, not the hall. */
 static void draw_body(void)
 {
     page_knobs();
@@ -75,6 +75,7 @@ static uint32_t strip_signature(void)
  * that only change when a control does. The control task compares them apart:
  * a live change repaints the few pixels it moves, and only a change to the
  * page's own settings repaints the page. */
+
 static uint32_t page_signature(void)
 {
     uint32_t sig = (uint32_t)ui.page * 0x9E3779B1UL;
@@ -115,9 +116,11 @@ static uint32_t page_live_signature(void)
     case PAGE_ARP: return (uint32_t)orch_arp_held(ui.part) | 0x400U;
     case PAGE_SEQ: return (uint32_t)orch_seq_position() | 0x400U;
     case PAGE_HOME: {
-        uint32_t sig = 0x400U;
+        /* the voices as four nibbles, and which of the hall's frames is on
+         * screen: the lights of a playing hall change on their own */
+        uint32_t sig = 0x400U | ((uint32_t)(stage_frame() + 1U) << 20);
         for (unsigned p = 0; p < ORCH_PARTS; ++p)
-            sig = sig * 31U + orch_voices_of_part(p);
+            sig |= ((uint32_t)orch_voices_of_part(p) & 0xFU) << (4U * p);
         return sig;
     }
     default: return 0x400U;
@@ -125,8 +128,9 @@ static uint32_t page_live_signature(void)
 }
 
 /* What a live value costs: the arp's row of dots, the two sequencer cells that
- * changed (the one that was playing and the one that is), or the players on the
- * stage. Everything else on the page stays as it was drawn. */
+ * changed (the one that was playing and the one that is), or on the stage the
+ * players and the lamps — and, when the hall's own lights step, the photograph
+ * under them. Everything else stays as it was drawn. */
 static void page_live(uint32_t was)
 {
     switch (ui.page) {
@@ -143,9 +147,13 @@ static void page_live(uint32_t was)
         }
         break;
     }
-    case PAGE_HOME:
-        draw_players();
+    case PAGE_HOME: {
+        /* the hall's lights stepped, or only the players moved */
+        const unsigned f = stage_frame();
+        if (((was >> 20) & 0xFU) != (unsigned)(f + 1U)) page_parts_photo(f);
+        else page_parts();
         break;
+    }
     default:
         break;
     }
