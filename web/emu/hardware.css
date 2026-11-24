@@ -1,268 +1,180 @@
-/* SPDX-License-Identifier: GPL-3.0-or-later */
-/* The browser page as a piece of hardware: a brushed aluminium front panel with
- * walnut cheeks in a concert hall, the FM-1's own 240x240 panel behind glass,
- * real button caps and knurled knobs. The hall and the wood are vectors, drawn
- * for this project: see assets/CREDITS.md. */
+/* SPDX-License-Identifier: GPL-3.0-later */
+/* The browser page, laid out like HAWK CHUA's browser emulator (web/emu of
+ * Plieuw/hawk-chua): a flat dark case, the screen on the left, the seven
+ * encoders grouped 3 + 4 on its right, the fourteen buttons in one row and a
+ * piano keyboard under them. What is ours is the orchestra: four desks under
+ * the keyboard that show which sections are sounding, and the hall drawing
+ * behind the case. Artwork: assets/CREDITS.md. */
 
 :root {
-  --ink: #121417;
-  --silk: #e7e2d8;
-  --amber: #f0a94f;
-  --green: #63e089;
-  --red: #ff5b47;
+  --bg: #121110; --case: #1d1b19; --case2: #262320; --line: #3a352f;
+  --fg: #ece6dc; --mid: #a39b8f; --dim: #6d665c;
+  --or: #f5a623; --or2: #ffcf73; --key: #e9e4da; --keyd: #2a2724;
+  --red: #e2543c; --green: #7ddc9a;
+  color-scheme: dark;
 }
 
 * { box-sizing: border-box; }
-html, body { height: 100%; }
-
 body {
-  margin: 0;
-  color: var(--silk);
-  font: 13px/1.45 ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-  background: #08090a;
-  overflow-x: hidden;
+  background: var(--bg); color: var(--fg); margin: 0; padding: 16px;
+  font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
 }
+a { color: var(--or); }
 
-/* the hall, out of focus behind the instrument */
-.room {
-  position: fixed; inset: -24px;
-  background: #0a0a0b url("assets/hall.svg") center 42% / cover no-repeat;
-  filter: blur(1.6px) saturate(1.08) brightness(0.9) contrast(1.03);
-  transform: scale(1.04);
-  z-index: 0;
+/* the hall, barely there behind everything */
+body::before {
+  content: ""; position: fixed; inset: 0; z-index: -1;
+  background: url("assets/hall.svg") center 40% / cover no-repeat;
+  opacity: .16; filter: blur(2px) saturate(.9);
 }
-.room::after {
-  content: ""; position: absolute; inset: 0;
-  background:
-    radial-gradient(120% 90% at 50% 30%, rgba(0,0,0,0), rgba(0,0,0,.30) 62%, rgba(0,0,0,.72) 100%),
-    linear-gradient(to bottom, rgba(6,6,8,.05), rgba(6,6,8,.38));
+header {
+  max-width: 980px; margin: 0 auto 12px;
+  display: flex; flex-wrap: wrap; gap: 6px 16px; align-items: baseline;
 }
+h1 { color: var(--or); font-size: 20px; margin: 0; letter-spacing: .06em; }
+header p { margin: 0; color: var(--mid); }
+header nav { margin-left: auto; display: flex; gap: 14px; }
 
-.stage {
-  position: relative; z-index: 1;
-  min-height: 100%;
-  display: grid; place-items: center;
-  padding: 34px 18px 22px;
+/* ------------------------------------------------------------- the case --- */
+.dev {
+  max-width: 980px; margin: 0 auto;
+  background: linear-gradient(#24211e, var(--case));
+  border: 1px solid var(--line); border-radius: 18px; padding: 18px;
+  box-shadow: 0 10px 40px #0008, inset 0 1px 0 #ffffff10;
+  touch-action: none; user-select: none; -webkit-user-select: none;
 }
+.top { display: grid; grid-template-columns: auto 1fr; gap: 22px; align-items: center; }
+.screen {
+  position: relative; width: 360px; height: 360px; border-radius: 6px;
+  background: #000; border: 8px solid #0c0b0a;
+  box-shadow: inset 0 0 0 1px #000, 0 0 0 1px var(--line);
+}
+#lcd { width: 100%; height: 100%; display: block; image-rendering: auto; }
 
-/* ---------------------------------------------------------- the chassis --- */
-.device {
-  position: relative;
-  display: flex;
-  width: min(1180px, 100%);
-  border-radius: 16px;
-  background:
-    radial-gradient(130% 120% at 50% -30%, rgba(255,255,255,.20), transparent 58%),
-    linear-gradient(180deg, #e2e6ea 0%, #b9bec3 7%, #979da2 40%,
-                              #848a8f 72%, #9ca2a7 96%, #c5cacf 100%);
-  box-shadow:
-    inset 0 1px 0 #f4f6f8, inset 0 -2px 5px rgba(0,0,0,.42),
-    0 40px 70px -22px rgba(0,0,0,.9), 0 8px 18px rgba(0,0,0,.55);
+.encs { display: flex; flex-direction: column; gap: 16px; align-items: center; }
+.encs > div { display: grid; gap: 12px 26px; justify-items: center; }
+#enc3 { grid-template-columns: repeat(3, 1fr); }
+#enc4 { grid-template-columns: repeat(4, 1fr); }
+.enc { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.enc span { font-size: 11px; letter-spacing: .08em; color: var(--mid); text-transform: uppercase; }
+.enc .arr { display: flex; gap: 4px; }
+.enc .arr button {
+  width: 28px; height: 22px; padding: 0; font-size: 13px; line-height: 1;
+  background: #2a2622; border: 1px solid var(--line); border-radius: 6px;
+  color: var(--fg); cursor: pointer;
 }
-/* the brushed grain of the aluminium */
-.device::before {
-  content: ""; position: absolute; inset: 0; z-index: 0;
-  border-radius: inherit; pointer-events: none; opacity: .5;
-  background-image:
-    repeating-linear-gradient(91deg, rgba(255,255,255,.30) 0 1px,
-      rgba(0,0,0,.16) 1px 2px, rgba(255,255,255,.06) 2px 4px);
-  mix-blend-mode: overlay;
-}
+.enc .arr button:hover { border-color: var(--or); }
 
-.cheek {
-  position: relative; z-index: 1;
-  flex: none; width: 30px; border-radius: 16px 0 0 16px;
-  background: #6b482c url("assets/wood.svg") 0 0 / 112px 112px repeat;
-  background-blend-mode: multiply;
-  box-shadow: inset -10px 0 16px -8px #000, inset 10px 0 12px -10px rgba(255,255,255,.22),
-              0 0 0 1px rgba(0,0,0,.5);
-}
-.cheek.r {
-  border-radius: 0 16px 16px 0;
-  box-shadow: inset 10px 0 16px -8px #000, inset -10px 0 12px -10px rgba(255,255,255,.22),
-              0 0 0 1px rgba(0,0,0,.5);
-}
-
-.front {
-  position: relative; z-index: 1;
-  flex: 1; min-width: 0;
-  display: flex; gap: 22px;
-  padding: 16px 18px 16px;
-}
-
-/* the 240x240 panel, recessed and under glass */
-.bezel {
-  position: relative; flex: none; padding: 13px; max-width: 100%;
-  border-radius: 9px;
-  background: linear-gradient(180deg, #16181a, #262a2d);
-  box-shadow: inset 0 0 0 1px #000, inset 0 8px 16px rgba(0,0,0,.9),
-              0 1px 0 rgba(255,255,255,.45);
-}
-canvas#lcd {
-  display: block; width: 480px; max-width: 100%; height: auto; aspect-ratio: 1;
-  image-rendering: pixelated; background: #000; border-radius: 3px;
-  box-shadow: 0 0 30px rgba(226,178,104,.10), inset 0 0 0 1px rgba(0,0,0,.85);
-}
-.glass {
-  position: absolute; inset: 13px; border-radius: 3px; pointer-events: none;
-  background: linear-gradient(118deg, rgba(255,255,255,.16) 0 16%,
-    rgba(255,255,255,.04) 26%, transparent 42%);
-}
-
-/* --------------------------------------------------------- the controls --- */
-.controls {
-  flex: 1; min-width: 0;
-  display: flex; flex-direction: column; gap: 11px;
-  padding-top: 2px;
-}
-
-.plate { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.brand {
-  font: 700 15px/1 ui-monospace, monospace; letter-spacing: .30em;
-  color: #1b1e21; text-shadow: 0 1px 0 rgba(255,255,255,.75), 0 -1px 0 rgba(0,0,0,.28);
-}
-.brand span { color: #565c61; letter-spacing: .20em; font-weight: 500; }
-.power { display: flex; align-items: center; gap: 7px; font-size: 10px;
-         letter-spacing: .16em; color: #2b3035; text-transform: uppercase; }
-.power i {
-  width: 8px; height: 8px; border-radius: 50%;
-  background: #3d1611; box-shadow: inset 0 0 3px #000, 0 1px 0 rgba(255,255,255,.5);
-}
-.power.on i { background: var(--red); box-shadow: 0 0 9px var(--red), 0 0 20px rgba(255,91,71,.5); }
-
-.btnrow { display: flex; gap: 7px; }
-button.btn {
-  position: relative; flex: 1 1 0; min-width: 62px; padding: 10px 5px 9px 5px;
-  border-radius: 5px; border: 1px solid #1d2023; cursor: pointer;
-  background: linear-gradient(180deg, #4d5257 0%, #2e3236 50%, #23272a 100%);
-  color: #ece7de; font: 600 10px/1 ui-monospace, monospace; letter-spacing: .12em;
-  text-shadow: 0 1px 1px rgba(0,0,0,.85);
-  box-shadow: inset 0 1px 0 rgba(255,255,255,.22), inset 0 -3px 5px rgba(0,0,0,.55),
-              0 3px 0 #13161a, 0 5px 9px rgba(0,0,0,.45);
-  transition: background .06s linear, transform .04s linear;
-}
-button.btn::after {
-  content: ""; position: absolute; left: 50%; top: 5px; width: 4px; height: 4px;
-  margin-left: -2px; border-radius: 50%;
-  background: #452720; box-shadow: inset 0 0 2px #000;
-}
-button.btn:hover { background: linear-gradient(180deg, #585d63 0%, #34383c 50%, #282c30 100%); }
-button.btn:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
-button.btn.down {
-  transform: translateY(2px);
-  box-shadow: inset 0 2px 5px rgba(0,0,0,.7), 0 1px 0 #13161a;
-}
-button.btn.down::after { background: var(--amber); box-shadow: 0 0 8px var(--amber); }
-
-.knobs {
-  display: flex; align-items: flex-end; gap: 9px; flex-wrap: nowrap;
-  padding-top: 11px; border-top: 1px solid rgba(0,0,0,.16);
-  box-shadow: inset 0 1px 0 rgba(255,255,255,.5);
-}
 .knob {
-  display: flex; flex-direction: column; align-items: center; gap: 6px;
-  width: 56px; color: #1d2125; font: 700 9px/1 ui-monospace, monospace;
-  letter-spacing: .10em; text-shadow: 0 1px 0 rgba(255,255,255,.7);
+  width: 70px; height: 70px; border-radius: 50%; position: relative;
+  cursor: ns-resize; touch-action: none;
+  background: radial-gradient(circle at 35% 30%, #4a443d, #24211e 62%, #161412);
+  box-shadow: 0 4px 10px #0009, inset 0 1px 1px #ffffff20, 0 0 0 1px #000;
 }
-.knob .cap {
-  position: relative; width: 46px; height: 46px; border-radius: 50%;
-  cursor: grab; touch-action: none;
-  background: radial-gradient(circle at 34% 26%, #777d83, #3c4045 56%, #202326 100%);
-  box-shadow: inset 0 1px 0 rgba(255,255,255,.4), inset 0 -7px 11px rgba(0,0,0,.6),
-              0 7px 11px -4px rgba(0,0,0,.75), 0 2px 0 #171a1d;
+.knob .r { position: absolute; inset: 0; }
+.knob .r::before {
+  content: ""; position: absolute; left: 50%; top: 6px; width: 4px; height: 18px;
+  margin-left: -2px; border-radius: 2px; background: var(--or);
 }
-.knob .cap:active { cursor: grabbing; }
-.knob .cap::before {
-  content: ""; position: absolute; inset: 0; border-radius: 50%;
-  background: repeating-conic-gradient(from 0deg, rgba(255,255,255,.14) 0 1.1deg,
-    rgba(0,0,0,.20) 1.1deg 2.2deg);
-  -webkit-mask: radial-gradient(circle, transparent 60%, #000 63%);
-  mask: radial-gradient(circle, transparent 60%, #000 63%);
-}
-.knob .cap::after {
-  content: ""; position: absolute; left: 50%; top: 5px; width: 3px; height: 13px;
-  margin-left: -1.5px; border-radius: 2px;
-  background: linear-gradient(#f6f2ea, #b8b1a4);
-  box-shadow: 0 0 4px rgba(255,255,255,.55);
-  transform-origin: 50% 18px; transform: rotate(var(--a, 0deg));
-}
-.knob.big { width: 88px; margin-left: auto; }
-.knob.big .cap { width: 74px; height: 74px; }
-.knob.big .cap::after { height: 20px; transform-origin: 50% 27px; }
-.knob .read { color: #3f4449; font-variant-numeric: tabular-nums; letter-spacing: 0; }
+.knob .r { transform: rotate(var(--a, 0deg)); }
 
-/* the little status display under the knobs: dark glass, green legend */
-.readout {
-  margin-top: 0;
-  padding: 9px 12px;
-  border-radius: 5px;
-  background: linear-gradient(180deg, #0a1410, #0d1a13 60%, #08110d);
-  box-shadow: inset 0 0 0 1px #000, inset 0 3px 9px rgba(0,0,0,.9),
-              0 1px 0 rgba(255,255,255,.45);
-  font-size: 11px; color: #7fe0a0; letter-spacing: .06em;
-  text-shadow: 0 0 6px rgba(99,224,137,.45);
-  display: flex; flex-direction: column; gap: 5px;
+/* ---------------------------------------------------------- the buttons --- */
+.btns { display: grid; grid-template-columns: repeat(14, 1fr); gap: 8px; margin: 18px 0 14px; }
+.b {
+  position: relative; height: 46px; border-radius: 8px; border: 1px solid #000;
+  background: linear-gradient(#34302b, #26231f); color: var(--fg);
+  font: 600 11px/1 system-ui, sans-serif; letter-spacing: .05em; cursor: pointer;
+  box-shadow: 0 2px 0 #000, inset 0 1px 0 #ffffff14; touch-action: none;
 }
-.readout .line { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
-.readout .dim { color: #4f8f66; text-shadow: none; }
-.readout b { color: #b6f5c8; font-weight: 700; }
+.b.down { transform: translateY(1px); box-shadow: 0 1px 0 #000, inset 0 1px 2px #0008; background: #221f1c; }
+.b i {
+  position: absolute; top: 6px; left: 50%; width: 18px; height: 4px;
+  margin-left: -9px; border-radius: 2px; background: #3b2a12;
+}
+.b.on i { background: var(--or2); box-shadow: 0 0 8px var(--or), 0 0 2px #fff; }
+.b b { display: block; margin-top: 12px; font-weight: 600; }
 
-.util { display: flex; gap: 7px; }
-.util button.btn { flex: 0 0 auto; min-width: 128px; }
-.util button.btn.panic { background: linear-gradient(180deg, #7a3128, #4a1c16 55%, #38130f); }
+/* ---------------------------------------------------------- the keyboard --- */
+.kb {
+  position: relative; height: 150px; border-radius: 8px; overflow: hidden;
+  background: #000; border: 1px solid #000; touch-action: none;
+}
+.w, .k { position: absolute; top: 0; cursor: pointer; touch-action: none; }
+.w {
+  height: 100%; background: linear-gradient(#f4f0e8, var(--key));
+  border-right: 1px solid #9a948a; border-radius: 0 0 6px 6px;
+}
+.k {
+  height: 60%; background: linear-gradient(#3a3631, var(--keyd));
+  border-radius: 0 0 5px 5px; z-index: 2; box-shadow: 0 2px 3px #000a;
+}
+.w.down { background: linear-gradient(#ffd890, #f5b54a); }
+.k.down { background: linear-gradient(#b8761a, #8a5410); }
+.w em {
+  position: absolute; bottom: 5px; width: 100%; text-align: center;
+  font: 11px/1.3 system-ui; color: #6f6a62; font-style: normal;
+  display: flex; flex-direction: column; align-items: center; gap: 1px;
+}
+.w em u { text-decoration: none; color: #a9a29a; font-size: 9px; letter-spacing: .06em; }
 
-/* the vent slots of a real case, filling the panel under the readout */
-.grille {
-  flex: 1 1 auto; min-height: 46px; margin-top: 2px; border-radius: 6px;
-  background-image:
-    repeating-linear-gradient(180deg,
-      rgba(0,0,0,.16) 0 2px,
-      rgba(255,255,255,.10) 2px 3px,
-      rgba(0,0,0,.03) 3px 11px,
-      rgba(255,255,255,.16) 11px 12px);
-  box-shadow: inset 0 0 18px rgba(0,0,0,.16), inset 0 0 0 1px rgba(0,0,0,.10);
+/* ------------------------------------------------------- the orchestra --- */
+/* four desks: the sections of the panel's STAGE page, and how many voices
+ * each one is sounding right now */
+.desks { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-top: 14px; }
+.desk {
+  background: #171514; border: 1px solid var(--line); border-radius: 8px;
+  padding: 8px 10px; display: flex; flex-direction: column; gap: 6px;
+}
+.desk .name { font: 600 11px/1 system-ui; letter-spacing: .1em; color: var(--mid); text-transform: uppercase; }
+.desk .meter { height: 6px; border-radius: 3px; background: #0c0b0a; overflow: hidden; }
+.desk .meter i {
+  display: block; height: 100%; width: 0; border-radius: 3px;
+  background: linear-gradient(90deg, #7a5a1c, var(--or));
+  transition: width .08s linear;
+}
+.desk.playing .name { color: var(--or2); }
+.desk .n { font: 11px ui-monospace, monospace; color: var(--dim); }
+
+/* ------------------------------------------------------------- the bar --- */
+.bar {
+  max-width: 980px; margin: 14px auto 0; display: flex; flex-wrap: wrap;
+  gap: 10px 18px; align-items: center; color: var(--mid);
+}
+.bar label { display: flex; gap: 6px; align-items: center; }
+select, button, input[type=range] { font: inherit; color: var(--fg); }
+input[type=range] { accent-color: var(--or); }
+select, .bar button {
+  background: #2a2622; border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px;
+}
+.bar button { cursor: pointer; }
+.bar button:hover { border-color: var(--or); }
+#msg { color: var(--or); }
+
+.help { max-width: 980px; margin: 14px auto 40px; color: var(--mid); font-size: 13px; }
+.help kbd {
+  background: #2a2622; border: 1px solid var(--line); border-bottom-width: 2px;
+  border-radius: 4px; padding: 0 5px; font: 12px ui-monospace, monospace; color: var(--fg);
 }
 
-/* the milled trim line around the front panel */
-.front::after {
-  content: ""; position: absolute; inset: 6px; pointer-events: none;
-  border: 1px solid rgba(0,0,0,.16); border-radius: 11px;
-  box-shadow: inset 0 1px 0 rgba(255,255,255,.35);
+/* browsers only start audio after a click */
+#start {
+  position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
+  background: #000b; z-index: 10; flex-direction: column; gap: 18px;
 }
+#start button {
+  font: 600 18px system-ui; color: #111; background: var(--or); border: 0;
+  border-radius: 12px; padding: 16px 28px; cursor: pointer; box-shadow: 0 8px 30px #000;
+}
+#start p { color: var(--mid); margin: 0; }
+#start.gone { display: none; }
 
-/* the four brass screws */
-.screw {
-  position: absolute; width: 9px; height: 9px; border-radius: 50%;
-  background: radial-gradient(circle at 35% 30%, #e8cf9a, #9d7c45 60%, #5a4527 100%);
-  box-shadow: inset 0 0 2px rgba(0,0,0,.7), 0 1px 1px rgba(0,0,0,.5);
-}
-.screw::after {
-  content: ""; position: absolute; left: 1px; top: 4px; width: 7px; height: 1px;
-  background: #33261466; transform: rotate(28deg);
-}
-.screw.a { left: 5px; top: 5px; } .screw.b { right: 5px; top: 5px; }
-.screw.c { left: 5px; bottom: 5px; } .screw.d { right: 5px; bottom: 5px; }
-.bezel .screw { width: 7px; height: 7px; }
-.bezel .screw::after { top: 3px; width: 5px; }
-
-/* ---------------------------------------------------------------- small --- */
-@media (max-width: 1080px) {
-  .front { flex-direction: column; align-items: stretch; gap: 14px; }
-  .bezel { align-self: center; }
-  .controls { width: 100%; }
-  .knobs { flex-wrap: wrap; }
-  .knob.big { margin-left: 0; }
-  .grille { min-height: 30px; }
-}
-@media (max-width: 620px) {
-  .btnrow { flex-wrap: wrap; }
-  button.btn { flex: 0 1 30%; min-width: 30%; }
-  .util button.btn { flex: 1 1 40%; min-width: 0; }
-  .cheek { width: 14px; }
-  .front { padding: 12px 12px 14px; }
-  .readout { font-size: 10px; letter-spacing: .02em; }
-  .knob { width: 52px; }
-  .knob.big { width: 80px; }
-  .brand { font-size: 13px; letter-spacing: .2em; }
-  .grille { min-height: 20px; }
+@media (max-width: 860px) {
+  body { padding: 10px; }
+  .top { grid-template-columns: 1fr; justify-items: center; }
+  .screen { width: min(360px, 100%); height: auto; aspect-ratio: 1; }
+  .btns { grid-template-columns: repeat(7, 1fr); }
+  .encs > div { gap: 10px 18px; }
+  .knob { width: 58px; height: 58px; }
+  .desks { grid-template-columns: repeat(2, 1fr); }
+  .kb { height: 120px; }
 }
