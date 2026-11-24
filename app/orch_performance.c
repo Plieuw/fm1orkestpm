@@ -106,6 +106,7 @@ static void release_all(unsigned part, perf_part_t *p)
         }
     }
     p->active_count=0U;
+    for(unsigned i=0;i<PERF_ACTIVE*3U;++i) p->pending[i].used=0U;
 }
 
 static void active_off_due(unsigned part, perf_part_t *p, uint32_t now)
@@ -440,6 +441,10 @@ int orch_perf_set_config(unsigned part, const struct orch_perf_config *c)
     p->cfg.velocity_groove&=7U; p->cfg.gate_groove&=7U;
     if(was && !(p->cfg.arp_enabled||p->cfg.phrase_enabled)) {
         release_all(part,p); p->held_count=p->keys_down=p->running=0U;
+    }
+    if(p->cfg.latch==0U && p->keys_down==0U && was &&
+       (p->cfg.arp_enabled||p->cfg.phrase_enabled) && p->held_count) {
+        p->held_count=0U; release_all(part,p); p->running=0U;
     }
     if(!was && (p->cfg.arp_enabled||p->cfg.phrase_enabled) && p->held_count) p->first_pending=1U;
     return 0;
