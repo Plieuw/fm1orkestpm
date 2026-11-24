@@ -3,7 +3,7 @@
  * the only way to look at the screen without an FM-1 attached; it is a preview
  * of the layout, not evidence that the ST7789 shows it.
  *
- *   ./panel_preview /tmp/panel  -> /tmp/panel-{parts,arp,seq,fx,glo}.ppm
+ *   ./panel_preview /tmp/panel  -> /tmp/panel-{parts,arp,seq,fx,glo,orchestra}.ppm
  */
 #include <stdio.h>
 #include <string.h>
@@ -198,6 +198,27 @@ int main(int argc, char **argv)
     clock_ms += 40U;
     orch_ui_control();
     shot(base, "glo");
+
+    /* the full orchestra, for the top of the light's scale: four parts at two
+     * voices each, all bowed so the chord holds while the picture is taken —
+     * this is the frame where the cone is as wide as the level goes, 24 of 24 */
+    press(8);              /* HOME, the hall */
+    for (unsigned p = 0; p < ORCH_PARTS; ++p) {
+        orch_engine_set_instrument(p, ORCH_INST_VIOLIN + p);
+        orch_engine_set_voice_ceiling(p, 2U);
+        orch_note_event(p * 4U, 60U, 100U);
+        orch_note_event(p * 4U + 1U, 67U, 100U);
+    }
+    render(700);           /* the bows swell over a second */
+    /* the level rides on each block's peak, so wait for the moment the whole
+     * orchestra is at the top of the scale and take the picture there */
+    for (unsigned i = 0; i < 400U && orch_output_level() < ORCH_LEVEL_MAX; ++i)
+        render(1);
+    clock_ms += 40U;
+    orch_ui_control();
+    printf("orchestra: level %u of %u, %u voices\n", orch_output_level(),
+           ORCH_LEVEL_MAX, orch_active_voices());
+    shot(base, "orchestra");
 
     return 0;
 }
