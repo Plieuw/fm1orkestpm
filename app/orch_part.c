@@ -48,6 +48,7 @@ void orch_parts_init(void)
         part->channels = channel_map[p];
         part->family = (uint8_t)p;
         part->instrument = (uint8_t)default_instrument(p);
+        orch_divisi_set_instrument(&part->divisi, part->instrument);
         part->enabled = 1U;
         part->articulation = ORCH_ART_AUTO;
         part->player_cap = 2U;
@@ -85,6 +86,7 @@ int orch_part_configure(unsigned part, unsigned family, uint16_t channels)
     parts[part].enabled = channels ? 1U : 0U;
     orch_adaptive_reset_phrase(&parts[part].adaptive);
     orch_divisi_init(&parts[part].divisi);
+    orch_divisi_set_instrument(&parts[part].divisi, parts[part].instrument);
     return 0;
 }
 
@@ -95,6 +97,7 @@ int orch_part_set_instrument(unsigned part, unsigned instrument)
     parts[part].family = (uint8_t)instrument_family(instrument);
     orch_adaptive_reset_phrase(&parts[part].adaptive);
     orch_divisi_init(&parts[part].divisi);
+    orch_divisi_set_instrument(&parts[part].divisi, parts[part].instrument);
     return 0;
 }
 

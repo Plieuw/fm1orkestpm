@@ -1,20 +1,49 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 #include "orch_divisi.h"
 
+#include "orch_part.h"
+#include "orch_stage.h"
+
 /* Each player slot has its own place in the section and its own intonation.
  * These are per slot, not per note, so a line keeps the same desk colour. */
 static const int8_t SLOT_DETUNE[ORCH_DIVISI_MAX] = { 0, 4, -5, 7 };
-static const uint8_t SLOT_PAN[ORCH_DIVISI_MAX] = { 96U, 160U, 72U, 184U };
+
+/* The players of a section stand next to each other, so the plan's pan is
+ * relative to the middle of that section (128 = its centre); stage_pan() adds
+ * the section's own place on the stage. One player stands in the middle; more
+ * players fan out evenly, widest at four. */
+static uint8_t slot_pan(unsigned p, unsigned players)
+{
+    if (players < 2U) return 128U;
+    const int centred = 2 * (int)p - (int)(players - 1);
+    const int pan = 128 + centred * 48 / (int)(players - 1);
+    return (uint8_t)(pan < 0 ? 0 : pan > 255 ? 255 : pan);
+}
+
+/* The section's own place on the stage, with the players fanned out around it
+ * and then through the listener, so the engine can use the pan as it is. */
+static uint8_t stage_pan(const struct orch_divisi_state *d, unsigned p,
+                         unsigned players)
+{
+    return (uint8_t)orch_stage_place(d->instrument, slot_pan(p, players));
+}
 
 void orch_divisi_init(struct orch_divisi_state *d)
 {
     if (!d) return;
     d->players = 0U;
+    d->instrument = ORCH_INST_VIOLIN;
     for (unsigned p = 0; p < ORCH_DIVISI_MAX; ++p) {
         d->note_of_player[p] = 0xFFU;
         d->id_of_player[p] = 0U;
         d->assigned[p] = 0U;
     }
+}
+
+void orch_divisi_set_instrument(struct orch_divisi_state *d, unsigned instrument)
+{
+    if (!d) return;
+    d->instrument = (uint8_t)(instrument < ORCH_INST_COUNT ? instrument : 0U);
 }
 
 static int find_note(const uint8_t *notes, unsigned count, unsigned note)
@@ -38,7 +67,7 @@ void orch_divisi_plan(struct orch_divisi_state *d,
         for (unsigned p = 0; p < ORCH_DIVISI_MAX; ++p) {
             out->assignment[p] = 0xFFU;
             out->detune_cents[p] = SLOT_DETUNE[p];
-            out->pan[p] = SLOT_PAN[p];
+            out->pan[p] = stage_pan(d, p, 0U);
         }
         return;
     }
@@ -94,12 +123,12 @@ void orch_divisi_plan(struct orch_divisi_state *d,
         d->note_of_player[p] = (i < count) ? notes[i] : 0xFFU;
         d->id_of_player[p] = (i < count) ? ids[i] : 0U;
         out->detune_cents[p] = SLOT_DETUNE[p];
-        out->pan[p] = SLOT_PAN[p];
+        out->pan[p] = stage_pan(d, p, players);
     }
     for (unsigned p = players; p < ORCH_DIVISI_MAX; ++p) {
         d->assigned[p] = 0U;
         out->detune_cents[p] = SLOT_DETUNE[p];
-        out->pan[p] = SLOT_PAN[p];
+        out->pan[p] = stage_pan(d, p, players);
     }
     d->players = (uint8_t)players;
     out->players = (uint8_t)players;
