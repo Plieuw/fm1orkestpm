@@ -10,6 +10,7 @@ fails closed if expected upstream anchors have changed.
 """
 from pathlib import Path
 import shutil
+import subprocess
 import sys
 
 EXPECTED = "e750df6a2e13490a4f01b84d3f9c553f4612163f"
@@ -35,12 +36,18 @@ def main() -> None:
     fw = root / "firmware" / "src"
     if not (fw / "felucca.c").is_file():
         raise SystemExit("not a HAWK/Felucca source tree: firmware/src/felucca.c missing")
-    head = (root / ".git" / "HEAD")
-    if head.exists():
-        # The build job verifies the exact commit before calling this script.
-        print("NOTE: verify HAWK source commit is", EXPECTED)
-    else:
+    if not (root / ".git").exists():
         raise SystemExit("expected a Git checkout; refusing an unverified source tree")
+    actual = subprocess.check_output(
+        ["git", "-C", str(root), "rev-parse", "HEAD"], text=True
+    ).strip()
+    if actual != EXPECTED:
+        raise SystemExit(f"wrong HAWK revision: {actual}; expected {EXPECTED}")
+    dirty = subprocess.check_output(
+        ["git", "-C", str(root), "status", "--porcelain"], text=True
+    ).strip()
+    if dirty:
+        raise SystemExit("HAWK checkout is not clean; use a disposable checkout")
 
     app = Path(__file__).resolve().parents[1] / "app"
     dst = fw / "orchestra"
