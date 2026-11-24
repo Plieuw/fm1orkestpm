@@ -265,6 +265,12 @@ static void test_sequencer(void)
     CHECK(orch_test_seq_adapt_note(0U, 62U) == 62U);
     orch_seq_set_adaptive(1U);
     CHECK(orch_test_seq_adapt_note(0U, 62U) == 64U);
+    /* The same stored step is gently pulled toward the player's register. */
+    orch_note_event(0U, 79U, 100U);
+    render(1U);
+    orch_note_event(0U, 79U, 0U);
+    render(1U);
+    CHECK(orch_test_seq_adapt_note(0U, 62U) == 67U);
     orch_seq_set_adaptive(0U);
     orch_init();
     orch_seq_clear();
