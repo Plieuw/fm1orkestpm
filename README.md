@@ -30,6 +30,7 @@ The FM1 uses JieLi WL82/AC791N. Himalia firmware targets a different MCU, so Him
 - MIDI Note On/Off, velocity and sustain pedal.
 - 16-step polyphonic sequencer pattern, up to four notes per step, with per-note gate and internal tempo.
 - Master FX after the voice mix: chorus, ensemble, ping-pong delay and shimmer reverb, controlled from the FX page and kept in the flash record.
+- Knob cells under the page body (label and value under each of the four knobs) and HAWK CHUA's knob speed: a fast turn goes up to x8, one detent is still one menu step.
 - Fixed-point synthesis, one waveguide per player, stereo Q23 output.
 
 The 12-voice ceiling is provisional and must be measured on real FM1 hardware. The goal is the highest stable polyphony that fits the audio interrupt budget.

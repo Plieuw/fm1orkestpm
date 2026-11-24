@@ -110,8 +110,12 @@ int main(void)
     CHECK(orch_ui_master_q23 == 0U);
     CHECK(orch_ui_page() == 0U);          /* PARTS */
 
-    /* SELECT picks a part, ALGORITHM the family on the parts page */
+    /* SELECT picks a part, ALGORITHM the family on the parts page. A choice
+     * moves one place a detent however many detents arrive at once, so a quick
+     * turn cannot skip a part. */
     turn(E_SELECT, 2);
+    CHECK(orch_ui_part() == 1U);
+    turn(E_SELECT, 1);
     CHECK(orch_ui_part() == 2U);
     CHECK(orch_part_get(2)->family == ORCH_FAM_BRASS);
     turn(E_ALGO, -1);                     /* BRASS -> WOODWINDS */
@@ -120,8 +124,10 @@ int main(void)
     /* PRESETS walks the instruments inside the family and wraps */
     turn(E_PRESET, 1);
     CHECK(orch_part_get(2)->instrument == ORCH_INST_PICCOLO);
-    turn(E_PRESET, 4);                    /* 1 + 4 = 5 wraps back to the first */
-    CHECK(orch_part_get(2)->instrument == ORCH_INST_FLUTE);
+    turn(E_PRESET, 4);                    /* four detents: still one entry */
+    CHECK(orch_part_get(2)->instrument == ORCH_INST_CLARINET);
+    turn(E_PRESET, -9);
+    CHECK(orch_part_get(2)->instrument == ORCH_INST_PICCOLO);
 
     /* OCT+ / OCT- transpose in octaves, and the note map follows */
     press(B_OCT_UP);
@@ -167,8 +173,8 @@ int main(void)
     CHECK(orch_arp_div_of(2U) == 3U);
     turn(E_KNOB2, 1);                     /* octaves */
     CHECK(orch_arp_octaves_of(2U) == 2U);
-    turn(E_KNOB3, 2);                     /* gate, in fives */
-    CHECK(orch_arp_gate_of(2U) == 70U);
+    turn(E_KNOB3, 2);                     /* gate, 2 % a detent */
+    CHECK(orch_arp_gate_of(2U) == 64U);
     turn(E_ALGO, 1);                      /* mode */
     CHECK(orch_arp_mode_of(2U) == ORCH_ARP_DOWN);
     press(B_ARP);
@@ -198,8 +204,8 @@ int main(void)
     /* GLOBAL: tempo, volume, and K4 is the panic */
     press(B_GLO);
     CHECK(orch_ui_page() == 3U);
-    turn(E_KNOB3, 3);
-    CHECK(orch_ui_tempo() == 132U);
+    turn(E_KNOB3, 3);                     /* 2 BPM a detent */
+    CHECK(orch_ui_tempo() == 126U);
     turn(E_KNOB2, -5);                    /* semitone transpose from the global page */
     CHECK(orch_ui_transpose() == (unsigned)-5);
     CHECK(orch_ui_map_note(60) == 55);
@@ -218,13 +224,15 @@ int main(void)
     CHECK(orch_ui_page() == 4U);
     CHECK(orch_ui_fx_selection() == 0U);
     turn(E_ALGO, 2);
-    CHECK(orch_ui_fx_selection() == 2U);     /* DELAY */
-    turn(E_KNOB1, 2);                         /* mix 25 -> 35 */
-    CHECK(orch_fx_mix(2U) == 35U);
-    turn(E_KNOB2, -1);                        /* time 50 -> 45 */
-    CHECK(orch_fx_param_a(2U) == 45U);
-    turn(E_KNOB3, 2);                         /* feedback 35 -> 45 */
-    CHECK(orch_fx_param_b(2U) == 45U);
+    CHECK(orch_ui_fx_selection() == 1U);      /* one detent, one effect */
+    turn(E_ALGO, 1);
+    CHECK(orch_ui_fx_selection() == 2U);      /* DELAY */
+    turn(E_KNOB1, 2);                         /* mix 25 -> 29 */
+    CHECK(orch_fx_mix(2U) == 29U);
+    turn(E_KNOB2, -1);                        /* time 50 -> 48 */
+    CHECK(orch_fx_param_a(2U) == 48U);
+    turn(E_KNOB3, 2);                         /* feedback 35 -> 39 */
+    CHECK(orch_fx_param_b(2U) == 39U);
     turn(E_KNOB4, 1);
     CHECK(orch_fx_enabled(2U) == 1U);
     turn(E_KNOB4, -1);
@@ -257,9 +265,9 @@ int main(void)
     orch_ui_init();
     orch_ui_control();       /* prime the scan timer after the re-init */
     CHECK(orch_fx_enabled(ORCH_FX_DELAY) == 1U);
-    CHECK(orch_fx_mix(ORCH_FX_DELAY) == 35U);
-    CHECK(orch_fx_param_a(ORCH_FX_DELAY) == 45U);
-    CHECK(orch_fx_param_b(ORCH_FX_DELAY) == 45U);
+    CHECK(orch_fx_mix(ORCH_FX_DELAY) == 29U);
+    CHECK(orch_fx_param_a(ORCH_FX_DELAY) == 48U);
+    CHECK(orch_fx_param_b(ORCH_FX_DELAY) == 39U);
 
     /* HOME returns to the parts page, and the scan is throttled */
     press(B_HOME);
@@ -275,6 +283,25 @@ int main(void)
     memset(block, 0, sizeof block);
     orch_render_q23(block, 128U);
     CHECK(orch_active_voices() == 0U);
+
+    /* HAWK CHUA's knob speed: alone it is one step; the same way at 20 a
+     * second x2, at 40 x8; slowing comes back by halves, and turning back is
+     * one step again. The tempo is 2 BPM a detent. */
+    clock_ms += 2000U;
+    turn(E_KNOB3, 1);
+    CHECK(orch_ui_tempo() == 128U);       /* 126 + 2, alone */
+    clock_ms += 50U;
+    turn(E_KNOB3, 1);
+    CHECK(orch_ui_tempo() == 132U);       /* 20 a second: x2 */
+    clock_ms += 25U;
+    turn(E_KNOB3, 1);
+    CHECK(orch_ui_tempo() == 148U);       /* 40 a second: x8 */
+    clock_ms += 60U;
+    turn(E_KNOB3, 1);
+    CHECK(orch_ui_tempo() == 156U);       /* slowing: x4, not a jump */
+    clock_ms += 25U;
+    turn(E_KNOB3, -1);
+    CHECK(orch_ui_tempo() == 154U);       /* turning back: one detent */
 
     if (failures) {
         printf("orch_ui: %d failure(s)\n", failures);

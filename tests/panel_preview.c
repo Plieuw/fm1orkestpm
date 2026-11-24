@@ -116,9 +116,11 @@ int main(int argc, char **argv)
     orch_ui_init();
 
     /* PARTS: part 3 on strings, a chord sounding */
-    turn(0, 2);            /* SELECT -> part 3 */
-    turn(1, 1);            /* ALGORITHM -> strings? brass is 2, so this is choir */
-    turn(1, 1);            /* -> strings (wraps to famille 0) */
+    turn(0, 1);            /* SELECT -> part 2 */
+    turn(0, 1);            /* -> part 3 */
+    turn(1, 1);            /* ALGORITHM: brass -> mallets */
+    turn(1, 1);            /* -> choir */
+    turn(1, 1);            /* -> strings (wraps to family 0) */
     press(2);              /* opens the FX page */
     press(2);              /* on that page: the four-part chord */
     press(8);              /* HOME, back to PARTS */
@@ -166,15 +168,15 @@ int main(int argc, char **argv)
     /* FX: all four effects on, the delay row selected */
     press(2);              /* FX page */
     turn(5, 1);            /* K4: chorus on */
-    turn(2, 1);            /* K1: chorus mix 40 -> 45 */
+    turn(2, 1);            /* K1: chorus mix up a step */
     turn(1, 1);            /* select ensemble */
     turn(5, 1);            /* on */
     turn(1, 1);            /* select delay */
     turn(5, 1);            /* on */
-    turn(3, -1);           /* K2: delay time 50 -> 45 */
+    turn(3, -1);           /* K2: delay time down a step */
     turn(1, 1);            /* select shimmer */
     turn(5, 1);            /* on */
-    turn(4, 1);            /* K3: shimmer amount 25 -> 30 */
+    turn(4, 1);            /* K3: shimmer amount up a step */
     turn(1, -1);           /* back to the delay row */
     render(200);
     clock_ms += 40U;
