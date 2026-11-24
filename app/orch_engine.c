@@ -1270,7 +1270,8 @@ static void voice_tick(voice_t *v)
         const struct orch_part *cfg = orch_part_get(v->part);
         const struct orch_lfo *lfo = cfg ? &cfg->lfo : 0;
         if (lfo && (lfo->destinations & ORCH_LFO_BRIGHTNESS)) {
-            const int shift = ((int)v->lfo_value * (int)lfo->depth) / (32768 * 25);
+            const int bounded_depth = lfo->depth > 24U ? 24 : (int)lfo->depth;
+            const int shift = ((int)v->lfo_value * bounded_depth) / (32768 * 12);
             damp_value += shift;
             if (damp_value < 1) damp_value = 1;
             if (damp_value > 6) damp_value = 6;
