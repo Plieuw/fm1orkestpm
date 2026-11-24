@@ -185,10 +185,11 @@ static void panel_draw(void)
         panel_text(120U,172U,line,ink);
         line[0]='G';line[1]='G';line[2]=' ';line[3]=(char)('0'+pc->gate_groove);line[4]=0;
         panel_text(168U,172U,line,ink);
+        const unsigned step=orch_perf_current_step(selected_part)&15U;
         fm1_screen_fill(8U,196U,216U,6U,0x39E7U);
-        fm1_screen_fill(8U,196U,(216U*orch_perf_current_step(selected_part))%217U,6U,green);
-        panel_text(8U,208U,"B8 ARP B9 SEQ B10 LATCH",cyan);
-        panel_text(8U,228U,"ENC PAT BPM DIV SWING",amber);
+        fm1_screen_fill(8U,196U,(216U*step)/15U,6U,green);
+        panel_text(8U,208U,"B8 ARP B9 SEQ B10 HOLD",cyan);
+        panel_text(8U,228U,"B11 LOGIC B12 CLK B13 QTZ B14 PAGE",amber);
         return;
     }
     static const uint16_t bg=0x0841U, ink=0xFFFFU, cyan=0x07FFU;
@@ -368,7 +369,12 @@ void groove_screen_control(void)
     }
 }
 
-void groove_midi_init(void) { orch_init(); }
+void groove_midi_init(void)
+{
+    orch_init();
+    for(unsigned p=0U;p<PANEL_PARTS;++p)
+        (void)orch_perf_set_config(p,&perf_config[p]);
+}
 void groove_midi_poll(void) {}
 void groove_midi_panic(void) { orch_panic(); }
 unsigned groove_midi_mode(unsigned track) { (void)track; return 0U; }
