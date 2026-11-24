@@ -886,24 +886,25 @@ static void divisi_promote_connected_note(struct orch_part *cfg,
     cfg->divisi.id_of_player[desk] = newest_id;
 }
 
-static void engine_note_on_part(unsigned part, unsigned note, unsigned velocity)
+/* Shared realization path for live MIDI and generated ARP/sequencer notes.
+ * Keeping adaptive analysis, note IDs, divisi planning and voice handover in
+ * one place prevents the two event sources from drifting apart. */
+static uint32_t engine_start_part_note(unsigned part, unsigned note, unsigned velocity)
 {
-    if (part >= ORCH_PARTS || !velocity) return;
+    if (part >= ORCH_PARTS || note > 127U || !velocity || velocity > 127U)
+        return 0U;
     struct orch_part *cfg = orch_part_get(part);
-    if (!cfg) return;
+    if (!cfg) return 0U;
 
     part_runtime_t *rt = &runtime[part];
     struct orch_intent *in = &rt->intent;
-
     orch_adaptive_note(&cfg->adaptive, in, note, velocity, sample_counter,
                        cfg->articulation);
     orch_adaptive_velocity(&cfg->adaptive, in, velocity);
 
     uint32_t id = 0U;
-    const int slot = part_note_add(part, note, &id);
-    if (slot < 0) return;
+    if (part_note_add(part, note, &id) < 0) return 0U;
 
-    /* plan over every sounding note of this part */
     uint8_t notes[PART_NOTES];
     uint32_t ids[PART_NOTES];
     unsigned count = 0U;
@@ -918,9 +919,6 @@ static void engine_note_on_part(unsigned part, unsigned note, unsigned velocity)
     if (in->connected)
         divisi_promote_connected_note(cfg, &rt->plan, notes, ids, count, id);
 
-    /* Realize only the players that took this new note. A connected
-     * melody must never disappear if a divisi assignment is temporarily
-     * retained by hysteresis: in that case hand the lead desk to this note. */
     unsigned started = 0U;
     for (unsigned p = 0; p < rt->plan.players; ++p) {
         const unsigned idx = rt->plan.assignment[p];
@@ -929,11 +927,19 @@ static void engine_note_on_part(unsigned part, unsigned note, unsigned velocity)
                     rt->plan.detune_cents[p], rt->plan.pan[p]);
         ++started;
     }
+    /* Hysteresis may temporarily leave the newest connected note unassigned.
+     * Always let its lead desk continue the phrase instead of dropping it. */
     if (!started && in->connected) {
         const unsigned p = rt->plan.players ? rt->plan.players - 1U : 0U;
         voice_start(part, note, velocity, id, in, p,
                     rt->plan.detune_cents[p], rt->plan.pan[p]);
     }
+    return id;
+}
+
+static void engine_note_on_part(unsigned part, unsigned note, unsigned velocity)
+{
+    (void)engine_start_part_note(part, note, velocity);
 }
 
 static void engine_note_on(unsigned ch, unsigned note, unsigned velocity)
@@ -1301,36 +1307,7 @@ static void seq_release_voice(unsigned note, uint32_t note_id)
 
 static uint32_t seq_start_voice(unsigned note, unsigned velocity)
 {
-    const unsigned part = seq_part;
-    struct orch_part *cfg = orch_part_get(part);
-    if (!cfg) return 0U;
-    struct orch_intent *in = &runtime[part].intent;
-    orch_adaptive_note(&cfg->adaptive, in, note, velocity, sample_counter,
-                       cfg->articulation);
-    orch_adaptive_velocity(&cfg->adaptive, in, velocity);
-    uint32_t id = 0U;
-    if (part_note_add(part, note, &id) < 0) return 0U;
-
-    uint8_t notes[PART_NOTES];
-    uint32_t ids[PART_NOTES];
-    unsigned count = 0U;
-    for (unsigned i = 0; i < PART_NOTES; ++i) {
-        if (!runtime[part].notes[i].used) continue;
-        notes[count] = runtime[part].notes[i].note;
-        ids[count] = runtime[part].notes[i].id;
-        ++count;
-    }
-    orch_divisi_plan(&cfg->divisi, notes, ids, count, in->density,
-                     cfg->player_cap, &runtime[part].plan);
-    if (in->connected)
-        divisi_promote_connected_note(cfg, &runtime[part].plan, notes, ids, count, id);
-    for (unsigned p = 0; p < runtime[part].plan.players; ++p) {
-        const unsigned idx = runtime[part].plan.assignment[p];
-        if (idx >= count || ids[idx] != id) continue;
-        voice_start(part, note, velocity, id, in, p,
-                    runtime[part].plan.detune_cents[p], runtime[part].plan.pan[p]);
-    }
-    return id;
+    return engine_start_part_note(seq_part, note, velocity);
 }
 
 /* Match the ARP/phrase engine's 16-step orchestral phrase arc. */
