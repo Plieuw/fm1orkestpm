@@ -9,6 +9,7 @@
 #include "fm1_app.h"
 #include "fm1_engine_control.h"
 #include "orch_engine.h"
+#include "orch_fx.h"
 
 #define PANEL_KEY_COUNT 27U
 #define PANEL_FIRST_NOTE 53U /* F3; FM1 key bitmap is F3..G5. */
@@ -44,6 +45,39 @@ static uint16_t key_velocity = 96U;
 static uint8_t panel_dirty = 1U;
 static uint8_t panel_perf_page; /* 0 orchestra, 1 performance, 2 phrase detail */
 static struct orch_perf_config perf_config[PANEL_PARTS];
+static uint8_t selected_preset;
+static uint8_t preset_page_return;
+
+/* Factory scenes: four orchestral sections plus their adaptive performance
+ * and master-effect starting points. The player's live MIDI input remains
+ * the source for adaptive phrasing; presets only choose its musical context. */
+typedef struct {
+    const char *name;
+    uint8_t inst[PANEL_PARTS], art[PANEL_PARTS], cap[PANEL_PARTS];
+    uint8_t arp, phrase, arp_type, phrase_ge, bpm, division;
+    uint8_t density, range, cluster, accent, quantize;
+    uint8_t fx_on[ORCH_FX_SLOT_COUNT], fx_mix[ORCH_FX_SLOT_COUNT];
+} orchestra_preset_t;
+
+static const orchestra_preset_t orchestra_presets[] = {
+    { "CINEMA STR", {0,1,2,3}, {0,0,0,0}, {4,3,3,2}, 0,0,0,0,88,4,92,3,2,58,1,
+      {1,1,0,1},{24,32,0,30} },
+    { "BAROQUE", {0,1,4,5}, {2,2,0,0}, {3,2,2,1}, 1,0,2,0,112,4,80,2,2,42,2,
+      {1,0,0,1},{18,0,0,20} },
+    { "WIND CHOIR", {0,5,7,8}, {0,0,0,0}, {2,3,2,2}, 0,1,0,8,76,5,88,3,2,50,1,
+      {1,0,1,1},{22,0,18,34} },
+    { "BRASS FAN", {0,10,11,12}, {0,3,0,3}, {1,3,3,2}, 0,0,0,0,104,4,76,2,3,72,2,
+      {0,0,0,1},{0,0,0,22} },
+    { "PIZZ MOTION", {0,1,4,14}, {4,4,4,3}, {3,2,2,1}, 1,1,5,12,126,5,105,2,3,64,1,
+      {1,1,0,1},{28,20,0,24} },
+    { "AMBIENT", {2,3,5,17}, {0,0,0,0}, {2,2,2,2}, 0,1,0,19,68,6,72,4,2,36,3,
+      {1,1,1,1},{38,42,36,48} },
+    { "OSTINATO", {0,2,5,10}, {1,1,0,0}, {3,3,2,2}, 1,1,8,26,120,4,100,2,2,55,1,
+      {1,0,1,0},{20,0,24,0} },
+    { "FULL ORCH", {0,2,5,10}, {0,0,0,0}, {4,4,3,3}, 0,0,0,0,100,4,90,3,3,60,0,
+      {1,1,0,1},{25,25,0,28} }
+};
+#define ORCH_PRESET_COUNT ((unsigned)(sizeof orchestra_presets / sizeof orchestra_presets[0]))
 
 /* A tiny 3x5 uppercase font. Drawing is control-task-only and uses the
  * platform's documented RGB565 rectangle primitive; no hidden SDK symbols. */
@@ -309,7 +343,7 @@ void groove_screen_control(void)
     for (unsigned p=0;p<PANEL_PARTS;++p)
         if (edges & (1UL<<p)) panel_part_select(p);
     if (edges & (1UL<<4)) orch_panic();
-    if (edges & (1UL<<13)) { panel_perf_page=(uint8_t)((panel_perf_page+1U)%3U); panel_dirty=1U; }
+    if (edges & (1UL<<13)) { panel_perf_page=(uint8_t)((panel_perf_page+1U)%4U); panel_dirty=1U; }
     if (!panel_perf_page) {
         if (edges & (1UL<<5)) panel_apply_articulation(selected_part,selected_art[selected_part]+1U);
         if (edges & (1UL<<6)) panel_apply_cap(selected_part,(selected_cap[selected_part]%4U)+1U);
