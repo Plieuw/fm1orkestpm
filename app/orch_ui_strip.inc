@@ -69,6 +69,28 @@ static void draw_knob(unsigned cx, unsigned y, unsigned pct, int lit)
     }
 }
 
+/* One knob of the strip: its cap, its pointer, its value arc, its name and its
+ * value. Drawn on its own, because a knob turn and the highlight that fades a
+ * second later both touch one cell and not the four. */
+static void draw_strip_cell(unsigned c, int hot)
+{
+    const struct knob_cell *k = &cells[c];
+    const unsigned cx = c * 60U + 30U;
+    draw_knob(cx, STRIP_Y + 9U, k->pct, k->lit);
+    /* the two text rows are cleared first, so a shorter word leaves nothing
+     * of the longer one behind */
+    fm1_screen_fill(cx - 29U, STRIP_Y + 26U, 58U, 10U, C_BG);
+    text_center(cx, STRIP_Y + 28U, k->label, C_DIM, C_BG);
+    fm1_screen_fill(cx - 29U, STRIP_Y + 37U, 58U, 10U, C_BG);
+    text_center(cx, STRIP_Y + 39U, k->value,
+                (hot && ui.hot_cell == c) ? C_AMBER2 : (k->lit ? C_TEXT : C_DIM),
+                C_BG);
+}
+
+/* What the strip last showed, so a later repaint can tell which cells moved. */
+static struct knob_cell cells_shown[4];
+static uint8_t hot_shown;
+
 /* The strip along the bottom: a hairline, then the four knobs with their
  * names and values on the case's own coffee. */
 static void draw_strip(void)
@@ -76,14 +98,34 @@ static void draw_strip(void)
     const int hot = (int32_t)(fm1_millis() - ui.hot_until) < 0;
     fm1_screen_fill(0, STRIP_Y - 1U, SW, 1U, C_LINE);
     fm1_screen_fill(0, STRIP_Y, SW, STRIP_H, C_BG);
+    for (unsigned c = 0; c < 4U; ++c)
+        draw_strip_cell(c, hot);
+    for (unsigned c = 0; c < 4U; ++c) cells_shown[c] = cells[c];
+    hot_shown = (uint8_t)(hot ? ui.hot_cell : 4U);
+}
+
+/* Two values are the same when they read the same; the wasm build has no
+ * strcmp, and these strings are four characters. */
+static int same_text(const char *a, const char *b)
+{
+    while (*a && *a == *b) { ++a; ++b; }
+    return *a == *b;
+}
+
+/* Repaint only the cells that changed since the last strip draw, and the one
+ * whose highlight started or stopped: a knob turn costs one knob, and the fade
+ * a second later costs one knob too. */
+static void patch_strip(void)
+{
+    const int hot = (int32_t)(fm1_millis() - ui.hot_until) < 0;
     for (unsigned c = 0; c < 4U; ++c) {
-        const struct knob_cell *k = &cells[c];
-        const unsigned cx = c * 60U + 30U;
-        draw_knob(cx, STRIP_Y + 9U, k->pct, k->lit);
-        text_center(cx, STRIP_Y + 28U, k->label, C_DIM, C_BG);
-        text_center(cx, STRIP_Y + 39U, k->value,
-                    (hot && ui.hot_cell == c) ? C_AMBER2
-                                              : (k->lit ? C_TEXT : C_DIM),
-                    C_BG);
+        const struct knob_cell *a = &cells[c], *b = &cells_shown[c];
+        int moved = a->pct != b->pct || a->lit != b->lit
+                 || a->label != b->label
+                 || !same_text(a->value, b->value);
+        if (!moved && c != hot_shown && !(hot && c == ui.hot_cell)) continue;
+        draw_strip_cell(c, hot);
+        cells_shown[c] = *a;
     }
+    hot_shown = (uint8_t)(hot ? ui.hot_cell : 4U);
 }
