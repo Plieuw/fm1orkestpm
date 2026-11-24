@@ -1606,7 +1606,6 @@ static void voice_tick(voice_t *v)
      * leaves the instrument's spectral identity untouched. */
     {
         const int32_t magnitude = v->out < 0 ? -v->out : v->out;
-        const uint32_t target = ((uint32_t)v->velocity * 5000U) / 100U;
         const uint32_t current = v->level_follow;
         if ((uint32_t)magnitude > current)
             v->level_follow = current + (((uint32_t)magnitude - current) >> 9);
