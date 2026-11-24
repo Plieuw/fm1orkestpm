@@ -506,7 +506,7 @@ static void voice_start(unsigned part, unsigned note, unsigned velocity,
         /* A modest held sustain leaves room for bow/breath dynamics. Plucks
          * use a lower sustain then enter release automatically after decay. */
         {
-            unsigned sustain = (adsr && adsr->sustain_percent) ? adsr->sustain_percent : 80U;
+            unsigned sustain = adsr ? adsr->sustain_percent : 80U;
             if (v->auto_release && sustain > 60U) sustain = 60U;
             v->sustain_level = (ORCH_ENV_MAX * (int32_t)sustain) / 100;
         }
