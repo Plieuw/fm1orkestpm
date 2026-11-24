@@ -86,7 +86,10 @@ no confirmation button.
 
 The scene is applied as one control-task transaction while the engine is
 paused. It updates all four parts, their instruments/articulations/divisi
-caps, ARP/phrase starting settings and master FX mix. The live adaptive learner
+caps, the complete ARP/phrase-sequencer configuration (pattern/profile,
+tempo, division, gate, swing, logic, quantization, density, range, cluster,
+accent, repeat, groove, latch and clock mode), and all four master FX slots
+(enable, mix, parameter A and parameter B). The live adaptive learner
 continues responding to incoming player notes after loading.
 
 Factory scenes: Cinema Strings, Baroque, Wind Choir, Brass Fan, Pizz Motion,
