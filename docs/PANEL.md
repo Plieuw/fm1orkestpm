@@ -82,6 +82,15 @@ PRESETS is encoder 6 and KNOB1..4 are 2..5.
 There are five pages, and they are named for the hall the panel plays in:
 **STAGE**, **ARP**, **SEQUENCE**, **CONSOLE**, **FX**.
 
+The whole panel uses the hall's palette. The title bar is the colour of the
+curtain, with a one pixel curtain rail under it; the part rows, the sequencer's
+steps and the knob discs are tinted wood, and the knob cells stand on a wooden
+rail. The ARP, SEQUENCE and FX pages set their header line on a band of wood,
+and the CONSOLE's settings sit in a one pixel wooden frame. The readings keep
+their white, green and orange; a tint behind text is only ever a header band or
+a selected row, never a value field, so nothing that has to be read is drawn on
+a wash.
+
 *STAGE* — the page the panel opens on. One row per part: family, instrument and
 articulation, the player count, and a live meter of the voices it is using.
 Under the rows is the hall itself: the orchestra shell, the wooden floor, the
@@ -97,8 +106,8 @@ notes has an orange mark, and the step that is playing has a green bar under it
 while the pattern runs. Below the grid: the step number, its notes, velocity and
 gate.
 
-*CONSOLE* — tempo, transpose, scale, volume and the save state, with the
-shortcuts of the buttons that are not page specific.
+*CONSOLE* — tempo, transpose, scale, volume and the save state inside the wooden
+frame, with the shortcuts of the buttons that are not page specific.
 
 *FX* — one row per effect: name, on/off, mix and its two parameters. The
 selected row is highlighted. `ALGORITHM` moves the selection, `KNOB1` is the
@@ -119,13 +128,20 @@ python3 tools/panel_png.py /tmp/p-parts.ppm /tmp/p-parts.png
 python3 tools/panel_png.py /tmp/p-arp.ppm   /tmp/p-arp.png
 python3 tools/panel_png.py /tmp/p-seq.ppm   /tmp/p-seq.png
 python3 tools/panel_png.py /tmp/p-fx.ppm    /tmp/p-fx.png
+python3 tools/panel_png.py /tmp/p-glo.ppm   /tmp/p-glo.png
 ```
 
-`panel_preview` writes four pages as PPM: the STAGE page with an orchestra in the
+`panel_preview` writes five pages as PPM: the STAGE page with an orchestra in the
 hall and a four-part chord sounding, the ARP page with three held keys, the
-SEQUENCE page with three recorded steps and the playing step marked, and the FX
-page with all four effects on and the delay row selected. The PNGs are not
-committed, because they are output of that command and would go stale.
+SEQUENCE page with three recorded steps and the playing step marked, the FX page
+with all four effects on and the delay row selected, and the CONSOLE page with
+the wooden frame around its settings. The PNGs are not committed, because they
+are output of that command and would go stale.
+
+The panel is one translation unit (`app/orch_ui.c`) whose parts are included
+from `orch_ui_view.inc`, `orch_ui_pages.inc`, `orch_ui_state.inc` and
+`orch_ui_api.inc`. That keeps `-Iapp` enough for the build, and keeps the panel
+in one place while no single file runs to a thousand lines.
 
 ## Stage and listener
 
@@ -149,9 +165,9 @@ seats are in `app/orch_stage.c`, and the seat of a part comes from its
 instrument, so the sequencer, the arpeggiator and MIDI all put a note in the
 same place.
 
-The STAGE page draws that hall as a silhouette: the shell behind the players, the
-wooden floor they stand on, the curtains at the sides and the audience row in
-front, where the lit seat is the listener. It is rectangle fills only, so it
+The STAGE page draws that hall as a silhouette: the shell behind the players,
+the wooden floor they stand on, the curtains at the sides and the audience row
+in front, where the lit seat is the listener. It is rectangle fills only, so it
 reads as a hall without pretending to be a picture of one.
 
 The listener is the one control over that image (`KNOB3` and `KNOB4` on the
@@ -266,7 +282,7 @@ the listener clamps at both ends. `tests/orch_arp_test.c` covers the arp.
 `tests/orch_fx_test.c` covers the effect chain: bypass is bit exact, the echo
 arrives at the set time and its feedback decays, the reverb tail decays,
 shimmer changes that tail, hard driving stays inside Q23, and panic empties the
-buffers. `tests/panel_preview.c` renders the four pages above.
+buffers. `tests/panel_preview.c` renders the pages above.
 
 Not tested, because there is no hardware in this environment:
 
