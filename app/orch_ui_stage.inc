@@ -155,9 +155,10 @@ static void draw_hall_marks(void)
 }
 
 /* The light from the podium: what spills off the front of the boards, as wide
- * and as bright as what is coming out of the instrument right now. It follows
- * orch_output_level() — the output — and not which notes are held, so a chord
- * that is dying takes the light down while the keys are still down. It is the
+ * as the orchestra is big and as bright as the music is loud. It follows
+ * orch_output_level(), which is calibrated on this hall's own orchestra — eight
+ * voices fill it, 24 of 24 — and which narrows as the sound dies, so a chord
+ * left ringing takes the light down while the keys are still down. It is the
  * one part of the page that moves with the music at the panel's own rate.
  *
  * It is drawn in a trough of the hall's own dark colour and rebuilt from four
@@ -180,8 +181,9 @@ static void draw_stage_light(unsigned force)
     const unsigned level = orch_output_level();
     if (!level) return;
     /* a cone, not a line: narrow where it leaves the boards, wider as it falls
-     * on the floor in front of them — three bands of the same light */
-    const unsigned lit = (w - 8U) * level / 255U;
+     * on the floor in front of them — three bands of the light, and the level
+     * is 0..24, the orchestra's own scale, so eight voices fill the width */
+    const unsigned lit = (w - 8U) * level / ORCH_LEVEL_MAX;
     const int cx = (int)(LIP_X0 + w / 2U);
     const int half = (int)lit / 2;
     const uint16_t dim = mix565(C_AMBER, LIP_DARK, 150U);
