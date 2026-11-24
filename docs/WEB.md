@@ -57,14 +57,21 @@ buttons and encoders go to `emu_button` and `emu_turn`, the big knob is the pot
 - the dark strip under the knobs is a status readout, not decoration: it says
   what the engine and the audio context are doing and which parts are sounding.
 
-## The photographs
+## The artwork
 
-Two photographs, and their licences are recorded in `assets/CREDITS.md` with
-author, source, licence and exactly what was changed: the Musikverein's Great
-Hall by Michał Bulsa (CC BY-SA 4.0, cropped, softened, 4.5 KB) behind the
-instrument, and a walnut floor texture from ambientCG (CC0, 1 KB) on the
-cheeks. They are small on purpose — the hall is only ever seen out of focus —
-and everything else on the page is CSS.
+Two drawings, both made for this project and under the project's own licence —
+there is no photograph and no third-party image on the page. `assets/hall.svg`
+is the Musikverein's Great Hall: gilded coffered ceiling, an arcade of lit
+windows, panelled dado, the organ's pipes on the stage, rows of red seats with
+aisles and brass rails, chandeliers and a warm spotlight. `assets/wood.svg` is a
+seamless walnut tile for the cheeks.
+
+They are built for how the page shows them: `hardware.css` blurs the hall
+1.6 px and dims it behind the instrument, and the instrument covers the middle
+of the picture, so the drawing is large shapes and warm colour rather than
+detail. Open either SVG on its own in a browser to see it whole. The history of
+the photographs that came before them, and how their licences were checked, is
+in `assets/CREDITS.md`.
 
 ## What the headless check proves
 
