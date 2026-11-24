@@ -1139,7 +1139,7 @@ static void seq_tick(void)
     if (!seq_enabled) {
         if (seq_stop_pending) {
             for (unsigned n = 0; n < ORCH_STEP_NOTES; ++n)
-                if (seq_active[n]) { seq_release_voice(seq_note[n]); seq_active[n] = 0U; }
+                if (seq_active[n]) { seq_release_voice(seq_note[n], seq_note_id[n]); seq_active[n] = 0U; }
             seq_stop_pending = 0U;
         }
         return;
