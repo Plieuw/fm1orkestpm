@@ -186,3 +186,8 @@ The ARP/phrase engine and optional 16-step sequencer now share the same determin
 - Added host-only helper tests to verify the rise, peak and cadence shape in both performance and sequencer modules.
 
 The curve is fixed-point, table-driven and bounded; no floating-point or per-sample adaptive work was added.
+
+
+### Player-rest phrasing pass
+
+Incoming note timing now marks a fresh phrase after a sustained gap (smoothed inter-onset interval above 1.5 seconds). On the first two generated phrase positions after that rest, the phrase density is slightly reduced to preserve breathing space; the first entrance receives a restrained accent cue. The cue is learned from physical player input only, not generated ARP/phrase notes. It does not alter MIDI clock, stored sequencer steps or the selected rhythm mask.
