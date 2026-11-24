@@ -178,15 +178,18 @@ static int32_t triangle32(uint32_t phase);
 /* Cheap fixed-point LFO waveform generation; no floating point in the ISR. */
 static int32_t lfo_wave_value(unsigned wave, uint32_t phase, uint32_t *hold)
 {
-    const int32_t tri = triangle32(phase);
     switch (wave) {
-    case ORCH_LFO_TRIANGLE: return tri;
-    case ORCH_LFO_SAW: return (int32_t)(phase >> 16) - 32768;
-    case ORCH_LFO_SQUARE: return (phase & 0x80000000U) ? 32767 : -32768;
+    case ORCH_LFO_TRIANGLE:
+        return triangle32(phase);
+    case ORCH_LFO_SAW:
+        return (int32_t)(phase >> 16) - 32768;
+    case ORCH_LFO_SQUARE:
+        return (phase & 0x80000000U) ? 32767 : -32768;
     case ORCH_LFO_SAMPLE_HOLD:
         return (int32_t)(*hold >> 16) - 32768;
     case ORCH_LFO_SINE:
     default: {
+        const int32_t tri = triangle32(phase);
         const int32_t a = tri < 0 ? -tri : tri;
         return (tri * (49152 - (a >> 1))) >> 15;
     }
