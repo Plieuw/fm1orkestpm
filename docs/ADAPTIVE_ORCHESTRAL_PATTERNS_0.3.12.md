@@ -162,3 +162,13 @@ The next pass makes the ARP and phrase selector use the player's latest melodic 
 - Added a regression test that approaches a held C-major chord from above and verifies that the contour ARP begins on the nearest chord tone (G).
 
 This pass is isolated on `feature/0.3.12-contour-aware-arp-phrase`. Host and PI32v2 CI must pass before treating it as a new flashable beta.
+
+
+### Sequencer register-following pass
+
+The optional 16-step sequencer now uses a blended pitch target when adaptive mode is enabled: two parts of the stored step pitch and one part of the player's latest incoming pitch. The arranger then chooses the nearest pitch class from the currently held chord, with equal-distance ties following melodic direction. This keeps the programmed step recognizable while gently shifting its register toward the live phrase.
+
+- The stored step note, velocity and gate are never rewritten.
+- The sequencer stops applying stale player context after two seconds without a new input note; the programmed pattern then plays at its original pitch and density.
+- Existing chord-tone quantization and quiet-passage voice thinning remain in place.
+- Added regression coverage for register-following from a held C-major chord.
