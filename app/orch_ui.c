@@ -114,6 +114,8 @@ static uint8_t shown_voices[ORCH_PARTS];
 static uint32_t next_scan;
 static uint32_t drawn_signature;   /* the page's own settings, as last drawn */
 static uint32_t drawn_live;        /* and its live values */
+static uint32_t drawn_strip;       /* and the knob strip */
+static uint8_t hall_static;        /* the hall's wall and floor are on screen */
 
 
 /* --- strings -------------------------------------------------------------- */
