@@ -201,7 +201,8 @@ static unsigned groove_velocity(const perf_part_t *p, unsigned step, unsigned ba
     if (!v) return 0U;
     const int delta=((int)v-5)*((int)p->cfg.accent+64)/127;
     int out=(int)base+delta*3;
-    if (out<1) out=1; if (out>127) out=127;
+    if (out<1) out=1;
+    if (out>127) out=127;
     return (unsigned)out;
 }
 
@@ -210,7 +211,8 @@ static unsigned groove_gate(const perf_part_t *p, unsigned step, unsigned base)
     const unsigned g=gate_grooves[p->cfg.gate_groove&7U][step&7U];
     if (!g) return base;
     unsigned out=base*g/5U;
-    if (out<5U) out=5U; if (out>100U) out=100U;
+    if (out<5U) out=5U;
+    if (out>100U) out=100U;
     return out;
 }
 
@@ -274,7 +276,13 @@ static unsigned phrase_pick(perf_part_t *p, const uint8_t *notes,
     case 1U: idx=total-1U-(p->phrase_step%total); break;
     case 2U: { const unsigned cyc=total>1U?2U*total-2U:1U,q=p->phrase_step%cyc;idx=q<total?q:cyc-q;break; }
     case 3U: idx=rnd(p)%total; break;
-    case 4U: { int w=(int)(p->phrase_step%total)+((rnd(p)&1U)?1:-1); if(w<0)w=0; if(w>=(int)total)w=(int)total-1; idx=(unsigned)w;break; }
+    case 4U: {
+        int w=(int)(p->phrase_step%total)+((rnd(p)&1U)?1:-1);
+        if(w<0) w=0;
+        if(w>=(int)total) w=(int)total-1;
+        idx=(unsigned)w;
+        break;
+    }
     case 5U: idx=(p->phrase_step&1U)?total-1U-(p->phrase_step/2U)%total:(p->phrase_step/2U)%total;break;
     default: idx=(pos*3U+ge)%total; break;
     }
@@ -287,7 +295,8 @@ static unsigned phrase_pick(perf_part_t *p, const uint8_t *notes,
         int v=(int)vel[k%n];
         if (pos%4U==0U) v+=((int)p->cfg.accent)/4;
         else if (pos%4U==2U) v-=((int)p->cfg.accent)/8;
-        if (v<1) v=1; if (v>127) v=127;
+        if (v<1) v=1;
+        if (v>127) v=127;
         out[i]=note; out_vel[i]=(unsigned)v;
     }
     return count;
@@ -321,7 +330,14 @@ static void perform_step(unsigned part, perf_part_t *p, uint32_t now,
         switch (p->cfg.logic%ORCH_PERF_LOGIC_COUNT) {
         case ORCH_PERF_AND: use_arp=arp_hit&&seq_hit; use_seq=use_arp; break;
         case ORCH_PERF_XOR: use_arp=arp_hit&&!seq_hit; use_seq=seq_hit&&!arp_hit; break;
-        case ORCH_PERF_NOR: use_arp=use_seq=0U; if(!arp_hit&&!seq_hit){use_arp=1U;arp_note=p->last_note?p->last_note:held[0];arp_vel=held_vel[0];} break;
+        case ORCH_PERF_NOR:
+            use_arp=use_seq=0U;
+            if(!arp_hit&&!seq_hit) {
+                use_arp=1U;
+                arp_note=p->last_note?p->last_note:held[0];
+                arp_vel=held_vel[0];
+            }
+            break;
         case ORCH_PERF_ALT:
             use_arp=arp_hit&&!p->alt_state; use_seq=seq_hit&&p->alt_state;
             if (arp_hit||seq_hit) p->alt_state=(uint8_t)!p->alt_state;
@@ -432,15 +448,18 @@ int orch_perf_set_config(unsigned part, const struct orch_perf_config *c)
     perf_part_t *p=&parts[part];
     const uint8_t was=p->cfg.arp_enabled||p->cfg.phrase_enabled;
     p->cfg=*c;
-    if(p->cfg.bpm<40U)p->cfg.bpm=40U; if(p->cfg.bpm>250U)p->cfg.bpm=250U;
+    if(p->cfg.bpm<40U) p->cfg.bpm=40U;
+    if(p->cfg.bpm>250U) p->cfg.bpm=250U;
     if(p->cfg.arp_type>=ORCH_PERF_ARP_TYPES)p->cfg.arp_type%=ORCH_PERF_ARP_TYPES;
     p->cfg.phrase_ge%=ORCH_PERF_GE_COUNT;
     p->cfg.division%=ORCH_PERF_DIVISIONS;
     if(p->cfg.gate>100U)p->cfg.gate=100U;
     if(p->cfg.logic>=ORCH_PERF_LOGIC_COUNT)p->cfg.logic=ORCH_PERF_OR;
     if(p->cfg.root>12U)p->cfg.root=0U;
-    if(p->cfg.range<1U)p->cfg.range=1U; if(p->cfg.range>4U)p->cfg.range=4U;
-    if(p->cfg.cluster<1U)p->cfg.cluster=1U; if(p->cfg.cluster>4U)p->cfg.cluster=4U;
+    if(p->cfg.range<1U) p->cfg.range=1U;
+    if(p->cfg.range>4U) p->cfg.range=4U;
+    if(p->cfg.cluster<1U) p->cfg.cluster=1U;
+    if(p->cfg.cluster>4U) p->cfg.cluster=4U;
     p->cfg.velocity_groove&=7U; p->cfg.gate_groove&=7U;
     if(was && !(p->cfg.arp_enabled||p->cfg.phrase_enabled)) {
         release_all(part,p); p->held_count=p->keys_down=p->running=0U;
