@@ -450,7 +450,7 @@ static void panel_draw(void)
         return;
     }
     static const uint16_t bg=0x0841U, ink=0xFFFFU, cyan=0x07FFU;
-    static const uint16_t amber=0xFD20U, green=0x07E0U, red=0xF800U;
+    static const uint16_t amber=0xFD20U, green=0x07E0U;
     const unsigned p=selected_part;
     static const char *const part_labels[PANEL_PARTS] = {
         "PART 1 CH 1-4", "PART 2 CH 5-8",
@@ -470,7 +470,7 @@ static void panel_draw(void)
     fm1_screen_fill(8U,188U,216U,8U,0x39E7U);
     fm1_screen_fill(8U,188U,(216U*selected_cap[p])/4U,8U,green);
     panel_text(8U,204U,"ENC1 INST ENC2 CAP",cyan);
-    panel_text(8U,224U,"B1-4 PART B5 PANIC B14 PERF",red);
+    panel_text(8U,224U,"B1-4 PART B14 PERF",cyan);
 }
 
 static void panel_part_select(unsigned part)
@@ -537,7 +537,6 @@ void groove_screen_control(void)
     previous_buttons=buttons;
     for (unsigned p=0;p<PANEL_PARTS;++p)
         if (edges & (1UL<<p)) panel_part_select(p);
-    if (edges & (1UL<<4)) orch_panic();
     if (edges & (1UL<<13)) { panel_perf_page=(uint8_t)((panel_perf_page+1U)%3U); panel_dirty=1U; }
     if (!panel_perf_page) {
         if (edges & (1UL<<5)) panel_apply_articulation(selected_part,selected_art[selected_part]+1U);
