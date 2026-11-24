@@ -54,13 +54,14 @@ def main() -> None:
     # The browser emulator has no physical JEDEC device and is explicitly exempt.
     flash_hal = root / "firmware" / "hal" / "fm1_flash.h"
     replace_once(flash_hal,
-        "    if (!FL_RANGE_OK(off, 0x1000u) || (off & 0xFFFu))\n",
-        "    if (!fl_emulated() && !fl_id_ok(fl_jedec_ram())) return -5; /* unsupported flash: refuse erase */\n"
-        "    if (!FL_RANGE_OK(off, 0x1000u) || (off & 0xFFFu))\n")
+        "    uint32_t f = irq_save();\n    int rc = FL_FAR(fl_erase4k_ram)(off, took_us);\n",
+        "    if (!fl_emulated() && !fl_id_ok(fl_jedec_ram())) return -5; /* refuse unsupported physical flash */\n"
+        "    uint32_t f = irq_save();\n    int rc = FL_FAR(fl_erase4k_ram)(off, took_us);\n")
     replace_once(flash_hal,
-        "    if (!FL_RANGE_OK(off, n) ||\n",
-        "    if (!fl_emulated() && !fl_id_ok(fl_jedec_ram())) return -5; /* unsupported flash: refuse program */\n"
-        "    if (!FL_RANGE_OK(off, n) ||\n")
+        "    uint32_t took;\n    while (n) {\n",
+        "    uint32_t took;\n"
+        "    if (!fl_emulated() && !fl_id_ok(fl_jedec_ram())) return -5; /* refuse unsupported physical flash */\n"
+        "    while (n) {\n")
 
     app = Path(__file__).resolve().parents[1] / "app"
     dst = fw / "orchestra"
