@@ -71,9 +71,47 @@ static void test_all_pattern_slots(void)
     }
 }
 
+
+static unsigned first_adaptive_arp_note(int descending)
+{
+    struct orch_perf_config c; struct orch_perf_event e;
+    orch_perf_init(); orch_perf_default_config(&c);
+    c.arp_enabled=1U; c.external_clock=1U; c.latch=0U;
+    c.arp_type=18U; c.quantize=0U; c.division=4U;
+    CHECK(orch_perf_set_config(0U,&c)==0);
+    CHECK(orch_perf_note_event(0U,60U,90U)==1);
+    CHECK(orch_perf_note_event(0U,64U,90U)==1);
+    CHECK(orch_perf_note_event(0U,67U,90U)==1);
+    if (descending) {
+        CHECK(orch_perf_note_event(0U,72U,90U)==1);
+        CHECK(orch_perf_note_event(0U,70U,90U)==1);
+        CHECK(orch_perf_note_event(0U,72U,0U)==1);
+        CHECK(orch_perf_note_event(0U,70U,0U)==1);
+    } else {
+        CHECK(orch_perf_note_event(0U,70U,90U)==1);
+        CHECK(orch_perf_note_event(0U,72U,90U)==1);
+        CHECK(orch_perf_note_event(0U,70U,0U)==1);
+        CHECK(orch_perf_note_event(0U,72U,0U)==1);
+    }
+    orch_perf_midi_realtime(0xFAU,0U);
+    for (unsigned tick=1U;tick<=12U;++tick) {
+        orch_perf_midi_realtime(0xF8U,tick*918U);
+        while (orch_perf_pop_event(&e)) if (e.note_on) return e.note;
+    }
+    return 255U;
+}
+static void test_adaptive_contour_changes_arp_direction(void)
+{
+    const unsigned ascending=first_adaptive_arp_note(0);
+    const unsigned descending=first_adaptive_arp_note(1);
+    CHECK(ascending==60U);
+    CHECK(descending==67U);
+    CHECK(ascending!=descending);
+}
+
 int main(void) {
     test_arp_capture_and_release(); test_phrase_generator(); test_latch_and_clock_stop();
-    test_all_pattern_slots();
+    test_all_pattern_slots(); test_adaptive_contour_changes_arp_direction();
     if(failures){printf("%u performance test(s) failed\n",failures);return 1;}
     puts("orch_performance: all checks passed"); return 0;
 }
