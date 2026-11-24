@@ -29,5 +29,9 @@ jobs:
             cc -std=c11 -O2 -Wall -Wextra -Werror -DFM1_HOST_TEST \
                -Ifm1-core/include -Iapp -c "$f" -o "/tmp/$(basename "$f" .c).o"
           done
+      - name: Compile native HAWK bridge
+        run: |
+          cc -std=c11 -O2 -Wall -Wextra -Werror -Iapp \
+             -c runtime/hawk/orch_hawk_bridge.c -o /tmp/orch_hawk_bridge.o
       - name: Run host tests
         run: FM1_CORE="$PWD/fm1-core" sh tests/run_tests.sh
