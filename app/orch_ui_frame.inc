@@ -81,6 +81,6 @@ static void update_meters(void)
         const unsigned ceiling = part->voice_ceiling ? part->voice_ceiling : 1U;
         unsigned voices = orch_voices_of_part(p);
         if (voices > ceiling) voices = ceiling;
-        if (voices != shown_voices[p]) draw_meter(p);
+        if (voices != shown_voices[p]) draw_desk(p);
     }
 }
