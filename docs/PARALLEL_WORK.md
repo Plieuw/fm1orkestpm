@@ -93,3 +93,28 @@ Source reference is pinned to HAWK CHUA `main` commit `e750df6a2e13490a4f01b84d3
 
 
 Host CI for the 0.3.5 ARP/phrase implementation passed on code commit `1f9cf1f087c82b8762e97fa71e26cf78b2461c33` (run `45388838986`): every application C source compiled with `-Wall -Wextra -Werror`, and all host test suites passed, including all 31 ARP slots, all 46 phrase slots, external clock routing and engine voice-path integration. The later commit `5fc94dbeef25595eeca0c0e649fc354bf1f90b9d` only corrects source attribution metadata. This is still host-only validation, not a JieLi target build or a physical FM1 test.
+
+
+## 0.3.6 performance-panel extension
+
+Branch `feature/0.3.6-performance-controls` is layered on the 0.3.5 feature
+head `5daf3638d303e8cdb6a0d2818e41357c4efb6506`. It adds a third panel page
+for phrase detail and exposes density, octave range, cluster size, repeats,
+accent, inverse and root selection. The performance page remains available
+for ARP/phrase toggles, tempo, division, swing, gate, groove, logic, latch,
+external clock and quantization. See `docs/FM1_PANEL.md`.
+
+Host CI passed after the panel-code change on run
+`45390697106` (compile every application source and run host tests). An
+intermediate formatting commit failed CI; it was corrected in
+`e967e14984210fc04edb2c29e6d5927f774e7a6c`. The later documentation commits
+do not change C sources.
+
+## Target firmware build
+
+The FM1 Core build path is confirmed to require the JieLi PI32v2 2.5.3
+toolchain and the FM1 Core binary SDK. It produces a `.fwsc` package via
+`tools/build.py --app ... --package`. These proprietary target dependencies
+are not available in the host CI runner or this coding session. The exact
+commands and checks are in `docs/BUILD_FIRMWARE.md`. No target ELF, app.bin,
+or `.fwsc` has been produced yet; do not flash the host-validated sources.
