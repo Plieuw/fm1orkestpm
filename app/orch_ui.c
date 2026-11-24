@@ -5,7 +5,7 @@
  * (buttons 0..13 and encoders 0..6 as M-VAVE numbers them):
  *
  *   buttons   OCT- OCT+ FX SCL ENV LFO EDIT GLO HOME SAVE ARP SEQ PLAY REC
- *   encoders  SELECT ALGORITHM PRESETS KNOB1 KNOB2 KNOB3 KNOB4
+ *   encoders  SELECT ALGORITHM KNOB1 KNOB2 KNOB3 KNOB4 PRESETS
  *
  * and this file gives every one of them a job (§ "Panel map" in docs/PANEL.md).
  * The panel has no text support in the SDK, so the 5x7 font lives here and one
@@ -27,6 +27,8 @@
 #define SW 240U
 #define TITLE_H 22U
 #define BODY_Y (TITLE_H + 4U)
+#define STRIP_Y 190U                  /* the knob cells, under the page body */
+#define STRIP_H (SW - STRIP_Y)
 #define UI_IDLE_MS 25U
 #define UNITY_Q23 (1UL << 23)
 #define SEQ_SLOTS 4U
@@ -43,7 +45,7 @@ enum {
     B_HOME, B_SAVE, B_ARP, B_SEQ, B_PLAY, B_REC, B_COUNT
 };
 
-/* The encoder roles, in matrix order. */
+/* The encoder roles, in matrix order: PRESETS is 6, KNOB1..4 are 2..5. */
 enum { E_SELECT = 0, E_ALGO, E_KNOB1, E_KNOB2, E_KNOB3, E_KNOB4, E_PRESET };
 
 enum { PAGE_HOME = 0, PAGE_ARP, PAGE_SEQ, PAGE_GLO, PAGE_FX, PAGE_COUNT };
@@ -77,8 +79,10 @@ static struct {
     uint16_t tempo;
     uint32_t buttons, keys;
     uint16_t knob;
+    uint8_t hot_cell;                 /* the knob cell that moved last (4: none) */
     uint8_t chord_left;
     uint32_t chord_off_at;
+    uint32_t hot_until;
 } ui;
 
 /* What the panel wrote into the sequencer; the engine only has a setter, so the
@@ -298,6 +302,148 @@ static void setting_num(unsigned y, const char *label, unsigned value,
     text(8U + 60U, y, number, vc, C_BG, SW - 76U);
 }
 
+/* --- the knobs' cells ----------------------------------------------------- */
+
+/* Every page gives its four knobs a job, and the cells under the body say what
+ * each one is and where it stands, as HAWK CHUA's screen does: the knob, its
+ * label under it and the value under that. The value lights for a second after
+ * its knob turns, so the eye finds the one that moved. */
+struct knob_cell {
+    const char *label;
+    char value[10];
+    uint8_t pct, lit;
+};
+
+static struct knob_cell cells[4];
+
+static void cell_text(unsigned i, const char *label, const char *value,
+                      unsigned pct, int lit)
+{
+    if (i >= 4U) return;
+    cells[i].label = label;
+    unsigned n = 0;
+    while (value[n] && n + 1U < sizeof cells[i].value) {
+        cells[i].value[n] = value[n];
+        ++n;
+    }
+    cells[i].value[n] = '\0';
+    cells[i].pct = (uint8_t)(pct > 100U ? 100U : pct);
+    cells[i].lit = (uint8_t)(lit != 0);
+}
+
+static void cell_number(unsigned i, const char *label, int value, int lo, int hi)
+{
+    char number[10];
+    if (value < 0) put_signed(number, 0, sizeof number, value);
+    else put_num(number, 0, sizeof number, (unsigned)value, 1U);
+    unsigned pct = 0U;
+    if (hi > lo) {
+        const int span = hi - lo;
+        const int at = value < lo ? lo : value > hi ? hi : value;
+        pct = (unsigned)(((at - lo) * 100) / span);
+    }
+    cell_text(i, label, number, pct, 1);
+}
+
+static void page_knobs(void)
+{
+    const struct orch_part *part = orch_part_get(ui.part);
+    switch (ui.page) {
+    case PAGE_ARP:
+        cell_text(0, "RATE", div_name(orch_arp_div_of(ui.part)),
+                  orch_arp_div_of(ui.part) * 25U, 1);
+        cell_number(1, "OCT", (int)orch_arp_octaves_of(ui.part), 1, 3);
+        cell_number(2, "GATE", (int)orch_arp_gate_of(ui.part), 5, 100);
+        cell_text(3, "MODE", arp_mode_name(orch_arp_mode_of(ui.part)),
+                  orch_arp_mode_of(ui.part) * 25U, 1);
+        break;
+    case PAGE_SEQ: {
+        const struct orch_step_note *note = &seq_notes[ui.seq_step][0];
+        cell_number(0, "VEL", (int)note->velocity, 1, 127);
+        cell_number(1, "GATE", (int)note->gate_percent, 5, 100);
+        cell_number(2, "TEMPO", (int)ui.tempo, 30, 300);
+        cell_text(3, "CLEAR", "STEP", 0U, 0);
+        break;
+    }
+    case PAGE_GLO:
+        cell_text(0, "SCALE", scale_name(ui.scale), ui.scale * 33U, ui.scale != 0U);
+        cell_number(1, "TRANSP", ui.transpose, -24, 24);
+        cell_number(2, "TEMPO", (int)ui.tempo, 30, 300);
+        cell_text(3, "PANIC", "ALL OFF", 0U, 1);
+        break;
+    case PAGE_FX: {
+        const unsigned s = ui.fx_sel < ORCH_FX_SLOT_COUNT ? ui.fx_sel : 0U;
+        const int on = (int)orch_fx_enabled(s);
+        cell_number(0, "MIX", (int)orch_fx_mix(s), 0, 100);
+        cell_number(1, orch_fx_param_a_name(s), (int)orch_fx_param_a(s), 0, 100);
+        cell_number(2, orch_fx_param_b_name(s), (int)orch_fx_param_b(s), 0, 100);
+        cell_text(3, "POWER", on ? "ON" : "OFF", on ? 100U : 0U, on);
+        break;
+    }
+    case PAGE_HOME:
+    default:
+        if (!part) break;
+        cell_number(0, "PLAYERS", (int)part->player_cap, 1, 4);
+        cell_number(1, "VOICES", (int)part->voice_ceiling, 1, ORCH_PART_VOICE_CEIL);
+        cell_number(2, "TEMPO", (int)ui.tempo, 30, 300);
+        cell_number(3, "TRANSP", ui.transpose, -24, 24);
+        break;
+    }
+}
+
+/* A knob: a filled disc with a white pointer from 7:30 to 4:30, drawn with
+ * rectangle fills only (there is no line primitive here). */
+static const uint8_t knob_half[23] = {
+    1, 4, 6, 8, 9, 9, 10, 10, 11, 11, 11, 11, 11, 11, 11, 10, 10, 9, 9, 8, 6, 4, 1
+};
+/* The pointer's end for 17 positions, from the left (0) round the top to the
+ * right (16), in a 23 pixel disc: x, y from its centre. */
+static const int8_t knob_arm[17][2] = {
+    { -6, 6 }, { -7, 4 }, { -8, 2 }, { -8, -1 }, { -7, -3 }, { -6, -5 },
+    { -4, -7 }, { -2, -8 }, { 0, -8 }, { 2, -8 }, { 4, -7 }, { 6, -5 },
+    { 7, -3 }, { 8, -1 }, { 8, 2 }, { 7, 4 }, { 6, 6 }
+};
+
+static void draw_knob(unsigned cx, unsigned y, unsigned pct, int lit)
+{
+    const uint16_t body = lit ? C_SEL : C_ROW;
+    for (unsigned row = 0; row < 23U; ++row) {
+        const unsigned half = knob_half[row];
+        fm1_screen_fill(cx - half, y + row, half * 2U, 1U, body);
+    }
+    const int8_t *arm = knob_arm[(pct > 100U ? 100U : pct) * 16U / 100U];
+    for (unsigned k = 3U; k <= 7U; k += 2U) {
+        const int px = (int)cx + (int)arm[0] * (int)k / 8;
+        const int py = (int)y + 11 + (int)arm[1] * (int)k / 8;
+        fm1_screen_fill((unsigned)px, (unsigned)py, 2U, 2U, lit ? C_TEXT : C_DIM);
+    }
+}
+
+static void text_center(unsigned cx, unsigned y, const char *s, uint16_t fg)
+{
+    unsigned n = 0;
+    while (s[n]) ++n;
+    if (!n) return;
+    const unsigned w = n * 6U;              /* six pixels a glyph: the last needs it too */
+    const unsigned x = w / 2U < cx ? cx - w / 2U : 0U;
+    text(x, y, s, fg, C_BG, w);
+}
+
+static void draw_strip(void)
+{
+    const int hot = (int32_t)(fm1_millis() - ui.hot_until) < 0;
+    fm1_screen_fill(0, STRIP_Y - 4U, SW, 1U, C_ROW);
+    fm1_screen_fill(0, STRIP_Y - 3U, SW, STRIP_H, C_BG);
+    for (unsigned c = 0; c < 4U; ++c) {
+        const struct knob_cell *k = &cells[c];
+        const unsigned cx = c * 60U + 30U;
+        draw_knob(cx, STRIP_Y, k->pct, k->lit);
+        text_center(cx, STRIP_Y + 24U, k->label, C_DIM);
+        text_center(cx, STRIP_Y + 34U, k->value,
+                    (hot && ui.hot_cell == c) ? C_ART : (k->lit ? C_TEXT : C_DIM));
+    }
+}
+
 /* --- drawing -------------------------------------------------------------- */
 
 static void draw_meter(unsigned p)
@@ -348,11 +494,7 @@ static void page_parts(void)
     text(8U, BODY_Y + 4U * 30U + 6U,
          "B1 OCT-  B2 OCT+  B3 FX  B4 SCL", C_DIM, C_BG, SW - 16U);
     text(8U, BODY_Y + 4U * 30U + 18U,
-         "B5/6 ART  B8 EDIT  B9 GLOBAL", C_DIM, C_BG, SW - 16U);
-    text(8U, BODY_Y + 4U * 30U + 30U,
-         "B11 SAVE  B12 ARP  B13 SEQ", C_DIM, C_BG, SW - 16U);
-    text(8U, BODY_Y + 4U * 30U + 42U,
-         "B14 RUN  B15 REC  KNOBS EDIT", C_DIM, C_BG, SW - 16U);
+         "B8 EDIT  B9 GLOBAL  B11 SAVE", C_DIM, C_BG, SW - 16U);
 }
 
 static void page_arp(void)
@@ -372,9 +514,7 @@ static void page_arp(void)
     setting_num(BODY_Y + 78U, "HELD", orch_arp_held(ui.part), 1U,
                 orch_arp_held(ui.part) ? C_METER : C_DIM);
 
-    text(8U, BODY_Y + 100U, "K1 RATE  K2 OCT  K3 GATE  K4 MODE",
-         C_DIM, C_BG, SW - 16U);
-    text(8U, BODY_Y + 112U, "B12 TOGGLES  B10 PARTS  ENC1 PART",
+    text(8U, BODY_Y + 108U, "B12 TOGGLES  B10 PARTS  ENC1 PART",
          C_DIM, C_BG, SW - 16U);
 }
 
@@ -427,9 +567,7 @@ static void page_seq(void)
     setting_num(BODY_Y + 82U, "GATE %",
                 seq_notes[ui.seq_step][0].gate_percent, 3U, C_TEXT);
 
-    text(8U, BODY_Y + 100U, "K1 VEL  K2 GATE  K4 CLEAR STEP",
-         C_DIM, C_BG, SW - 16U);
-    text(8U, BODY_Y + 112U, "B15 REC: KEYS WRITE A STEP", C_DIM, C_BG, SW - 16U);
+    text(8U, BODY_Y + 108U, "B15 REC: KEYS WRITE A STEP", C_DIM, C_BG, SW - 16U);
 }
 
 static void page_global(void)
@@ -488,17 +626,10 @@ static void page_fx(void)
     n = put(number, n, sizeof number, orch_fx_enabled(sel) ? "ON" : "OFF");
     text(8U, base, number, orch_fx_enabled(sel) ? C_ART : C_DIM, C_BG, SW - 16U);
 
-    n = put(number, 0, sizeof number, "K1 MIX  K2 ");
-    n = put(number, n, sizeof number, orch_fx_param_a_name(sel));
-    n = put(number, n, sizeof number, "  K3 ");
-    n = put(number, n, sizeof number, orch_fx_param_b_name(sel));
-    text(8U, base + 16U, number, C_TEXT, C_BG, SW - 16U);
-    text(8U, base + 30U, "K4 TURNS THIS EFFECT ON/OFF", C_TEXT, C_BG, SW - 16U);
-
-    text(8U, base + 50U, "ALGORITHM SELECTS THE EFFECT", C_DIM, C_BG, SW - 16U);
-    text(8U, base + 64U, "FX AGAIN: TEST CHORD", C_DIM, C_BG, SW - 16U);
-    text(8U, base + 78U, "SAVE KEEPS THE FX SETTINGS", C_DIM, C_BG, SW - 16U);
-    text(8U, base + 96U, "SHARED BY ALL PARTS", C_ART, C_BG, SW - 16U);
+    text(8U, base + 16U, "ALGORITHM SELECTS THE EFFECT", C_DIM, C_BG, SW - 16U);
+    text(8U, base + 30U, "FX AGAIN: TEST CHORD", C_DIM, C_BG, SW - 16U);
+    text(8U, base + 44U, "SAVE KEEPS THE FX SETTINGS", C_DIM, C_BG, SW - 16U);
+    text(8U, base + 58U, "SHARED BY ALL PARTS", C_ART, C_BG, SW - 16U);
 }
 
 static void draw_title(void)
@@ -517,7 +648,8 @@ static void draw_title(void)
 
 static void draw_page(void)
 {
-    fm1_screen_fill(0, TITLE_H, SW, SW - TITLE_H, C_BG);
+    fm1_screen_fill(0, TITLE_H, SW, STRIP_Y - 4U - TITLE_H, C_BG);
+    page_knobs();
     switch (ui.page) {
     case PAGE_ARP: page_arp(); break;
     case PAGE_SEQ: page_seq(); break;
@@ -526,6 +658,7 @@ static void draw_page(void)
     case PAGE_HOME:
     default: page_parts(); break;
     }
+    draw_strip();
 }
 
 /* The pages show live values (a running step, held arp notes). The control task
@@ -533,6 +666,8 @@ static void draw_page(void)
 static uint32_t page_signature(void)
 {
     uint32_t sig = (uint32_t)ui.page * 0x9E3779B1UL;
+    if ((int32_t)(fm1_millis() - ui.hot_until) < 0)
+        sig ^= 0x40U | ((uint32_t)ui.hot_cell << 8);   /* the lit cell, and back */
     switch (ui.page) {
     case PAGE_ARP:
         sig ^= (uint32_t)orch_arp_held(ui.part) * 31U;
@@ -840,6 +975,44 @@ static void update_leds(void)
         fm1_led_set(14U + k, (ui.keys >> k) & 1U);
 }
 
+/* --- knob speed ----------------------------------------------------------- */
+
+/* A knob turned fast goes faster, as HAWK CHUA's does (firmware/src/ui.c,
+ * knob_accel): the detents a second in the same direction give x1 (under 12 a
+ * second), x2, x4, then x8, so a range crosses in one flick; slowing down
+ * brings the factor back by halves, and one detent is still one step. Two calls
+ * in the same millisecond are taken unscaled: a hand cannot do that, and it
+ * keeps the host tests deterministic. */
+static uint32_t enc_at[7];
+static int8_t enc_way[7];
+static uint8_t enc_speed[7];
+
+static int32_t enc_accel(unsigned role, int32_t detents)
+{
+    const int8_t way = (int8_t)(detents > 0 ? 1 : -1);
+    const uint32_t now = fm1_millis();
+    const uint32_t since = now - enc_at[role];
+    const uint32_t n = (uint32_t)(detents > 0 ? detents : -detents);
+    uint32_t factor = 1U;
+    if (!since) {
+        enc_at[role] = now;
+        enc_way[role] = way;
+        return detents;
+    }
+    if (way == enc_way[role] && since <= 150U) {
+        const uint32_t rate = n * 1000U / since;
+        factor = rate < 12U ? 1U : rate < 24U ? 2U : rate < 40U ? 4U : 8U;
+        if (factor < enc_speed[role]) {
+            const uint32_t half = enc_speed[role] / 2U;
+            if (half > factor) factor = half;
+        }
+    }
+    enc_speed[role] = (uint8_t)factor;
+    enc_way[role] = way;
+    enc_at[role] = now;
+    return detents * (int32_t)factor;
+}
+
 /* --- entry points --------------------------------------------------------- */
 
 void orch_ui_init(void)
@@ -857,8 +1030,13 @@ void orch_ui_init(void)
     ui.buttons = 0U;
     ui.keys = 0U;
     ui.knob = 0U;
+    ui.hot_cell = 4U;
     ui.chord_left = 0U;
     ui.chord_off_at = 0U;
+    ui.hot_until = 0U;
+    memset(enc_at, 0, sizeof enc_at);
+    memset(enc_way, 0, sizeof enc_way);
+    memset(enc_speed, 0, sizeof enc_speed);
     orch_ui_master_q23 = 0U;   /* silent until the knob says otherwise */
     next_scan = 0U;
     memset(shown_voices, 0xFF, sizeof shown_voices);
@@ -930,12 +1108,20 @@ void orch_ui_handle(const struct fm1_controls *controls)
     if (pressed & (1UL << B_REC)) { ui.rec = (uint8_t)!ui.rec; dirty = 1; }
 
     for (unsigned e = 0; e < 7U; ++e) {
-        const int delta = controls->encoders[e];
         struct orch_part *part = orch_part_get(ui.part);
+        int delta = controls->encoders[e];
         if (!part || !delta) continue;
+        delta = enc_accel(e, delta);
+        /* A menu entry is one detent a step: a quick turn must never skip an
+         * entry, so only the ranges below take the accelerated count. */
+        const int step = delta > 0 ? 1 : -1;
+        if (e >= E_KNOB1 && e <= E_KNOB4) {
+            ui.hot_cell = (uint8_t)(e - E_KNOB1);
+            ui.hot_until = fm1_millis() + 1000U;
+        }
         switch (e) {
         case E_SELECT: {
-            int p = (int)ui.part + delta;
+            int p = (int)ui.part + step;
             while (p < 0) p += (int)ORCH_PARTS;
             while (p >= (int)ORCH_PARTS) p -= (int)ORCH_PARTS;
             ui.part = (uint8_t)p;
@@ -943,41 +1129,41 @@ void orch_ui_handle(const struct fm1_controls *controls)
             break;
         }
         case E_PRESET:
-            step_instrument(delta);
+            step_instrument(step);
             dirty = 1;
             break;
         case E_ALGO:
             switch (ui.page) {
             case PAGE_FX: {
-                int s = (int)ui.fx_sel + delta;
+                int s = (int)ui.fx_sel + step;
                 while (s < 0) s += (int)ORCH_FX_SLOT_COUNT;
                 while (s >= (int)ORCH_FX_SLOT_COUNT) s -= (int)ORCH_FX_SLOT_COUNT;
                 ui.fx_sel = (uint8_t)s;
                 break;
             }
             case PAGE_ARP: {
-                int m = (int)orch_arp_mode_of(ui.part) + delta;
+                int m = (int)orch_arp_mode_of(ui.part) + step;
                 while (m < 0) m += (int)ORCH_ARP_MODE_COUNT;
                 while (m >= (int)ORCH_ARP_MODE_COUNT) m -= (int)ORCH_ARP_MODE_COUNT;
                 orch_arp_set_mode(ui.part, (unsigned)m);
                 break;
             }
             case PAGE_SEQ: {
-                int s = (int)ui.seq_step + delta;
+                int s = (int)ui.seq_step + step;
                 while (s < 0) s += (int)ORCH_SEQ_STEPS;
                 while (s >= (int)ORCH_SEQ_STEPS) s -= (int)ORCH_SEQ_STEPS;
                 ui.seq_step = (uint8_t)s;
                 break;
             }
             case PAGE_GLO: {
-                int sc = (int)ui.scale + delta;
+                int sc = (int)ui.scale + step;
                 while (sc < 0) sc += SCALE_COUNT;
                 while (sc >= SCALE_COUNT) sc -= SCALE_COUNT;
                 ui.scale = (uint8_t)sc;
                 break;
             }
             default: {
-                int f = (int)part->family + delta;
+                int f = (int)part->family + step;
                 while (f < 0) f += (int)ORCH_FAM_COUNT;
                 while (f >= (int)ORCH_FAM_COUNT) f -= (int)ORCH_FAM_COUNT;
                 set_family((unsigned)f);
@@ -989,16 +1175,16 @@ void orch_ui_handle(const struct fm1_controls *controls)
         case E_KNOB1:
             if (ui.page == PAGE_FX) {
                 orch_fx_set_mix(ui.fx_sel,
-                    (unsigned)clamp_percent((int)orch_fx_mix(ui.fx_sel) + delta * 5));
+                    (unsigned)clamp_percent((int)orch_fx_mix(ui.fx_sel) + delta * 2));
             } else if (ui.page == PAGE_ARP) {
-                int d = (int)orch_arp_div_of(ui.part) + delta;
+                int d = (int)orch_arp_div_of(ui.part) + step;
                 if (d < 0) d = 0;
                 if (d > 4) d = 4;
                 orch_arp_set_division(ui.part, (unsigned)d);
             } else if (ui.page == PAGE_SEQ) {
-                seq_touch_slot(0U, 0, delta * 4, 0);
+                seq_touch_slot(0U, 0, delta * 2, 0);
             } else {
-                int cap = (int)part->player_cap + delta;
+                int cap = (int)part->player_cap + step;
                 if (cap < 1) cap = 1;
                 if (cap > 4) cap = 4;
                 orch_engine_set_player_cap(ui.part, (unsigned)cap);
@@ -1008,14 +1194,14 @@ void orch_ui_handle(const struct fm1_controls *controls)
         case E_KNOB2:
             if (ui.page == PAGE_FX) {
                 orch_fx_set_param_a(ui.fx_sel,
-                    (unsigned)clamp_percent((int)orch_fx_param_a(ui.fx_sel) + delta * 5));
+                    (unsigned)clamp_percent((int)orch_fx_param_a(ui.fx_sel) + delta * 2));
             } else if (ui.page == PAGE_ARP) {
-                int o = (int)orch_arp_octaves_of(ui.part) + delta;
+                int o = (int)orch_arp_octaves_of(ui.part) + step;
                 if (o < 1) o = 1;
                 if (o > 3) o = 3;
                 orch_arp_set_octaves(ui.part, (unsigned)o);
             } else if (ui.page == PAGE_SEQ) {
-                seq_touch_slot(0U, 0, 0, delta * 5);
+                seq_touch_slot(0U, 0, 0, delta * 2);
             } else if (ui.page == PAGE_GLO) {
                 int t = (int)ui.transpose + delta;
                 if (t < -24) t = -24;
@@ -1032,12 +1218,12 @@ void orch_ui_handle(const struct fm1_controls *controls)
         case E_KNOB3:
             if (ui.page == PAGE_FX) {
                 orch_fx_set_param_b(ui.fx_sel,
-                    (unsigned)clamp_percent((int)orch_fx_param_b(ui.fx_sel) + delta * 5));
+                    (unsigned)clamp_percent((int)orch_fx_param_b(ui.fx_sel) + delta * 2));
             } else if (ui.page == PAGE_ARP) {
-                int g = (int)orch_arp_gate_of(ui.part) + delta * 5;
+                int g = (int)orch_arp_gate_of(ui.part) + delta * 2;
                 orch_arp_set_gate(ui.part, (unsigned)g);
             } else {
-                int bpm = (int)ui.tempo + delta * 4;
+                int bpm = (int)ui.tempo + delta * 2;
                 if (bpm < 30) bpm = 30;
                 if (bpm > 300) bpm = 300;
                 ui.tempo = (uint16_t)bpm;
@@ -1051,7 +1237,7 @@ void orch_ui_handle(const struct fm1_controls *controls)
             else if (ui.page == PAGE_SEQ) seq_clear_step();
             else if (ui.page == PAGE_GLO) { orch_panic(); orch_fx_reset(); }
             else if (ui.page == PAGE_ARP) {
-                int m = (int)orch_arp_mode_of(ui.part) + delta;
+                int m = (int)orch_arp_mode_of(ui.part) + step;
                 while (m < 0) m += (int)ORCH_ARP_MODE_COUNT;
                 while (m >= (int)ORCH_ARP_MODE_COUNT) m -= (int)ORCH_ARP_MODE_COUNT;
                 orch_arp_set_mode(ui.part, (unsigned)m);
