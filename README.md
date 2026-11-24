@@ -32,7 +32,7 @@ The FM1 uses JieLi WL82/AC791N. Himalia firmware targets a different MCU, so Him
 - Per-part ARP and generated-phrase engine: 31 ARP patterns, 46 phrase profiles, ten subdivisions, internal/external clock, groove, latch and stream logic. See [docs/HAWK_CHUA_PERFORMANCE_PORT.md](docs/HAWK_CHUA_PERFORMANCE_PORT.md).
 - Fixed-point synthesis, one waveguide per player, stereo Q23 output.
 
-The 12-voice ceiling is provisional and must be measured on real FM1 hardware. The goal is the highest stable polyphony that fits the audio interrupt budget. The 0.3.4 branch adds local key input, panel controls and an RGB565 status screen; see [docs/FM1_PANEL.md](docs/FM1_PANEL.md). The 0.3.5 feature branch adds the ARP/phrase performance page and per-part playback controls.
+The 12-voice ceiling is provisional and must be measured on real FM1 hardware. The goal is the highest stable polyphony that fits the audio interrupt budget. The 0.3.4 branch adds local key input, panel controls and an RGB565 status screen; see [docs/FM1_PANEL.md](docs/FM1_PANEL.md). The 0.3.5 feature branch adds the ARP/phrase performance page and per-part playback controls. The 0.3.6 feature branch adds a second phrase-detail page for density, octave range, cluster, repeat, accent, inverse and root settings. See [docs/FM1_PANEL.md](docs/FM1_PANEL.md) and [docs/BUILD_FIRMWARE.md](docs/BUILD_FIRMWARE.md) for control and target-build details.
 
 ## Host tests
 
@@ -64,4 +64,4 @@ python3 fm1-core/tools/build.py --app fm1orkestpm/app --package
 
 The FM1 Core platform and binary SDK retain their own licenses and redistribution terms. See its THIRD_PARTY.md. This project's GPL-3.0 license remains in force for original application code.
 
-This is source code, not a verified firmware image. The panel adapter has not yet been target-built or tested on a physical FM1. Do not flash until the exact JieLi target build succeeds and the generated package is checked. No .fwsc or .uf2 is claimed by this initial source commit.
+This is source code, not a verified firmware image. The panel adapter has not yet been target-built or tested on a physical FM1. Do not flash until the exact JieLi target build succeeds and the generated package is checked. No .fwsc or .uf2 is claimed by this feature branch.

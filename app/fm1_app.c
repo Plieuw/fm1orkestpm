@@ -42,7 +42,7 @@ static uint32_t previous_buttons;
 static uint32_t last_panel_poll;
 static uint16_t key_velocity = 96U;
 static uint8_t panel_dirty = 1U;
-static uint8_t panel_perf_page;
+static uint8_t panel_perf_page; /* 0 orchestra, 1 performance, 2 phrase detail */
 static struct orch_perf_config perf_config[PANEL_PARTS];
 
 /* A tiny 3x5 uppercase font. Drawing is control-task-only and uses the
@@ -137,7 +137,35 @@ static void panel_apply_performance(unsigned part)
 
 static void panel_draw(void)
 {
-    if (panel_perf_page) {
+    if (panel_perf_page == 2U) {
+        static const uint16_t bg=0x0841U, ink=0xFFFFU, cyan=0x07FFU;
+        static const uint16_t amber=0xFD20U;
+        struct orch_perf_config *pc=&perf_config[selected_part];
+        char line[24];
+        fm1_screen_fill(0U,0U,FM1_SCREEN_WIDTH,FM1_SCREEN_HEIGHT,bg);
+        panel_text(8U,8U,"PHRASE DETAIL",cyan);
+        panel_text(8U,30U,"DENSITY",amber);
+        line[0]=(char)('0'+(pc->density/100U)%10U);line[1]=(char)('0'+(pc->density/10U)%10U);line[2]=(char)('0'+pc->density%10U);line[3]=0;
+        panel_text(152U,30U,line,ink);
+        panel_text(8U,54U,"OCTAVE RANGE",amber);
+        line[0]=(char)('0'+pc->range);line[1]=0;panel_text(152U,54U,line,ink);
+        panel_text(8U,78U,"CHORD CLUSTER",amber);
+        line[0]=(char)('0'+pc->cluster);line[1]=0;panel_text(152U,78U,line,ink);
+        panel_text(8U,102U,"REPEATS",amber);
+        line[0]=(char)('0'+pc->repeat);line[1]=0;panel_text(152U,102U,line,ink);
+        panel_text(8U,126U,"ACCENT",amber);
+        line[0]=(char)('0'+(pc->accent/100U)%10U);line[1]=(char)('0'+(pc->accent/10U)%10U);line[2]=(char)('0'+pc->accent%10U);line[3]=0;
+        panel_text(152U,126U,line,ink);
+        panel_text(8U,150U,pc->inverse?"INVERSE ON":"INVERSE OFF",cyan);
+        line[0]='R';line[1]='O';line[2]='O';line[3]='T';line[4]=' ';
+        if(pc->root==0U){line[5]='A';line[6]='U';line[7]='T';line[8]='O';line[9]=0;}
+        else{line[5]=(char)('0'+pc->root/10U);line[6]=(char)('0'+pc->root%10U);line[7]=0;}
+        panel_text(8U,174U,line,ink);
+        panel_text(8U,204U,"B5 INV B6 ROOT B7 AUTO",cyan);
+        panel_text(8U,224U,"B8 QTZ B14 PAGE",amber);
+        return;
+    }
+    if (panel_perf_page == 1U) {
         static const uint16_t bg=0x0841U, ink=0xFFFFU, cyan=0x07FFU;
         static const uint16_t amber=0xFD20U, green=0x07E0U;
         static const char *const logic_names[] = {"OR","AND","XOR","NOR","ALT","S/R"};
@@ -281,7 +309,7 @@ void groove_screen_control(void)
     for (unsigned p=0;p<PANEL_PARTS;++p)
         if (edges & (1UL<<p)) panel_part_select(p);
     if (edges & (1UL<<4)) orch_panic();
-    if (edges & (1UL<<13)) { panel_perf_page=(uint8_t)!panel_perf_page; panel_dirty=1U; }
+    if (edges & (1UL<<13)) { panel_perf_page=(uint8_t)((panel_perf_page+1U)%3U); panel_dirty=1U; }
     if (!panel_perf_page) {
         if (edges & (1UL<<5)) panel_apply_articulation(selected_part,selected_art[selected_part]+1U);
         if (edges & (1UL<<6)) panel_apply_cap(selected_part,(selected_cap[selected_part]%4U)+1U);
@@ -311,7 +339,7 @@ void groove_screen_control(void)
             while(next>=(int)PANEL_PARTS)next-=(int)PANEL_PARTS;
             panel_part_select((unsigned)next);
         }
-    } else {
+    } else if (panel_perf_page == 1U) {
         struct orch_perf_config *pc=&perf_config[selected_part];
         uint8_t changed=0U;
         if (edges & (1UL<<5)) { pc->velocity_groove=(uint8_t)((pc->velocity_groove+1U)&7U); changed=1U; }
@@ -358,7 +386,44 @@ void groove_screen_control(void)
         if(knob>1023U) knob=1023U;
         const uint8_t gate=(uint8_t)(5U+knob*95U/1023U);
         if(gate!=pc->gate){pc->gate=gate;changed=1U;}
-        if(changed) panel_apply_performance(selected_part);    }
+        if(changed) panel_apply_performance(selected_part);
+    } else {
+        struct orch_perf_config *pc=&perf_config[selected_part];
+        uint8_t changed=0U;
+        if (edges & (1UL<<5)) { pc->inverse=(uint8_t)!pc->inverse; changed=1U; }
+        if (edges & (1UL<<6)) { pc->root=(uint8_t)((pc->root+1U)%13U); changed=1U; }
+        if (edges & (1UL<<7)) { pc->root=0U; changed=1U; }
+        if (edges & (1UL<<8)) { pc->quantize=(uint8_t)((pc->quantize+1U)%18U); changed=1U; }
+        if (controls.encoders[0]) {
+            int v=(int)pc->density+controls.encoders[0]*4;
+            if(v<0)v=0;
+            if(v>127)v=127;
+            pc->density=(uint8_t)v;changed=1U;
+        }
+        if (controls.encoders[1]) {
+            int v=(int)pc->range+controls.encoders[1];
+            if(v<1)v=1;
+            if(v>4)v=4;
+            pc->range=(uint8_t)v;changed=1U;
+        }
+        if (controls.encoders[2]) {
+            int v=(int)pc->cluster+controls.encoders[2];
+            if(v<1)v=1;
+            if(v>4)v=4;
+            pc->cluster=(uint8_t)v;changed=1U;
+        }
+        if (controls.encoders[3]) {
+            int v=(int)pc->repeat+controls.encoders[3];
+            if(v<0)v=0;
+            if(v>3)v=3;
+            pc->repeat=(uint8_t)v;changed=1U;
+        }
+        unsigned knob=controls.knob;
+        if(knob>1023U)knob=1023U;
+        const uint8_t accent=(uint8_t)(knob*127U/1023U);
+        if(accent!=pc->accent){pc->accent=accent;changed=1U;}
+        if(changed)panel_apply_performance(selected_part);
+    }
     for (unsigned b=0;b<14U;++b)
         fm1_led_set(b,(buttons>>b)&1U);
     for (unsigned k=0;k<PANEL_KEY_COUNT;++k)
