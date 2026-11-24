@@ -54,8 +54,9 @@ static unsigned default_instrument(unsigned family)
 int orch_part_set_adsr(unsigned part, unsigned attack_ms, unsigned decay_ms,
                        unsigned sustain_percent, unsigned release_ms)
 {
-    if (part >= ORCH_PARTS || attack_ms > 4000U || decay_ms > 4000U ||
-        sustain_percent > 100U || release_ms > 6000U) return -1;
+    if (part >= ORCH_PARTS || !attack_ms || attack_ms > 4000U ||
+        !decay_ms || decay_ms > 4000U || sustain_percent > 100U ||
+        !release_ms || release_ms > 6000U) return -1;
     parts[part].adsr.attack_ms = (uint16_t)attack_ms;
     parts[part].adsr.decay_ms = (uint16_t)decay_ms;
     parts[part].adsr.sustain_percent = (uint8_t)sustain_percent;
