@@ -56,7 +56,7 @@ typedef struct {
     uint8_t held_count, keys_down, running, first_pending;
     active_note_t active[PERF_ACTIVE];
     pending_note_t pending[PERF_ACTIVE*3U];
-    uint8_t active_count;
+    uint8_t active_count, pending_count;
     uint32_t step, phrase_step, clock_phase, clock_count;
     uint32_t last_sample, step_len, pending_at;
     uint32_t ext_last_tick, ext_tick_len, ext_age;
@@ -106,6 +106,8 @@ static void release_all(unsigned part, perf_part_t *p)
         }
     }
     p->active_count=0U;
+    p->pending_count=0U;
+    p->pending_step=0U;
     for(unsigned i=0;i<PERF_ACTIVE*3U;++i) p->pending[i].used=0U;
 }
 
@@ -378,6 +380,7 @@ static void perform_step(unsigned part, perf_part_t *p, uint32_t now,
                     pn->velocity=(uint8_t)(outv[i]*(4U-rep)/4U);
                     pn->on_at=at;
                     pn->gate_samples=gate_samples*3U/4U;
+                    ++p->pending_count;
                     break;
                 }
             }
@@ -411,7 +414,7 @@ void orch_perf_init(void)
         perf_part_t *p=&parts[i];
         orch_perf_default_config(&p->cfg);
         p->held_count=p->keys_down=p->running=p->first_pending=0U;
-        p->active_count=0U; p->step=p->phrase_step=0U;
+        p->active_count=p->pending_count=0U; p->step=p->phrase_step=0U;
         p->clock_phase=p->clock_count=0U; p->last_sample=0U;
         p->step_len=p->pending_at=0U; p->pending_step=0U;
         p->ext_last_tick=p->ext_tick_len=0U; p->ext_age=0U;
@@ -514,12 +517,14 @@ void orch_perf_advance_sample(uint32_t sample_now)
 {
     for(unsigned i=0;i<ORCH_PERF_PARTS;++i) {
         perf_part_t *p=&parts[i];
+        if(!p->running && !p->active_count && !p->pending_count) continue;
         active_off_due(i,p,sample_now);
-        for(unsigned k=0;k<PERF_ACTIVE*3U;++k) {
+        if(p->pending_count) for(unsigned k=0;k<PERF_ACTIVE*3U;++k) {
             pending_note_t *pn=&p->pending[k];
             if(pn->used && (int32_t)(sample_now-pn->on_at)>=0) {
                 generated_on(i,p,pn->note,pn->velocity,sample_now,pn->gate_samples);
                 pn->used=0U;
+                if(p->pending_count)--p->pending_count;
             }
         }
         if(p->pending_step && (int32_t)(sample_now-p->pending_at)>=0) {
