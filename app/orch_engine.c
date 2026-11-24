@@ -652,7 +652,7 @@ void orch_note_event(unsigned ch, unsigned note, unsigned velocity)
 {
     if (ch < 16U && note < 128U && velocity < 128U) enqueue(ch, note, velocity, 0U);
 }
-void orch_panic(void) { enqueue(0U, 0U, 0U, 2U); }
+void orch_reset_notes(void) { enqueue(0U, 0U, 0U, 2U); }
 
 void orch_midi_realtime(unsigned status)
 {
@@ -854,7 +854,7 @@ static void drain_events(void)
             for (unsigned i = 0; i < ORCH_MAX_VOICES; ++i) voice_stop(i);
             for (unsigned c = 0; c < ORCH_MIDI_CHANNELS; ++c) sustain[c] = 0U;
             part_notes_reset();
-            orch_perf_panic();
+            orch_perf_reset_notes();
         } else if (e.type == 3U) {
             orch_perf_midi_realtime(e.note,sample_counter);
         } else if (e.type == 4U) {
