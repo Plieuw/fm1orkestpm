@@ -108,12 +108,13 @@ cc -std=c11 -O2 -DFM1_HOST_TEST -I../fm1-core/include -Iapp \
    app/orch_adaptive.c app/orch_divisi.c app/orch_part.c app/orch_stage.c \
    -o /tmp/panel_preview -lm
 /tmp/panel_preview /tmp/p
-python3 tools/panel_png.py /tmp/p-parts.ppm docs/panel-parts.png
-# and the same for -arp, -seq, -fx, -glo
+python3 tools/panel_png.py /tmp/p-parts.ppm /tmp/p-parts.png
 ```
 
 It writes the STAGE page with an orchestra in the hall and a four-part chord
 sounding, the ARP page with three held keys, the SEQUENCE page with three
 recorded steps and the playing step marked, the FX page with all four effects
-on and the delay row selected, and the CONSOLE page. The five PNGs in `docs/`
-are those renders, made on 24 November 2026 with this screen.
+on and the delay row selected, and the CONSOLE page.
+
+The PNGs are not committed: they are output of that command and go stale the
+moment the screen changes.
