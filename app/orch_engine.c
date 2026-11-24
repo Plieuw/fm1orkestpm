@@ -425,6 +425,20 @@ static unsigned pick_voice(unsigned part)
     return (oldest >= 0) ? (unsigned)oldest : 0U;
 }
 
+/* A connected note in the same part/player should continue the existing
+ * resonator instead of allocating a fresh, silent waveguide. This is the
+ * physical-model equivalent of a legato bow/breath connection. */
+static int find_legato_voice(unsigned part, unsigned player, unsigned family)
+{
+    for (unsigned i = 0; i < ORCH_MAX_VOICES; ++i) {
+        const voice_t *v = &voices[i];
+        if (v->active && !v->releasing && v->gate && v->part == part &&
+            v->player == player && v->family == family && !v->auto_release)
+            return (int)i;
+    }
+    return -1;
+}
+
 static void voice_start(unsigned part, unsigned note, unsigned velocity,
                         uint32_t note_id, const struct orch_intent *in, unsigned player,
                         int8_t player_detune_cents, uint8_t player_pan)
@@ -433,7 +447,10 @@ static void voice_start(unsigned part, unsigned note, unsigned velocity,
     const unsigned family = cfg ? cfg->family : ORCH_FAM_STRINGS;
     const unsigned instrument = cfg ? cfg->instrument : ORCH_INST_VIOLIN;
     const struct instrument_profile *ip = &INST_PROFILE[instrument < ORCH_INST_COUNT ? instrument : 0U];
-    const unsigned i = pick_voice(part);
+    const int legato_slot = (in->connected && family != ORCH_FAM_MALLETS)
+                               ? find_legato_voice(part, player, family) : -1;
+    const unsigned i = legato_slot >= 0 ? (unsigned)legato_slot : pick_voice(part);
+    const int legato_reuse = legato_slot >= 0;
     voice_t *v = &voices[i];
     struct artic_profile prof;
 
@@ -451,10 +468,12 @@ static void voice_start(unsigned part, unsigned note, unsigned velocity,
     const unsigned family_exc = family_excite(family);
     const unsigned excite = (prof.excite != 0xFFU) ? prof.excite : family_exc;
 
-    for (unsigned n = 0; n < DELAY_SIZE; ++n) v->delay[n] = 0;
-    v->write = 0U;
-    v->lp = 0;
-    v->dc = 0;
+    if (!legato_reuse) {
+        for (unsigned n = 0; n < DELAY_SIZE; ++n) v->delay[n] = 0;
+        v->write = 0U;
+        v->lp = 0;
+        v->dc = 0;
+    }
     v->age = ++age_counter;
     v->note_id = note_id;
     v->note = (uint8_t)note;
@@ -471,8 +490,8 @@ static void voice_start(unsigned part, unsigned note, unsigned velocity,
     v->gate = (prof.pluck || excite == EXC_STRIKE) ? 0U : 1U;
     v->releasing = 0U;
     v->struck = 0U;
-    v->excite_follow = 0;
-    v->expr_phase = rng;
+    if (!legato_reuse) v->excite_follow = 0;
+    v->expr_phase = legato_reuse ? v->expr_phase : rng;
     v->expr_inc = 0U;
     v->expr_q15 = 0;
     v->expr_depth = 0U;
@@ -493,8 +512,9 @@ static void voice_start(unsigned part, unsigned note, unsigned velocity,
 
     uint32_t start = target;
     v->glide_left = 0U;
+    if (legato_reuse) start = v->len_q16;
     if (in->connected && in->glide_ms && runtime[part].last_len_q16) {
-        start = runtime[part].last_len_q16;
+        if (!legato_reuse) start = runtime[part].last_len_q16;
         v->glide_left = ((uint32_t)in->glide_ms * ORCH_SAMPLE_RATE) / 1000U;
     }
     v->len_q16 = start;
@@ -559,8 +579,16 @@ static void voice_start(unsigned part, unsigned note, unsigned velocity,
         v->release_frames = (rel_ms * ORCH_SAMPLE_RATE) / 1000U;
         v->attack_left = atk_frames ? atk_frames : 1U;
         v->decay_left = dec_frames ? dec_frames : 1U;
-        v->env = 0;
-        v->env_inc = ORCH_ENV_MAX / (int32_t)v->attack_left;
+        if (legato_reuse) {
+            /* Keep the current envelope level and make a short connected
+             * bow/breath transition rather than retriggering from silence. */
+            const uint32_t legato_frames = (12U * ORCH_SAMPLE_RATE) / 1000U;
+            v->attack_left = legato_frames ? legato_frames : 1U;
+            v->env_inc = (ORCH_ENV_MAX - v->env) / (int32_t)v->attack_left;
+        } else {
+            v->env = 0;
+            v->env_inc = ORCH_ENV_MAX / (int32_t)v->attack_left;
+        }
         if (v->env_inc < 1) v->env_inc = 1;
         /* A modest held sustain leaves room for bow/breath dynamics. Plucks
          * use a lower sustain then enter release automatically after decay. */
@@ -673,12 +701,14 @@ static void voice_start(unsigned part, unsigned note, unsigned velocity,
         v->vib_delay = (uint32_t)((in->phrase_start ? 180U : 120U) * ORCH_SAMPLE_RATE / 1000U);
     }
 
-    v->body_len = (uint16_t)(ORCH_SAMPLE_RATE / (ip->body_hz ? ip->body_hz : 440U));
-    if (v->body_len < 8U) v->body_len = 8U;
-    if (v->body_len > 512U) v->body_len = 512U;
-    v->body_write = 0U; v->body_lp = 0;
-    for (unsigned n = 0; n < v->body_len; ++n) v->body[n] = 0;
-    v->excite_phase = rng ^ (note * 0x9e3779b9U);
+    if (!legato_reuse) {
+        v->body_len = (uint16_t)(ORCH_SAMPLE_RATE / (ip->body_hz ? ip->body_hz : 440U));
+        if (v->body_len < 8U) v->body_len = 8U;
+        if (v->body_len > 512U) v->body_len = 512U;
+        v->body_write = 0U; v->body_lp = 0;
+        for (unsigned n = 0; n < v->body_len; ++n) v->body[n] = 0;
+        v->excite_phase = rng ^ (note * 0x9e3779b9U);
+    }
     v->excite_inc = ip->half_period ? (uint32_t)(0x7fffffffU / (uint32_t)(target >> 16))
                                     : (uint32_t)(0xffffffffU / (uint32_t)(target >> 16));
 
