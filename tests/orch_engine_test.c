@@ -36,7 +36,7 @@ static void midi(unsigned status, unsigned d1, unsigned d2)
     orch_midi_short_message(m, 3U);
 }
 
-/* Only part 0 listens, on channels 1-4, with the given family. */
+/* Only part 0 listens, on MIDI channel 1, with the given family. */
 static void solo_part(unsigned family)
 {
     orch_init();
@@ -108,7 +108,7 @@ static void test_routing(void)
     CHECK(orch_active_voices() == 0U);
     CHECK(orch_note_count(0U) == 0U);
 
-    midi(0x94U, 64U, 100U);      /* channel 5 -> part 1 */
+    midi(0x91U, 64U, 100U);      /* channel 2 -> part 1 */
     render(2U);
     CHECK(orch_voices_of_part(1U) >= 1U);
     CHECK(orch_voices_of_part(0U) == 0U);
