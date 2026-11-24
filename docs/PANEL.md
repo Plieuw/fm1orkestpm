@@ -9,7 +9,7 @@ left dead.
 ```
 buttons   0 OCT-   1 OCT+   2 FX     3 SCL    4 ENV    5 LFO    6 EDIT
           7 GLO    8 HOME   9 SAVE  10 ARP   11 SEQ   12 PLAY  13 REC
-encoders  0 SELECT  1 ALGORITHM  2 PRESETS  3 KNOB1  4 KNOB2  5 KNOB3  6 KNOB4
+encoders  0 SELECT  1 ALGORITHM  2 KNOB1  3 KNOB2  4 KNOB3  5 KNOB4  6 PRESETS
 ```
 
 ## What each control does
@@ -21,7 +21,7 @@ encoders  0 SELECT  1 ALGORITHM  2 PRESETS  3 KNOB1  4 KNOB2  5 KNOB3  6 KNOB4
 | `PRESETS` | next/previous instrument inside the current family, wrapping |
 | `KNOB1` | divisi players 1..4 / arp rate / step velocity / FX mix |
 | `KNOB2` | voice ceiling / octaves / step gate / semitone transpose / FX parameter A |
-| `KNOB3` | tempo in 4 BPM steps / arp gate in 5 % steps / FX parameter B |
+| `KNOB3` | tempo / arp gate / FX parameter B |
 | `KNOB4` | semitone transpose / arp mode / clear step / FX on-off / **panic** on GLOBAL |
 | `OCT-` `OCT+` | transpose the part an octave down or up (clamped to ±24) |
 | `FX` | open the FX page (chorus, ensemble, delay, shimmer reverb). Pressed again on that page it is the old sound check: a four-part chord, released after 900 ms |
@@ -40,6 +40,37 @@ The master gain (`orch_ui_master_q23`) and one byte per FX setting are the only
 words the control task shares with the audio interrupt. The panel never starts
 a voice directly; it asks the engine, and the engine starts it in the render
 context.
+
+## Knobs
+
+The four knob cells at the bottom of the screen are the page's menu: each cell
+is a small knob with its label under it and the value under that, and the value
+lights for a second after its knob moves, so the eye finds the one that changed.
+The cells change with the page: players, voices, tempo and transpose on PARTS;
+rate, octaves, gate and mode on ARP; the selected step's velocity, gate and
+tempo plus clear on SEQUENCER; scale, transpose, tempo and panic on GLOBAL; and
+the selected effect's mix, its two parameters and its power on FX. This is HAWK
+CHUA's layout (`firmware/src/ui.c`, `ui_cell`): the knob, its name and its value
+in one cell, instead of help lines that have to be read.
+
+Turning behaves as it does in HAWK CHUA (`knob_accel` in the same file):
+
+* a fast turn goes faster — the detents a second in the same direction give
+  x1 (under 12 a second), x2, x4, then x8 (from 40 a second), so a range
+  crosses in one flick;
+* slowing down brings the factor back by halves, never in a jump;
+* one detent is still one step: a menu entry (part, family, instrument, arp
+  mode, effect, scale, step) moves exactly one place a detent, so a quick turn
+  cannot skip an entry;
+* turning the other way starts again at x1.
+
+Two calls in the same millisecond are taken unscaled: a hand cannot do that,
+and it keeps the host tests deterministic. The board's knob (the volume pot) is
+not an encoder and is not accelerated.
+
+The encoder numbering above is the one measured on an FM-1 by HAWK CHUA's
+`panel.c`; the SDK's `fm1_controls.encoders` uses the same matrix order, so
+PRESETS is encoder 6 and KNOB1..4 are 2..5.
 
 ## Pages
 
@@ -170,11 +201,12 @@ bug that is hidden.
 `tests/orch_ui_test.c` drives the panel with stubbed board services and checks
 every button, every encoder role on every page, the note map, the flash save and
 reload (including the FX block) and that a recorded step sounds after `PLAY`.
-`tests/orch_arp_test.c` covers the arp. `tests/orch_fx_test.c` covers the effect
-chain: bypass is bit exact, the echo arrives at the set time and its feedback
-decays, the reverb tail decays, shimmer changes that tail, hard driving stays
-inside Q23, and panic empties the buffers. `tests/panel_preview.c` renders the
-four pages above.
+It also checks the knob speed: one detent alone, x2 at 20 a second, x8 at 40,
+back by halves when slowing and one detent after turning back. `tests/orch_arp_test.c`
+covers the arp. `tests/orch_fx_test.c` covers the effect chain: bypass is bit
+exact, the echo arrives at the set time and its feedback decays, the reverb tail
+decays, shimmer changes that tail, hard driving stays inside Q23, and panic
+empties the buffers. `tests/panel_preview.c` renders the four pages above.
 
 Not tested, because there is no hardware in this environment:
 
