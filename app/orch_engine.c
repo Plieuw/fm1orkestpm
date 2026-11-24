@@ -128,11 +128,25 @@ static uint32_t rng = 0x6d2b79f5U;
 
 /* ---------------------------------------------------------------- helpers */
 
-static uint16_t level_compensation_gain(unsigned velocity, uint32_t level)
+/* A restrained register contour compensates the model's broad spectral
+ * tilt without flattening musical dynamics: bass notes get a little more
+ * target level, while the extreme upper register gets a little less.
+ * Piecewise-linear ramps avoid audible steps at the band boundaries. */
+static uint32_t register_target_scale_q15(unsigned note)
+{
+    if (note < 36U) return 35389U; /* +8%, lowest register */
+    if (note < 60U) return 35389U - ((note - 36U) * 2622U) / 24U;
+    if (note < 108U) return 32767U - ((note - 60U) * 1966U) / 48U;
+    return 30801U;                 /* -6%, extreme upper register */
+}
+
+static uint16_t level_compensation_gain(unsigned velocity, uint32_t level,
+                                         unsigned note)
 {
     if (level <= 64U) return 32767U;
-    const uint32_t target = (velocity * 5000U) / 100U;
-    uint32_t gain = (target << 15) / level;
+    uint32_t target = (velocity * 5000U) / 100U;
+    target = (uint32_t)(((uint64_t)target * register_target_scale_q15(note)) >> 15);
+    uint32_t gain = (uint32_t)(((uint64_t)target << 15) / level);
     if (gain < 16384U) gain = 16384U;
     if (gain > 65535U) gain = 65535U;
     return (uint16_t)gain;
@@ -141,7 +155,11 @@ static uint16_t level_compensation_gain(unsigned velocity, uint32_t level)
 #ifdef FM1_HOST_TEST
 uint16_t orch_test_level_compensation_gain(unsigned velocity, uint32_t level)
 {
-    return level_compensation_gain(velocity, level);
+    return level_compensation_gain(velocity, level, 60U);
+}
+uint16_t orch_test_register_target_scale_q15(unsigned note)
+{
+    return (uint16_t)register_target_scale_q15(note);
 }
 #endif
 
@@ -884,10 +902,19 @@ static void engine_note_on_part(unsigned part, unsigned note, unsigned velocity)
     if (in->connected)
         divisi_promote_connected_note(cfg, &rt->plan, notes, ids, count, id);
 
-    /* realize only the players that took this new note */
+    /* Realize only the players that took this new note. A connected
+     * melody must never disappear if a divisi assignment is temporarily
+     * retained by hysteresis: in that case hand the lead desk to this note. */
+    unsigned started = 0U;
     for (unsigned p = 0; p < rt->plan.players; ++p) {
         const unsigned idx = rt->plan.assignment[p];
         if (idx >= count || ids[idx] != id) continue;
+        voice_start(part, note, velocity, id, in, p,
+                    rt->plan.detune_cents[p], rt->plan.pan[p]);
+        ++started;
+    }
+    if (!started && in->connected) {
+        const unsigned p = rt->plan.players ? rt->plan.players - 1U : 0U;
         voice_start(part, note, velocity, id, in, p,
                     rt->plan.detune_cents[p], rt->plan.pan[p]);
     }
@@ -1615,7 +1642,7 @@ static void voice_tick(voice_t *v)
             v->level_update_count = 0U;
             if (v->level_follow > 64U)
                 v->level_gain_q15 =
-                    level_compensation_gain(v->velocity, v->level_follow);
+                    level_compensation_gain(v->velocity, v->level_follow, v->note);
         }
     }
 
