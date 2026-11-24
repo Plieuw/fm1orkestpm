@@ -723,7 +723,7 @@ int orch_perf_pop_event(struct orch_perf_event *e)
     return 1;
 }
 
-void orch_perf_panic(void)
+void orch_perf_reset_notes(void)
 {
     for(unsigned i=0;i<ORCH_PERF_PARTS;++i) {
         release_all(i,&parts[i]);
