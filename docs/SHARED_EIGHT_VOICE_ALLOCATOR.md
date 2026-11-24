@@ -61,3 +61,27 @@ only to the corresponding MIDI channel/part.
 
 This branch contains the first allocator step only. Complete target validation and physical FM1 testing are still required before this can be
 called a complete eight-part implementation or flashed as a test build.
+
+
+## Adaptive phrase-shaped ADSR refinement (0.3.14 work)
+
+The authored ADSR remains the base contour, but adaptive intent now shapes its
+Decay and Sustain stages in a bounded, tempo-independent way. Connected notes
+receive a longer decay and slightly higher sustain for legato continuity;
+phrase openings ease the decay in; down-bows and new phrase peaks speak more
+firmly; phrase endings lower sustain and shorten decay to create a natural
+release into the next phrase. The sustain adjustment also follows the adaptive
+energy estimate within a narrow +/-4 percentage-point range for bowed strings,
+winds, brass and choir. Percussive instruments retain their automatic decay
+and are not given a synthetic held sustain.
+
+The slow bow/breath expression contour also follows articulation intent:
+connected phrases breathe more slowly, while down-bow accents increase its
+rate slightly. It remains free-running and is not locked to sequencer BPM.
+ARP, phrase sequencer and live MIDI share the same note-start path and therefore
+receive identical adaptive envelope behavior. Existing ADSR controls, panel
+layout and preset workflow are unchanged.
+
+This is fixed-point note-on work; no additional per-sample modulation branch
+or new memory allocation is introduced. CI must still confirm compilation and
+tests. Physical FM1 listening and CPU-headroom checks remain outstanding.
