@@ -96,3 +96,8 @@ Factory scenes: Cinema Strings, Baroque, Wind Choir, Brass Fan, Pizz Motion,
 Ambient, Ostinato and Full Orchestra. These are starting points, not saved
 user slots. The matrix-encoder index follows the stable HAWK-CHUA physical
 mapping; confirm detent direction and behavior on the actual FM1 hardware.
+
+
+For the musical intent and scope of each complete factory scene, see
+[`FACTORY_PRESETS_ORCHESTRAL.md`](FACTORY_PRESETS_ORCHESTRAL.md). This catalog
+also documents the current fixed FX-chain limitation and adaptive-play design.
