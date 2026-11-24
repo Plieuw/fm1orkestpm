@@ -59,6 +59,7 @@ int orch_perf_get_config(unsigned part, struct orch_perf_config *config);
  * engine and should not be sent directly to the instrument voices. */
 int orch_perf_note_event(unsigned part, unsigned note, unsigned velocity);
 void orch_perf_midi_realtime(unsigned status, uint32_t sample_now);
+void orch_perf_set_external_tempo(unsigned bpm);
 void orch_perf_advance_sample(uint32_t sample_now);
 int orch_perf_pop_event(struct orch_perf_event *event);
 void orch_perf_panic(void);
