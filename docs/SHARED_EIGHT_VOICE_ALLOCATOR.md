@@ -177,3 +177,10 @@ the reassigned voice. Candidate selection no longer uses a fixed envelope
 threshold: a quiet released note can still carry useful resonator state.
 Mallets remain excluded from waveguide legato reuse. Host coverage checks both
 short-gap reuse and overlapping-note old-Note-Off isolation.
+
+
+The short-gap regression was caused by divisi desk renumbering after the previous
+note was released. Legato lookup now prefers the same player desk, then falls
+back to the newest active resonator belonging to the same part and instrument
+family. This preserves the lead's resonator when the planner changes desk
+indices, without reusing another part's voice.
