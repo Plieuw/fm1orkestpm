@@ -94,8 +94,9 @@ void orch_adaptive_note(struct orch_adaptive *a, struct orch_intent *out,
     /* --- phrase continuity ------------------------------------------------ */
     const int rest = gap > SEC(0.25) && gap > (a->ioi_avg * 3U) / 5U &&
                      (a->gap_n < 2U || gap > (a->gap_avg * 17U) / 10U + MS(50));
-    const int new_phrase = !a->have_prev || rest ||
-                           ioi > (a->ioi_avg * 12U) / 5U || gap > SEC(1.2);
+    const int new_phrase = !a->have_prev ||
+                           (a->held_notes == 0U && (rest ||
+                            ioi > (a->ioi_avg * 12U) / 5U || gap > SEC(1.2)));
     const uint32_t conn_limit = (a->ioi_avg * 15U) / 100U;
     const uint32_t conn_cap = conn_limit < MS(40) ? conn_limit : MS(40);
     const int connected = !new_phrase && (a->held_notes > 0U || gap < conn_cap);
