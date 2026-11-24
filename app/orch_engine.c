@@ -81,6 +81,16 @@ static uint8_t sustain[ORCH_MIDI_CHANNELS];
 static struct orch_step_note pattern[ORCH_SEQ_STEPS][ORCH_STEP_NOTES];
 static uint8_t pattern_count[ORCH_SEQ_STEPS];
 static uint8_t seq_note[ORCH_STEP_NOTES], seq_active[ORCH_STEP_NOTES];
+/* Optional arranger context is learned from incoming MIDI only, never from
+ * generated sequencer/ARP notes. Counts preserve pitch classes when notes
+ * overlap in different octaves. */
+static uint8_t seq_adaptive;
+static uint8_t seq_input_pc_count[ORCH_PARTS][12];
+static uint16_t seq_input_chord_mask[ORCH_PARTS];
+static uint8_t seq_input_note[ORCH_PARTS], seq_input_velocity[ORCH_PARTS];
+static uint8_t seq_input_activity[ORCH_PARTS];
+static int8_t seq_input_direction[ORCH_PARTS];
+static uint32_t seq_input_last_on[ORCH_PARTS], seq_input_ioi[ORCH_PARTS];
 static uint32_t seq_off_at[ORCH_STEP_NOTES];
 static uint32_t age_counter, sample_counter, step_start;
 static volatile uint16_t tempo = 120U;
@@ -661,6 +671,7 @@ static void drain_events(void)
                 engine_note_off(e.channel, n, 0U);
         } else {
             const unsigned part=orch_part_for_channel(e.channel);
+            if (part != 0xFFU) seq_learn_input(part, e.note, e.velocity);
             if (!orch_perf_note_event(part,e.note,e.velocity)) {
                 if (e.velocity) engine_note_on(e.channel,e.note,e.velocity);
                 else engine_note_off(e.channel,e.note,e.channel<ORCH_MIDI_CHANNELS &&
@@ -698,6 +709,80 @@ void orch_seq_set_part(unsigned part)
     seq_part = (uint8_t)(part < ORCH_PARTS ? part : 0U);
 }
 
+void orch_seq_set_adaptive(unsigned enabled)
+{
+    seq_adaptive = enabled ? 1U : 0U;
+}
+
+/* Called only for physical MIDI input. This gives the arranger a read-only
+ * picture of the player's harmony, contour and activity. */
+static void seq_learn_input(unsigned part, unsigned note, unsigned velocity)
+{
+    if (part >= ORCH_PARTS || note > 127U) return;
+    const unsigned pc = note % 12U;
+    if (velocity) {
+        if (seq_input_last_on[part] && sample_counter > seq_input_last_on[part]) {
+            const uint32_t ioi = sample_counter - seq_input_last_on[part];
+            if (ioi < ORCH_SAMPLE_RATE * 8U)
+                seq_input_ioi[part] = seq_input_ioi[part] ?
+                    (seq_input_ioi[part] * 3U + ioi) / 4U : ioi;
+        }
+        if (seq_input_note[part] || seq_input_last_on[part]) {
+            const int delta = (int)note - (int)seq_input_note[part];
+            if (delta >= 2) seq_input_direction[part] = 1;
+            else if (delta <= -2) seq_input_direction[part] = -1;
+        }
+        seq_input_note[part] = (uint8_t)note;
+        seq_input_velocity[part] = seq_input_velocity[part] ?
+            (uint8_t)((seq_input_velocity[part] * 3U + velocity) / 4U) :
+            (uint8_t)velocity;
+        seq_input_last_on[part] = sample_counter;
+        if (seq_input_pc_count[part][pc] < 255U)
+            ++seq_input_pc_count[part][pc];
+    } else if (seq_input_pc_count[part][pc]) {
+        --seq_input_pc_count[part][pc];
+    }
+    seq_input_chord_mask[part] = 0U;
+    for (unsigned i = 0; i < 12U; ++i)
+        if (seq_input_pc_count[part][i])
+            seq_input_chord_mask[part] |= (uint16_t)(1U << i);
+
+    seq_input_activity[part] = 100U;
+    if (seq_input_ioi[part]) {
+        const uint32_t nominal = ORCH_SAMPLE_RATE * 3U / 4U;
+        if (seq_input_ioi[part] < nominal / 2U) seq_input_activity[part] = 165U;
+        else if (seq_input_ioi[part] > nominal * 2U) seq_input_activity[part] = 65U;
+        else seq_input_activity[part] = (uint8_t)(165U -
+            ((seq_input_ioi[part] - nominal / 2U) * 100U) / (nominal * 3U / 2U));
+    }
+}
+
+static unsigned seq_adapt_note(unsigned part, unsigned note)
+{
+    if (!seq_adaptive || part >= ORCH_PARTS) return note;
+    const uint16_t mask = seq_input_chord_mask[part];
+    if (!mask) return note;
+    unsigned best = note, best_dist = 128U;
+    for (unsigned candidate = 0; candidate < 128U; ++candidate) {
+        if (!(mask & (uint16_t)(1U << (candidate % 12U)))) continue;
+        const unsigned dist = candidate > note ? candidate - note : note - candidate;
+        if (dist < best_dist ||
+            (dist == best_dist && seq_input_direction[part] > 0 && candidate > best) ||
+            (dist == best_dist && seq_input_direction[part] < 0 && candidate < best)) {
+            best = candidate;
+            best_dist = dist;
+        }
+    }
+    return best;
+}
+
+#ifdef FM1_HOST_TEST
+unsigned orch_test_seq_adapt_note(unsigned part, unsigned note)
+{
+    return seq_adapt_note(part, note);
+}
+#endif
+
 void orch_init(void)
 {
     for (unsigned i = 0; i < ORCH_MAX_VOICES; ++i) voice_stop(i);
@@ -710,7 +795,16 @@ void orch_init(void)
     tempo = 120U;
     seq_enabled = seq_started = seq_stop_pending = 0U;
     seq_part = 0U;
+    seq_adaptive = 0U;
     current_step = 0U;
+    for (unsigned p = 0; p < ORCH_PARTS; ++p) {
+        seq_input_chord_mask[p] = 0U;
+        seq_input_note[p] = seq_input_velocity[p] = 0U;
+        seq_input_activity[p] = 100U;
+        seq_input_direction[p] = 0;
+        seq_input_last_on[p] = seq_input_ioi[p] = 0U;
+        for (unsigned pc = 0; pc < 12U; ++pc) seq_input_pc_count[p][pc] = 0U;
+    }
     sample_counter = step_start = 0U;
     for (unsigned n = 0; n < ORCH_STEP_NOTES; ++n) {
         seq_active[n] = 0U; seq_off_at[n] = 0U; seq_note[n] = 0U;
@@ -817,23 +911,36 @@ static void seq_tick(void)
         for (unsigned n = 0; n < ORCH_STEP_NOTES; ++n) {
             const struct orch_step_note *p = &pattern[current_step][n];
             if (!p->velocity) continue;
-            seq_start_voice(p->note, p->velocity);
-            seq_note[n] = p->note;
-            seq_active[n] = 1U;
-            /* The stored gate remains the user's base. Adaptive phrasing
-             * gently reshapes it from the interpreted articulation class. */
-            unsigned gate = p->gate_percent > 100U ? 100U : p->gate_percent;
-            const struct orch_intent *intent = &runtime[seq_part].intent;
-            unsigned adaptive_gate = gate;
-            switch (intent->length_class) {
-            case ORCH_LEN_TIED:     adaptive_gate = 96U; break;
-            case ORCH_LEN_SHORT:    adaptive_gate = 62U; break;
-            case ORCH_LEN_FAST:     adaptive_gate = 48U; break;
-            case ORCH_LEN_ACCENTED: adaptive_gate = 72U; break;
-            case ORCH_LEN_NORMAL:
-            default:                adaptive_gate = 82U; break;
+            /* In adaptive mode, keep the user's rhythm and step data, but
+             * voice chord tones from the live harmony and thin inner voices
+             * during quiet/sparse playing. Slot zero remains the anchor. */
+            if (seq_adaptive && n > 0U &&
+                (seq_input_activity[seq_part] < 82U ||
+                 seq_input_velocity[seq_part] < 46U) &&
+                (current_step & 3U) != 0U) continue;
+            const unsigned played_note = seq_adapt_note(seq_part, p->note);
+            unsigned velocity = p->velocity;
+            if (seq_adaptive) {
+                const int delta = ((int)seq_input_velocity[seq_part] - 80) / 5;
+                int adjusted = (int)velocity + delta;
+                if ((current_step & 3U) == 0U) adjusted += 5;
+                if (adjusted < 1) adjusted = 1;
+                if (adjusted > 127) adjusted = 127;
+                velocity = (unsigned)adjusted;
             }
-            gate = (gate * 3U + adaptive_gate) / 4U;
+            seq_start_voice(played_note, velocity);
+            seq_note[n] = (uint8_t)played_note;
+            seq_active[n] = 1U;
+            /* Preserve the stored gate as the base; adaptive activity adds
+             * legato space for relaxed input and shorter articulation when
+             * the player is moving quickly. */
+            unsigned gate = p->gate_percent > 100U ? 100U : p->gate_percent;
+            if (seq_adaptive) {
+                unsigned adaptive_gate = 82U;
+                if (seq_input_activity[seq_part] < 82U) adaptive_gate = 94U;
+                else if (seq_input_activity[seq_part] > 135U) adaptive_gate = 68U;
+                gate = (gate * 3U + adaptive_gate) / 4U;
+            }
             if (gate < 8U) gate = 8U;
             if (gate > 100U) gate = 100U;
             seq_off_at[n] = sample_counter + (step_samples * gate) / 100U;
