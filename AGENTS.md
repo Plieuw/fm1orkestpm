@@ -1,7 +1,9 @@
 # AGENTS.md
 
 Read this first, then `docs/PARALLEL_WORK.md` (branches, measured facts, the
-handover section) and `docs/PANEL.md` (what every control and page does).
+handover section), `docs/PANEL.md` (what every control and page does) and
+`docs/NEXT_BETA.md`, the brief for whoever takes the light over the boards into
+the next beta.
 
 ## Where the work is
 
