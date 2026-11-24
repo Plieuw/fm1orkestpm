@@ -151,3 +151,26 @@ controls and preset workflow are unchanged.
 Validation added: a host regression compares early-note energy for fast and
 slow ADSR attacks. Target CPU headroom and listening tests on FM1 remain
 required; this is not yet a hardware-verified sound-design result.
+
+
+## Adaptive sustain expression layer (0.3.13 work)
+
+A second, slow expression contour now sits above the four-stage ADSR. It is
+not a replacement for the user envelope and does not change its attack,
+decay, sustain or release settings. During sustain and release, a smooth
+triangle-derived low-frequency curve gently moves the physical excitation
+and VCA gain. Its rate is set from the adaptive note density and phrase-peak
+intent, not from BPM, so ARP/sequencer timing does not force an audible tremolo.
+
+Depth is family-specific: bowed strings model bow-pressure swell, woodwinds
+model breath support, brass use a restrained pressure variation, and choir
+gets a slightly broader slow breath arc. Mallets and other struck voices have
+no artificial sustain modulation, preserving their natural resonant decay.
+The same voice path is used by live MIDI, ARP and phrase sequencer. The
+modulation is bounded to a few percent and uses fixed-point arithmetic; it
+adds no controls or panel remapping.
+
+Host regression samples the expression state over a sustained string note and
+checks that it evolves, while confirming mallet voices do not receive the
+sustain swell. Target CPU headroom and listening tests on the FM1 remain
+required before release.
