@@ -103,7 +103,7 @@ static void test_routing(void)
     CHECK(orch_voices_of_part(1U) == 0U);
     CHECK(orch_note_count(0U) == 1U);
 
-    orch_panic();
+    orch_reset_notes();
     render(1U);
     CHECK(orch_active_voices() == 0U);
     CHECK(orch_note_count(0U) == 0U);
@@ -112,6 +112,49 @@ static void test_routing(void)
     render(2U);
     CHECK(orch_voices_of_part(1U) >= 1U);
     CHECK(orch_voices_of_part(0U) == 0U);
+    orch_init();
+}
+
+
+static void test_eight_part_routing(void)
+{
+    orch_init();
+    for (unsigned p = 0; p < 8U; ++p) {
+        CHECK(orch_part_for_channel(p) == p);
+        midi(0x90U | p, 60U + p, 100U);
+    }
+    render(8U);
+    for (unsigned p = 0; p < 8U; ++p)
+        CHECK(orch_note_count(p) == 1U);
+    CHECK(orch_active_voices() <= ORCH_MAX_VOICES);
+    for (unsigned p = 0; p < 8U; ++p)
+        midi(0x80U | p, 60U + p, 0U);
+    render(500U);
+    CHECK(orch_active_voices() == 0U);
+    orch_init();
+}
+
+static void test_repeated_same_pitch_note_off_fifo(void)
+{
+    orch_init();
+    CHECK(orch_engine_set_player_cap(0U, 1U) == 0);
+    midi(0x90U, 60U, 96U);
+    render(2U);
+    midi(0x90U, 60U, 112U);
+    render(2U);
+    CHECK(orch_note_count(0U) == 2U);
+
+    /* The first Note Off consumes only the oldest note instance. */
+    midi(0x80U, 60U, 0U);
+    render(2U);
+    CHECK(orch_note_count(0U) == 1U);
+    CHECK(orch_voices_of_part(0U) >= 1U);
+
+    /* The second Note Off releases the newer instance. */
+    midi(0x80U, 60U, 0U);
+    render(500U);
+    CHECK(orch_note_count(0U) == 0U);
+    CHECK(orch_active_voices() == 0U);
     orch_init();
 }
 
@@ -165,7 +208,7 @@ static void test_divisi_players(void)
     render(2U);
     CHECK(orch_voices_of_part(0U) == 2U);   /* the phrase opens with two players */
 
-    orch_panic();
+    orch_reset_notes();
     render(1U);
     CHECK(orch_engine_set_player_cap(0U, 1U) == 0);
     midi(0x90U, 62U, 100U);
@@ -367,6 +410,8 @@ int main(void)
     test_round_trip_loss();
     test_string_pitch_autocorrelation();
     test_routing();
+    test_eight_part_routing();
+    test_repeated_same_pitch_note_off_fifo();
     test_families();
     test_instruments();
     test_divisi_players();
