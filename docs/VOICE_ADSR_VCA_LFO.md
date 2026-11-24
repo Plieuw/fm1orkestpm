@@ -32,8 +32,9 @@ shapes; free rates (0.1–20 Hz) or tempo divisions (quarter, eighth, sixteenth,
 dotted eighth); delay and fade-in; and independent pitch, tremolo and
 brightness destinations. Each voice has its own phase. Pitch depth is capped
 at 50 cents, tremolo at a musically bounded attenuation, and brightness is
-limited to a small damping shift. The existing adaptive vibrato remains
-active and has not been replaced.
+limited to a small damping shift. Adaptive phrase intent gently scales LFO
+rate (0.85–1.15x) and depth (0.60–1.20x), with hard bounds. The existing
+adaptive vibrato remains active and has not been replaced.
 
 The amplitude envelope currently multiplies the physical-model output in the
 voice mixer. That is already a VCA-like gain stage, but it is not exposed as
