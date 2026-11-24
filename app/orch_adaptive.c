@@ -47,6 +47,7 @@ void orch_adaptive_init(struct orch_adaptive *a)
     a->phrase_n = 0U;
     a->vel_n = 0U;
     a->density = 2U;
+    a->held_notes = 0U;
 }
 
 void orch_adaptive_reset_phrase(struct orch_adaptive *a)
@@ -59,6 +60,7 @@ void orch_adaptive_reset_phrase(struct orch_adaptive *a)
     a->have_off = 0U;
     a->peak_note = 0U;
     a->density = 2U;
+    a->held_notes = 0U;
 }
 
 unsigned orch_adaptive_resolve(unsigned articulation, unsigned length_class)
@@ -96,7 +98,7 @@ void orch_adaptive_note(struct orch_adaptive *a, struct orch_intent *out,
                            ioi > (a->ioi_avg * 12U) / 5U || gap > SEC(1.2);
     const uint32_t conn_limit = (a->ioi_avg * 15U) / 100U;
     const uint32_t conn_cap = conn_limit < MS(40) ? conn_limit : MS(40);
-    const int connected = !new_phrase && gap < conn_cap;
+    const int connected = !new_phrase && (a->held_notes > 0U || gap < conn_cap);
 
     if (gap < SEC(3)) {
         a->gap_avg = a->gap_n ? (a->gap_avg * 7U + gap * 3U) / 10U : gap;
@@ -260,6 +262,7 @@ void orch_adaptive_note(struct orch_adaptive *a, struct orch_intent *out,
     a->have_prev = 1U;
     if (a->idx < 255U) ++a->idx;
     a->last_on = now;
+    if (a->held_notes < 255U) ++a->held_notes;
 
     (void)velocity;
 }
@@ -294,4 +297,5 @@ void orch_adaptive_off(struct orch_adaptive *a, uint32_t now)
     if (!a) return;
     a->off_now = now;
     a->have_off = 1U;
+    if (a->held_notes) --a->held_notes;
 }
