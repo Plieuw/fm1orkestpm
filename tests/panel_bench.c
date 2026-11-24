@@ -17,6 +17,7 @@
 #include "fm1.h"
 #include "orch_engine.h"
 #include "orch_fx.h"
+#include "orch_level.h"
 #include "orch_ui.h"
 
 static uint16_t fb[240 * 240];
@@ -99,6 +100,7 @@ static void render(unsigned blocks)
     for (unsigned i = 0; i < blocks; ++i) {
         memset(block, 0, sizeof block);
         orch_render_q23(block, 128U);
+        orch_level_take(block, 2U * 128U);
     }
 }
 
@@ -162,6 +164,29 @@ int main(int argc, char **argv)
     clock_ms += 2400U;
     orch_ui_control();
     report("lights 2");
+
+    /* the light in front of the boards follows the output: half a second of one
+     * held note, scanned the way the control task scans it. One note, so the
+     * voices do not change under the measurement and every fill here is the
+     * light and not the lamps. */
+    for (unsigned p = 0; p < 4U; ++p)
+        orch_note_event(p, 60U + 4U * p, 0U);
+    render(200);
+    orch_note_event(0U, 60U, 100U);
+    render(200);
+    fills = blits = filled_px = blitted_px = 0;
+    for (unsigned i = 0; i < 20U; ++i) {
+        render(33);                /* about 48 ms of audio a step */
+        clock_ms += 25U;
+        orch_ui_control();
+    }
+    printf("level      %u of 255 while the note sounds\n", orch_output_level());
+    report("sound 0.5s");
+    /* the gate is not what it follows: the note off, a little silence rendered,
+     * and the level is back down */
+    orch_note_event(0U, 60U, 0U);
+    render(400);
+    printf("level      %u of 255 after the note off\n", orch_output_level());
 
     /* ARP: three keys held, arp on. The keys of the real board arrive as note
      * events through groove_midi_note(), which this preview does not have, so
