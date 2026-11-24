@@ -33,6 +33,12 @@ It uses only documented FM1 Core interfaces from `fm1.h`, `fm1_app.h` and
 | Button bit 5 | Advance articulation |
 | Button bit 6 | Cycle Divisi cap |
 | Button bit 13 | Cycle pages: orchestra → performance → phrase detail |
+| Physical PRESETS encoder (matrix encoder 6) | Select and immediately load the previous/next factory orchestra scene, on every page |
+
+The PRESETS encoder follows HAWK-CHUA's dedicated physical encoder role; it is
+not Encoder 1 and does not open a separate preset page. Turning it applies the
+selected scene immediately to all four parts, performance settings and FX.
+There is no additional confirmation/load button.
 
 Local keyboard channels are the first channel of each default group:
 part 1 = MIDI channel 1, part 2 = 5, part 3 = 9, part 4 = 13.
@@ -69,17 +75,21 @@ The page cycle uses button bit 13 (physical label still needs confirmation):
 These are source-level mappings, not confirmed physical button labels. The panel adapter pauses/resumes the engine only when a setting changes; physical encoder/button indices and knob scaling must be checked on the FM1.
 
 
-## Factory presets — orchestra preset page
+## Factory presets — HAWK-CHUA PRESETS encoder
 
-Button bit 13 cycles four pages: orchestra → performance → phrase detail →
-factory presets. On the **ORCHESTRA PRESETS** page, Encoder 1 browses eight
-factory scenes and button bit 6 loads the highlighted scene. The load is
-applied as one control-task transaction while the engine is paused; it updates
-all four parts, their instruments/articulations/divisi caps, shared ARP/phrase
-starting settings and master FX mix. The live adaptive learner still responds
-to incoming player notes after loading.
+The dedicated PRESETS encoder is matrix encoder 6, matching HAWK-CHUA's
+physical panel map. Its detents are read from `controls.encoders[6]`.
+Turning PRESETS selects and immediately applies the next/previous factory
+orchestra scene; it works from the orchestra, performance and phrase-detail
+pages. It is not mapped to Encoder 1, does not open a separate page and needs
+no confirmation button.
+
+The scene is applied as one control-task transaction while the engine is
+paused. It updates all four parts, their instruments/articulations/divisi
+caps, ARP/phrase starting settings and master FX mix. The live adaptive learner
+continues responding to incoming player notes after loading.
 
 Factory scenes: Cinema Strings, Baroque, Wind Choir, Brass Fan, Pizz Motion,
 Ambient, Ostinato and Full Orchestra. These are starting points, not saved
-user slots. Physical button labels/indices still require verification on the
-FM1 hardware; the code uses the existing numeric button mapping.
+user slots. The matrix-encoder index follows the stable HAWK-CHUA physical
+mapping; confirm detent direction and behavior on the actual FM1 hardware.
