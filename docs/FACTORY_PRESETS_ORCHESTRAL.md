@@ -93,3 +93,10 @@ current engine API.
 Source compilation is not hardware validation. Confirm encoder direction,
 physical button mapping, MIDI response, effect balance and the perceived
 orchestral voicing on the FM1 before treating the scenes as final.
+
+
+The next voice-control revision is specified in
+[`VOICE_ADSR_VCA_LFO.md`](VOICE_ADSR_VCA_LFO.md): full ADSR, a normal per-voice
+VCA independent of model damping, and a general assignable LFO. The current
+engine only has attack/release ramps plus delayed vibrato; the full ADSR and
+assignable LFO are planned work, not yet implemented.
