@@ -1,0 +1,36 @@
+<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+<!-- Walnut grain as vector artwork, a 256 px seamless tile for the cheeks of
+     the front panel (see web/emu/hardware.css, .cheek). -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <defs>
+    <linearGradient id="w" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#8a5a33"/>
+      <stop offset=".35" stop-color="#a97245"/>
+      <stop offset=".62" stop-color="#7d4f2c"/>
+      <stop offset="1" stop-color="#96643c"/>
+    </linearGradient>
+    <pattern id="grain" width="256" height="256" patternUnits="userSpaceOnUse">
+      <rect width="256" height="256" fill="url(#w)"/>
+      <g fill="none" stroke="#5e3a1f" stroke-linecap="round">
+        <path d="M8 0 C22 60 2 120 16 180 C26 220 12 246 18 256" stroke-width="3" opacity=".55"/>
+        <path d="M40 0 C56 50 34 96 46 150 C56 196 40 230 48 256" stroke-width="4" opacity=".45"/>
+        <path d="M72 0 C88 66 62 110 74 168 C84 214 66 240 76 256" stroke-width="2.5" opacity=".5"/>
+        <path d="M108 0 C120 40 100 92 112 140 C122 190 104 226 114 256" stroke-width="5" opacity=".3"/>
+        <path d="M138 0 C152 58 130 104 142 158 C152 204 136 236 144 256" stroke-width="3" opacity=".5"/>
+        <path d="M172 0 C186 48 166 98 178 146 C188 192 170 228 180 256" stroke-width="4" opacity=".4"/>
+        <path d="M206 0 C220 62 198 108 210 162 C220 208 202 238 212 256" stroke-width="2.5" opacity=".55"/>
+        <path d="M238 0 C250 54 230 100 242 154 C252 200 236 232 244 256" stroke-width="3.5" opacity=".35"/>
+      </g>
+      <g fill="#4d2e17" opacity=".5">
+        <ellipse cx="76" cy="96" rx="7" ry="4" transform="rotate(-12 76 96)"/>
+        <ellipse cx="196" cy="188" rx="9" ry="5" transform="rotate(8 196 188)"/>
+        <ellipse cx="140" cy="40" rx="5" ry="3"/>
+      </g>
+      <g fill="#b98354" opacity=".35">
+        <rect width="6" height="256"/>
+        <rect x="150" width="3" height="256"/>
+      </g>
+    </pattern>
+  </defs>
+  <rect width="256" height="256" fill="url(#grain)"/>
+</svg>
