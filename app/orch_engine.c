@@ -663,19 +663,59 @@ static void engine_sustain(unsigned ch, unsigned on)
 }
 
 
+/* Keep an answer inside the player's currently held harmony whenever
+ * that information exists. The configured interval remains the fallback. */
+static unsigned response_harmonic_note(unsigned part, unsigned raw)
+{
+    if (part >= ORCH_PARTS) return raw;
+    const uint16_t mask = seq_input_chord_mask[part];
+    if (!mask) return raw;
+    unsigned best = raw, best_dist = 128U;
+    for (unsigned n = 36U; n <= 96U; ++n) {
+        if (!(mask & (uint16_t)(1U << (n % 12U)))) continue;
+        const unsigned d = n > raw ? n - raw : raw - n;
+        if (d < best_dist) { best = n; best_dist = d; }
+    }
+    return best;
+}
+
+/* When both wind and brass parts are configured, let them trade the answer.
+ * Other configurations retain the explicitly selected follower. */
+static unsigned response_section_part(void)
+{
+    const struct orch_part *base = orch_part_get(response_follower);
+    if (!base) return response_follower;
+    if (base->family != ORCH_FAM_WOODWINDS && base->family != ORCH_FAM_BRASS)
+        return response_follower;
+    const unsigned wanted = base->family == ORCH_FAM_WOODWINDS ?
+                            ORCH_FAM_BRASS : ORCH_FAM_WOODWINDS;
+    for (unsigned p = 0; p < ORCH_PARTS; ++p) {
+        const struct orch_part *candidate = orch_part_get(p);
+        if (p != response_leader && candidate && candidate->enabled &&
+            candidate->family == wanted) return p;
+    }
+    return response_follower;
+}
+
 static void response_schedule(unsigned leader, unsigned note, unsigned velocity)
 {
     if (!response_enabled || leader != response_leader || !velocity ||
         response_stage != 0U || response_leader == response_follower) return;
-    /* Alternate answers leave space for the caller's own melodic line. */
+    /* Two complementary motifs prevent every answer becoming the same
+     * transposed copy. They are intentionally small and deterministic. */
+    static const int8_t motif[4] = { 0, 2, -2, 0 };
     if (++response_phrase_count & 1U) return;
-    int answer=(int)note+(int)response_interval;
-    if (answer<36) answer=36;
-    if (answer>96) answer=96;
-    response_note=(uint8_t)answer;
-    response_on_at=sample_counter + (ORCH_SAMPLE_RATE*60U)/((uint32_t)tempo*2U);
-    response_off_at=response_on_at + (ORCH_SAMPLE_RATE*60U)/((uint32_t)tempo*2U);
-    response_stage=1U;
+    int answer = (int)note + (int)response_interval +
+                 (int)motif[(response_phrase_count >> 1) & 3U];
+    if (answer < 36) answer = 36;
+    if (answer > 96) answer = 96;
+    answer = (int)response_harmonic_note(leader, (unsigned)answer);
+    response_note = (uint8_t)answer;
+    response_follower = (uint8_t)response_section_part();
+    const uint32_t eighth = (ORCH_SAMPLE_RATE * 60U) / ((uint32_t)tempo * 2U);
+    response_on_at = sample_counter + eighth;
+    response_off_at = response_on_at + eighth;
+    response_stage = 1U;
 }
 
 static void response_tick(void)
