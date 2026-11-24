@@ -430,13 +430,20 @@ static unsigned pick_voice(unsigned part)
  * physical-model equivalent of a legato bow/breath connection. */
 static int find_legato_voice(unsigned part, unsigned player, unsigned family)
 {
+    int best = -1;
+    uint32_t newest_age = 0U;
     for (unsigned i = 0; i < ORCH_MAX_VOICES; ++i) {
         const voice_t *v = &voices[i];
-        if (v->active && !v->releasing && v->gate && v->part == part &&
-            v->player == player && v->family == family && !v->auto_release)
-            return (int)i;
+        /* A just-released note is still a valid legato source during the
+         * adaptive connection window. Ignore old, nearly silent release tails. */
+        if (v->active && !v->auto_release && v->part == part &&
+            v->player == player && v->family == family &&
+            v->env > ORCH_ENV_MAX / 5 && v->age >= newest_age) {
+            best = (int)i;
+            newest_age = v->age;
+        }
     }
-    return -1;
+    return best;
 }
 
 static void voice_start(unsigned part, unsigned note, unsigned velocity,
