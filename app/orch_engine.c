@@ -88,6 +88,7 @@ static uint8_t seq_adaptive;
 static uint8_t seq_input_pc_count[ORCH_PARTS][12];
 static uint16_t seq_input_chord_mask[ORCH_PARTS];
 static uint8_t seq_input_note[ORCH_PARTS], seq_input_velocity[ORCH_PARTS];
+static uint8_t seq_input_have_note[ORCH_PARTS];
 static uint8_t seq_input_activity[ORCH_PARTS];
 static int8_t seq_input_direction[ORCH_PARTS];
 static uint32_t seq_input_last_on[ORCH_PARTS], seq_input_ioi[ORCH_PARTS];
@@ -729,12 +730,13 @@ static void seq_learn_input(unsigned part, unsigned note, unsigned velocity)
                 seq_input_ioi[part] = seq_input_ioi[part] ?
                     (seq_input_ioi[part] * 3U + ioi) / 4U : ioi;
         }
-        if (seq_input_note[part] || seq_input_last_on[part]) {
+        if (seq_input_have_note[part]) {
             const int delta = (int)note - (int)seq_input_note[part];
             if (delta >= 2) seq_input_direction[part] = 1;
             else if (delta <= -2) seq_input_direction[part] = -1;
         }
         seq_input_note[part] = (uint8_t)note;
+        seq_input_have_note[part] = 1U;
         seq_input_velocity[part] = seq_input_velocity[part] ?
             (uint8_t)((seq_input_velocity[part] * 3U + velocity) / 4U) :
             (uint8_t)velocity;
@@ -802,6 +804,7 @@ void orch_init(void)
     for (unsigned p = 0; p < ORCH_PARTS; ++p) {
         seq_input_chord_mask[p] = 0U;
         seq_input_note[p] = seq_input_velocity[p] = 0U;
+        seq_input_have_note[p] = 0U;
         seq_input_activity[p] = 100U;
         seq_input_direction[p] = 0;
         seq_input_last_on[p] = seq_input_ioi[p] = 0U;
