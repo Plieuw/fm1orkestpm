@@ -23,10 +23,11 @@ geometry layer:
   row, sorted, filled as spans, with the end pixels of each span mixed towards
   the colour the shape sits on, which is where the round edge comes from.
 
-`orch_ui_draw.inc` sits on top: `mix565`, `grad`, `disc`, `pen`, `arc_soft`,
-`curve`. Changing a page is now changing its geometry — a knob is a circle, a
-stadium and an arc, and a bigger knob is a bigger number — instead of rewriting
-a loop over pixels.
+`orch_ui_draw.inc` sits on top: `mix565`, `disc`, `pen`, `arc_soft`, `curve`.
+Changing a page is now changing its geometry — a knob is a circle, a stadium and
+an arc, and a bigger knob is a bigger number — instead of rewriting a loop over
+pixels. One page is not drawn at all: the hall on the stage page is a photograph,
+reduced to runs of colour (see below).
 
 ## Only what moves is repainted
 
@@ -41,10 +42,9 @@ strip. Each has its own cost:
 * a turned knob patches its own cell: its cap, its arc, its name and its value,
   and the cell that lost the highlight before it.
 
-On the stage page the hall is two pictures: the art (wall, opening with its
-arch, boards, pool of light, curtains, audience) is drawn when the page is
-entered, and the life (players, the listener's seat, the instrument's name) is
-drawn on its own afterwards. A knob turn there no longer repaints the wall.
+On the stage page the photograph is the still part: it is drawn when the page is
+entered and when the hall's lights step, and a knob turn there repaints the four
+lamps, the players and the marks over it, not the hall.
 
 ## What drawing costs
 
@@ -53,21 +53,63 @@ pages through the same controls as the preview and counts the calls:
 
 | what | fills before | fills now |
 | --- | --- | --- |
-| STAGE | 63 106 | 4 740 |
+| STAGE | 63 106 | 8 557 |
 | ARP | 9 370 | 1 013 |
 | SEQUENCE | 61 723 | 2 150 |
 | FX | 87 262 | 7 152 |
 | CONSOLE | 4 366 | 1 241 |
 | one knob turn | — | 554 |
 | its highlight fading | 819 | 197 |
-| **five pages** | **225 827** | **17 047** |
+| **five pages** | **225 827** | **20 864** |
 
-The pixels are the same (949 k before, 462 k now — the desks and step bars are
-flat bands instead of gradients, and the hall's art is only painted when the
-page is entered), so this is the same screen for 7.5% of the fills. What is left
-is the page body a setting repaints, not the shapes and not the strip. These are
-host numbers for the number of calls; they are not a measurement of the FM-1's
-own frame time, which needs the board.
+The STAGE figure is the whole visit, as the bench makes it: the page is entered
+on the photograph (2 356 fills for the picture, the title, the marks and the
+strip), and the hall's lights then step twice while the chord lasts (2 617 and
+981). The picture alone is 1 495 fills — a quarter of what the drawn hall cost
+and a fortieth of what it cost at the start. The photograph is why the total is
+higher than the drawn hall's 17 047: realism and animation are what those three
+thousand fills buy. These are host numbers for the number of calls; they are not
+a measurement of the FM-1's own frame time, which needs the board.
+
+## The hall is a photograph
+
+`tools/panel_photo.py` turns photographs — or stills from a film — into the
+panel's own picture format. It centre-crops each image to 240 × 164, mixes it
+down to sixteen colours taken from the images themselves, averages every 2 × 2
+block to one cell, and writes, for every row, the runs that row is made of:
+
+* three hex characters a run: the palette index, then the run's width in cells;
+* a row table per frame, so `draw_photo()` starts at the right run;
+* so the file is not only a picture but the list of window commands that draw
+  it — `fm1_screen_fill` per run, about 1 500 for the whole hall.
+
+Neighbouring runs whose colours are close enough to be one are merged
+(`--merge 24`), which is what keeps a row at ten fills instead of a hundred and
+twenty: the seams it removes are one palette step apart and cannot be seen.
+
+Dithering is off for the same reason: a dithered photograph is a run of one or
+two cells a colour, and that is a thousand extra fills. The palette is small
+exactly where the picture is dark, which is most of a hall at night.
+
+The first image is the rest frame; every later image is an animation frame. The
+hall in the panel has three: the house before the music, the stage with its
+lights up, and one spotlight. While a part is sounding the page steps between
+the lit frames every 1.2 s; when the hall is quiet it stays on the first.
+
+To change the picture, replace the frames and run:
+
+```sh
+python3 tools/panel_photo.py --parts --width 240 --height 164 --block 2 \
+    --colors 16 --dither 0 --merge 24 frame-a.jpg frame-b.jpg frame-c.jpg \
+    -o app/orch_ui_photo.inc
+```
+
+`--parts` writes each frame to `app/orch_ui_photo_<n>.inc`, included by
+`orch_ui_photo.inc`; `--preview out.png` writes what the panel will show, which
+is how the palette and the merge were chosen. Any PNG or JPEG works — a
+photograph of a real hall, a frame from a concert film, a drawing. The source
+frames used here are not committed (they are photographs of several hundred
+kilobytes); the generated include is.
 
 ## One palette, the page's own
 
@@ -81,7 +123,7 @@ own frame time, which needs the board.
 | the value of the knob that just moved | light amber `#ffcf73` | `0xFE6E` |
 | a section that is sounding | green | `0x07E0` |
 | recording | wine red | `0xE2A7` |
-| the hall | burgundy curtains, wooden floor | `0x8800`, `0x8200` |
+| the hall | sixteen colours, out of the photograph | — |
 
 ## The frame
 
@@ -98,13 +140,13 @@ letters, the digits and ` -./:+(),<>%#`.
 
 ## What each page draws
 
-*STAGE* — four columns on the left, one per part, each filling from the floor
-up with the voices that part is sounding; the selected one wears an amber edge.
-Beside them the hall: a warm wall, the arch of the stage with its curtains, the
-boards running towards you with a pool of light, the players standing where
-their sections sit (lit when they sound) and two rows of the audience, the
-listener's seat in amber. The selected part's instrument is the one word on the
-page. `KNOB3` moves the listener across, `KNOB4` back.
+*STAGE* — a photograph of a hall, and the instrument's life drawn over it: four
+narrow lamps in the dark rows of seats fill from the bottom up with the voices
+each part is sounding (the selected one amber-capped), the players stand on the
+boards where their sections sit and light up when they sound, the listener's
+seat is amber among the seats, and the selected part's instrument is the one
+word on the page. While a part sounds the hall's own lights step between the
+three frames of the picture. `KNOB3` moves the listener across, `KNOB4` back.
 
 *ARP* — the pattern itself: the eight notes of one cycle rising across the
 octaves, joined by a line, each with a bar as long as its gate, the held keys as
@@ -134,13 +176,14 @@ The panel is one translation unit: `app/orch_ui.c` included from `app/`, so
 | `app/orch_ui.c` | the palette, the panel's state, the names the engine gives, the include list |
 | `app/orch_ui_font.inc` | the 5x7 font and `text()` |
 | `app/orch_ui_path.inc` | paths, the span rasterizer, strokes |
-| `app/orch_ui_draw.inc` | `mix565`, `isqrt`, gradients, discs, pens, arcs, curves |
+| `app/orch_ui_draw.inc` | `mix565`, `isqrt`, discs, pens, arcs, curves |
 | `app/orch_ui_view.inc` | the string helpers, `kv`, `card`, `bar`, `text_center` |
 | `app/orch_ui_strip.inc` | the four knobs, their value arcs, the strip and its per-cell patch |
-| `app/orch_ui_stage.inc` | the STAGE page, the hall's art and its life |
+| `app/orch_ui_photo.inc` | the hall as a photograph: the palette, and the runs of each frame |
+| `app/orch_ui_stage.inc` | the STAGE page: the photograph, the lamps, the players |
 | `app/orch_ui_pages.inc` | ARP and SEQUENCE |
 | `app/orch_ui_fx.inc` | CONSOLE and FX |
-| `app/orch_ui_frame.inc` | the title bar, the body, the two repaint signatures, the live repaint |
+| `app/orch_ui_frame.inc` | the title bar, the body, the three repaint signatures, the live repaint |
 | `app/orch_ui_state.inc` | the edits, the save record, the note map, the LEDs, the knob speed |
 | `app/orch_ui_api.inc` | the entry points the app calls |
 
