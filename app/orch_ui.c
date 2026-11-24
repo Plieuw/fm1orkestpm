@@ -29,15 +29,18 @@
 #define TITLE_H 22U
 #define BODY_Y (TITLE_H + 4U)
 #define STRIP_Y 190U                  /* the knob cells, under the page body */
+#define ROW_H 26U                     /* one part row on the stage page */
 #define STRIP_H (SW - STRIP_Y)
 #define UI_IDLE_MS 25U
 #define UNITY_Q23 (1UL << 23)
 #define SEQ_SLOTS 4U
 
 enum {
-    C_BG = 0x0000, C_TITLE = 0x001F, C_ROW = 0x1082, C_SEL = 0x2124,
+    C_BG = 0x0000, C_TITLE = 0x6000, C_ROW = 0x1082, C_SEL = 0x2124,
     C_TEXT = 0xFFFF, C_DIM = 0x8410, C_METER = 0x07E0, C_ART = 0xFD20,
-    C_STEP = 0x4208, C_NOW = 0x07E0, C_REC = 0xF800
+    C_STEP = 0x4208, C_NOW = 0x07E0, C_REC = 0xF800,
+    /* the hall: burgundy curtains, a warm wooden floor and a dim shell */
+    C_CURTAIN = 0x8800, C_WOOD = 0x8200, C_SHELL = 0x3186
 };
 
 /* The matrix ids, from the board's own numbering. */
@@ -223,8 +226,10 @@ static const char *scale_name(unsigned s)
 
 static const char *page_name(unsigned p)
 {
+    /* the page names follow the hall: the parts page is the stage, the global
+     * page is the console at the back of it */
     static const char *const names[PAGE_COUNT] = {
-        "PARTS", "ARP", "SEQUENCER", "GLOBAL", "FX"
+        "STAGE", "ARP", "SEQUENCE", "CONSOLE", "FX"
     };
     return p < PAGE_COUNT ? names[p] : "?";
 }
@@ -456,24 +461,24 @@ static void draw_meter(unsigned p)
 {
     const struct orch_part *part = orch_part_get(p);
     const unsigned ceiling = part->voice_ceiling ? part->voice_ceiling : 1U;
-    const unsigned y = BODY_Y + p * 30U + 22U;
+    const unsigned y = BODY_Y + p * ROW_H + 20U;
     unsigned voices = orch_voices_of_part(p);
     if (voices > ceiling) voices = ceiling;
-    fm1_screen_fill(8U, y, SW - 16U, 5U, C_BG);
+    fm1_screen_fill(8U, y, SW - 16U, 4U, C_BG);
     if (voices)
-        fm1_screen_fill(8U, y, (SW - 16U) * voices / ceiling, 5U,
+        fm1_screen_fill(8U, y, (SW - 16U) * voices / ceiling, 4U,
                         p == ui.part ? C_METER : C_DIM);
     shown_voices[p] = (uint8_t)voices;
 }
 
 static void draw_part_row(unsigned p, uint16_t bg)
 {
-    const unsigned y = BODY_Y + p * 30U;
+    const unsigned y = BODY_Y + p * ROW_H;
     const struct orch_part *part = orch_part_get(p);
     char line[40];
     unsigned n;
 
-    fm1_screen_fill(0, y, SW, 30U, bg);
+    fm1_screen_fill(0, y, SW, ROW_H, bg);
     shown_voices[p] = 0xFFU;
 
     n = put(line, 0, sizeof line, "P");
@@ -493,36 +498,66 @@ static void draw_part_row(unsigned p, uint16_t bg)
     draw_meter(p);
 }
 
-/* The stage under the four rows, as the listener hears it: the yellow bar is
- * the listener's seat, the four squares are the parts on their section's place
- * (the selected part in green). Moving the listener redraws it, so the picture
- * follows KNOB3 and KNOB4 without a new page. */
-static void draw_stage(void)
+/* The hall under the four rows, as the listener hears it: an orchestra shell
+ * behind the players, the wooden floor they stand on, the curtains at the
+ * sides, and the audience row in front where the lit seat is the listener.
+ * A part stands on its section's place (the selected part in green), so the
+ * picture follows KNOB3 and KNOB4 without a new page. Rectangle fills only:
+ * this is a silhouette of a concert hall, not a picture of one. */
+static const uint8_t shell_half[12] = {
+    6, 14, 22, 30, 38, 46, 54, 62, 70, 78, 86, 92
+};
+
+static void draw_hall(void)
 {
-    const unsigned y = BODY_Y + 4U * 30U + 4U;
-    const unsigned left = 8U;
-    const unsigned span = SW - 16U;
-    fm1_screen_fill(left, y + 6U, span, 1U, C_ROW);
-    const unsigned lx = left +
-        (unsigned)((orch_stage_listener_x() + 100) * (int)span / 200);
-    fm1_screen_fill(lx - 3U, y, 7U, 4U, C_ART);
+    const unsigned top = BODY_Y + 4U * ROW_H + 3U;
+    const unsigned floor_y = top + 14U;
+    const unsigned left = 30U;
+    const unsigned right = SW - 30U;
+    const unsigned span = right - left;
+    const unsigned seat_y = floor_y + 30U;
+
+    /* the shell that carries the sound out over the orchestra */
+    for (unsigned row = 0; row < 12U; ++row) {
+        const unsigned half = shell_half[row];
+        fm1_screen_fill(SW / 2U - half, top + row, half * 2U, 1U, C_SHELL);
+    }
+
+    /* the floor: a band the width of the stage, one shade darker at the back */
+    fm1_screen_fill(left, floor_y, span, 26U, C_WOOD);
+    fm1_screen_fill(left + 10U, floor_y, span - 20U, 3U, C_SHELL);
+    fm1_screen_fill(left, floor_y + 26U, span, 1U, C_DIM);  /* the front edge */
+
+    /* the curtains, barely open */
+    fm1_screen_fill(left - 10U, top + 2U, 6U, seat_y - top - 2U, C_CURTAIN);
+    fm1_screen_fill(right + 4U, top + 2U, 6U, seat_y - top - 2U, C_CURTAIN);
+
+    /* the parts on their section's place, the selected one in green */
     for (unsigned p = 0; p < ORCH_PARTS; ++p) {
         const struct orch_part *part = orch_part_get(p);
         const unsigned pan = orch_stage_place(part->instrument, 128U);
-        const unsigned x = left + pan * span / 255U;
-        fm1_screen_fill(x - 2U, y + 2U, 5U, 5U, p == ui.part ? C_NOW : C_TEXT);
+        const unsigned x = left + 6U + pan * (span - 12U) / 255U;
+        fm1_screen_fill(x - 3U, floor_y + 8U, 7U, 7U,
+                        p == ui.part ? C_NOW : C_TEXT);
+        fm1_screen_fill(x - 3U, floor_y + 8U, 7U, 1U, C_DIM);
     }
+
+    /* the audience row; the lit seat is where the listener sits */
+    for (unsigned s = 0; s < 7U; ++s)
+        fm1_screen_fill(left + s * 26U, seat_y, 18U, 4U, C_STEP);
+    const unsigned lx = left +
+        (unsigned)((orch_stage_listener_x() + 100) * (int)(span - 18U) / 200);
+    fm1_screen_fill(lx, seat_y, 18U, 4U, C_ART);
+    /* the ends of the row, so the hall has a left and a right */
+    fm1_screen_fill(left - 6U, seat_y + 1U, 4U, 2U, C_DIM);
+    fm1_screen_fill(right + 2U, seat_y + 1U, 4U, 2U, C_DIM);
 }
 
 static void page_parts(void)
 {
     for (unsigned p = 0; p < ORCH_PARTS; ++p)
         draw_part_row(p, p == ui.part ? C_SEL : C_ROW);
-    draw_stage();
-    text(8U, BODY_Y + 4U * 30U + 14U,
-         "K3 K4 MOVE THE LISTENER  SEL PART", C_DIM, C_BG, SW - 16U);
-    text(8U, BODY_Y + 4U * 30U + 26U,
-         "B1/B2 OCT  B3 FX  B4 SCL  B11 SAVE", C_DIM, C_BG, SW - 16U);
+    draw_hall();
 }
 
 static void page_arp(void)
