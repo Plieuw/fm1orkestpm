@@ -37,16 +37,6 @@ static unsigned isqrt(unsigned v)
 
 #include "orch_ui_path.inc"
 
-/* A vertical gradient, one colour a row: the cheapest way to stop a field
- * looking like a flat block. */
-static void grad(unsigned x, unsigned y, unsigned w, unsigned h,
-                 uint16_t top, uint16_t bottom)
-{
-    for (unsigned r = 0; r < h; ++r)
-        fm1_screen_fill(x, y + r, w, 1U,
-                        mix565(top, bottom, h > 1U ? r * 255U / (h - 1U) : 0U));
-}
-
 /* A filled disc, shaded from its core to its edge and softened against bg:
  * a knob's cap, a player on the stage, the listener's seat, an FX lamp. */
 static void disc(unsigned cx, unsigned cy, unsigned r, uint16_t core,
