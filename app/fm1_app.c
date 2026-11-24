@@ -170,6 +170,17 @@ static void panel_apply_performance(unsigned part)
 
 static void panel_apply_preset(unsigned index)
 {
+    /* Full performance snapshots: ARP + phrase sequencer share the same
+     * timing/groove/clock controls, but each scene gets its own character. */
+    static const uint8_t fx_a[8][ORCH_FX_SLOT_COUNT] = {
+        {28,34,42,62}, {18,22,28,38}, {24,42,36,48}, {20,26,32,30},
+        {36,30,44,52}, {16,38,56,78}, {22,28,30,36}, {26,32,40,58}
+    };
+    static const uint8_t fx_b[8][ORCH_FX_SLOT_COUNT] = {
+        {32,46,28,42}, {18,30,22,18}, {40,54,34,36}, {24,42,20,16},
+        {48,38,46,34}, {62,72,58,86}, {28,34,24,20}, {36,48,38,44}
+    };
+    if (index >= ORCH_PRESET_COUNT) return;
     if (index >= ORCH_PRESET_COUNT) return;
     const orchestra_preset_t *p = &orchestra_presets[index];
     fm1_engine_pause();
@@ -192,11 +203,64 @@ static void panel_apply_preset(unsigned index)
         perf_config[part].cluster=p->cluster;
         perf_config[part].accent=p->accent;
         perf_config[part].quantize=p->quantize;
+        /* Complete ARP/SEQ state, not just the pattern selector. */
+        switch (index) {
+        case 0U: /* Cinema: broad, legato phrases */
+            perf_config[part].gate=88U; perf_config[part].swing=8U;
+            perf_config[part].logic=ORCH_PERF_OR; perf_config[part].inverse=0U;
+            perf_config[part].root=0U; perf_config[part].repeat=1U;
+            perf_config[part].velocity_groove=4U; perf_config[part].gate_groove=0U;
+            perf_config[part].latch=0U; perf_config[part].external_clock=0U; break;
+        case 1U: /* Baroque: measured pulse and light ornament */
+            perf_config[part].gate=72U; perf_config[part].swing=0U;
+            perf_config[part].logic=ORCH_PERF_ALT; perf_config[part].inverse=0U;
+            perf_config[part].root=0U; perf_config[part].repeat=2U;
+            perf_config[part].velocity_groove=1U; perf_config[part].gate_groove=1U;
+            perf_config[part].latch=1U; perf_config[part].external_clock=0U; break;
+        case 2U: /* Wind choir: breathing, spacious phrase */
+            perf_config[part].gate=92U; perf_config[part].swing=12U;
+            perf_config[part].logic=ORCH_PERF_OR; perf_config[part].inverse=0U;
+            perf_config[part].root=0U; perf_config[part].repeat=1U;
+            perf_config[part].velocity_groove=4U; perf_config[part].gate_groove=0U;
+            perf_config[part].latch=0U; perf_config[part].external_clock=0U; break;
+        case 3U: /* Brass: strong accents, compact notes */
+            perf_config[part].gate=68U; perf_config[part].swing=0U;
+            perf_config[part].logic=ORCH_PERF_AND; perf_config[part].inverse=0U;
+            perf_config[part].root=0U; perf_config[part].repeat=0U;
+            perf_config[part].velocity_groove=2U; perf_config[part].gate_groove=6U;
+            perf_config[part].latch=0U; perf_config[part].external_clock=0U; break;
+        case 4U: /* Pizzicato: short, syncopated, repeating */
+            perf_config[part].gate=54U; perf_config[part].swing=24U;
+            perf_config[part].logic=ORCH_PERF_ALT; perf_config[part].inverse=0U;
+            perf_config[part].root=0U; perf_config[part].repeat=2U;
+            perf_config[part].velocity_groove=6U; perf_config[part].gate_groove=7U;
+            perf_config[part].latch=1U; perf_config[part].external_clock=0U; break;
+        case 5U: /* Ambient: long gates, slow evolving movement */
+            perf_config[part].gate=100U; perf_config[part].swing=16U;
+            perf_config[part].logic=ORCH_PERF_OR; perf_config[part].inverse=0U;
+            perf_config[part].root=0U; perf_config[part].repeat=3U;
+            perf_config[part].velocity_groove=4U; perf_config[part].gate_groove=0U;
+            perf_config[part].latch=1U; perf_config[part].external_clock=0U; break;
+        case 6U: /* Ostinato: interlocking rhythmic motion */
+            perf_config[part].gate=76U; perf_config[part].swing=18U;
+            perf_config[part].logic=ORCH_PERF_XOR; perf_config[part].inverse=0U;
+            perf_config[part].root=0U; perf_config[part].repeat=1U;
+            perf_config[part].velocity_groove=2U; perf_config[part].gate_groove=3U;
+            perf_config[part].latch=1U; perf_config[part].external_clock=0U; break;
+        default: /* Full orchestra: balanced, adaptable foundation */
+            perf_config[part].gate=84U; perf_config[part].swing=6U;
+            perf_config[part].logic=ORCH_PERF_OR; perf_config[part].inverse=0U;
+            perf_config[part].root=0U; perf_config[part].repeat=1U;
+            perf_config[part].velocity_groove=0U; perf_config[part].gate_groove=0U;
+            perf_config[part].latch=0U; perf_config[part].external_clock=0U; break;
+        }
         (void)orch_perf_set_config(part,&perf_config[part]);
     }
     for (unsigned fx=0U; fx<ORCH_FX_SLOT_COUNT; ++fx) {
         (void)orch_fx_set_enabled(fx,p->fx_on[fx]);
         (void)orch_fx_set_mix(fx,p->fx_mix[fx]);
+        (void)orch_fx_set_param_a(fx,fx_a[index][fx]);
+        (void)orch_fx_set_param_b(fx,fx_b[index][fx]);
     }
     fm1_engine_resume();
     selected_preset=(uint8_t)index;
