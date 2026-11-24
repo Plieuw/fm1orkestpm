@@ -12,6 +12,7 @@
  */
 #include <stdint.h>
 #include "orch_engine.h"
+#include "orch_fx.h"
 #include "orch_hawk_bridge.h"
 
 #define ORCH_HAWK_CHUNK_FRAMES 32U
@@ -28,6 +29,7 @@ static int32_t q23_to_q15(int32_t sample)
 void orch_hawk_init(void)
 {
     orch_init();
+    orch_fx_init();
 }
 
 /* HAWK synth_render() replacement: output is interleaved L/R signed Q15. */
@@ -42,6 +44,7 @@ void orch_hawk_render_q15(int32_t *output, uint32_t frames)
             count = ORCH_HAWK_CHUNK_FRAMES;
 
         orch_render_q23(q23_scratch, count);
+        orch_fx_process(q23_scratch, count);
         for (uint32_t i = 0U; i < count * 2U; ++i)
             output[offset * 2U + i] = q23_to_q15(q23_scratch[i]);
         offset += count;
@@ -77,4 +80,5 @@ void orch_hawk_midi_realtime(uint8_t status)
 void orch_hawk_panic(void)
 {
     orch_panic();
+    orch_fx_reset();
 }
