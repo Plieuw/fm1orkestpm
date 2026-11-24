@@ -9,6 +9,7 @@
 #include "orch_engine.h"
 #include "orch_fx.h"
 #include "orch_part.h"
+#include "orch_stage.h"
 #include "orch_ui.h"
 
 static int failures;
@@ -252,6 +253,22 @@ int main(void)
     orch_render_q23(block, 128U);
     CHECK(orch_note_count(0U) == 0U);
 
+    /* PARTS is the stage: K3 moves the listener across, K4 moves it back, and
+     * neither of them touches the tempo the global page set */
+    press(B_HOME);
+    CHECK(orch_ui_page() == 0U);
+    clock_ms += 2000U;
+    turn(E_KNOB3, 1);
+    CHECK(orch_stage_listener_x() == 5);
+    turn(E_KNOB4, 1);
+    CHECK(orch_stage_listener_depth() == 5U);
+    CHECK(orch_ui_tempo() == 126U);
+    for (int i = 0; i < 25; ++i) {          /* clamps at the left edge */
+        clock_ms += 2000U;
+        turn(E_KNOB3, -1);
+    }
+    CHECK(orch_stage_listener_x() == -100);
+
     /* SAVE erases a sector, writes the record and reports it */
     press(B_SAVE);
     CHECK(flash_erases == 1U);
@@ -268,6 +285,9 @@ int main(void)
     CHECK(orch_fx_mix(ORCH_FX_DELAY) == 35U);
     CHECK(orch_fx_param_a(ORCH_FX_DELAY) == 45U);
     CHECK(orch_fx_param_b(ORCH_FX_DELAY) == 45U);
+    /* and the listener's seat travels in its own block of the same record */
+    CHECK(orch_stage_listener_x() == -100);
+    CHECK(orch_stage_listener_depth() == 5U);
 
     /* HOME returns to the parts page, and the scan is throttled */
     press(B_HOME);
