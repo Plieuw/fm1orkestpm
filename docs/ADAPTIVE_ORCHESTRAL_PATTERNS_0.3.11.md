@@ -121,3 +121,17 @@ Implemented on the feature branch:
 - Added a regression test proving that the same held chord produces a different first note in the contour-following ARP when the player approaches it with an ascending versus descending line.
 
 Host CI on the implementation commit: application sources and native bridge compile; HAWK overlay validation and host tests pass. PI32v2 target build is still a separate validation gate. This is not yet a flashable or physically tested firmware release.
+
+
+## Sequencer runtime pass (follow-up)
+
+The optional sequencer arranger is now implemented behind `orch_seq_set_adaptive(1)`; it is off by default so existing patterns behave exactly as before until the UI enables it.
+
+- It learns only from incoming player MIDI, not from the sequencer's own generated notes.
+- Held pitch classes form a live chord mask. Pattern notes are voiced to the nearest held chord tone; equal-distance choices follow the player's latest melodic direction.
+- During quiet or sparse input, inner chord slots can thin out while slot zero remains the rhythmic/harmonic anchor.
+- Velocity accents and gate length respond to the player's average velocity and inter-onset activity.
+- The original 16-step note/velocity/gate storage is never rewritten. The arranger modifies playback only, and if no player input is available it leaves the pattern unchanged.
+- Added a host regression test for the disabled passthrough and enabled chord-following behaviour.
+
+The HAWK amalgamation also had a target-build macro leak: the overlay previously undefined HAWK's own `ENV_MAX` before including the orchestra engine. The orchestra now uses `ORCH_ENV_MAX`, and the overlay leaves HAWK's macro intact for `keys.c`.
