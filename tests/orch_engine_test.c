@@ -252,6 +252,7 @@ static void test_overlapping_notes_use_legato_handover(void)
     render(8U);
     CHECK(orch_last_intent(0U) && orch_last_intent(0U)->connected);
     CHECK(orch_note_count(0U) == 2U);
+    printf("LEGATO DEBUG voices=%u active=%u connected=%u artic=%u density=%u\\n", orch_voices_of_part(0U), orch_active_voices(), orch_last_intent(0U)->connected, orch_last_intent(0U)->articulation, orch_last_intent(0U)->density);
     CHECK(orch_voices_of_part(0U) == 1U);
     CHECK(orch_active_voices() == 1U);
 
