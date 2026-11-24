@@ -51,6 +51,7 @@ unsigned orch_active_voices(void);
 #ifdef FM1_HOST_TEST
 uint32_t orch_test_loop_gain_per_sample_q23(unsigned trip_gain_q15, unsigned samples);
 unsigned orch_test_seq_adapt_note(unsigned part, unsigned note);
+unsigned orch_test_seq_phrase_arc_velocity(unsigned velocity, unsigned position);
 #endif
 const struct orch_intent *orch_last_intent(unsigned part);
 
