@@ -37,16 +37,34 @@ python3 -m http.server 3000                  # from the repository root
 ```
 
 The page needs `build/emu/orch.wasm`, which is build output and is not
-committed (`.gitignore`).
+committed (`.gitignore`). The page's own look lives in `web/emu/hardware.css`.
 
-## What the page does
+## The front panel
 
-- the panel on a canvas, redrawn every frame from the framebuffer;
-- the panel's 14 buttons under the mouse, the four knobs and the volume pot as
-  sliders (one slider step is one detent), the keys on `a w s e d f t g y h u j k`;
+`index.html` puts the firmware's 240 × 240 panel, behind glass, in a machined
+front panel: brushed aluminium, walnut cheeks, brass screws, button caps that
+travel when pressed and light their own indicator, and eight knurled knobs. It
+tells the truth about the hardware: the panel is drawn by `orch_ui.c`, the
+buttons and encoders go to `emu_button` and `emu_turn`, the big knob is the pot
+(`emu_knob`, 0–1023).
+
+- a knob turns by dragging it up or down (12 px per detent), by scrolling over
+  it, or with the arrow keys when it has focus;
+- the keys are on `a w s e d f t g y h u j k` (F3 upward, as on the board);
 - the engine is rendered whether or not there is an audio device, so a headless
   browser still shows live voices; with audio on, the same blocks go to an
-  `AudioWorklet` (`orch-worklet.js`) that plays the queue.
+  `AudioWorklet` (`orch-worklet.js`) that plays the queue;
+- the dark strip under the knobs is a status readout, not decoration: it says
+  what the engine and the audio context are doing and which parts are sounding.
+
+## The photographs
+
+Two photographs, and their licences are recorded in `assets/CREDITS.md` with
+author, source, licence and exactly what was changed: the Musikverein's Great
+Hall by Michał Bulsa (CC BY-SA 4.0, cropped, softened, 4.5 KB) behind the
+instrument, and a walnut floor texture from ambientCG (CC0, 1 KB) on the
+cheeks. They are small on purpose — the hall is only ever seen out of focus —
+and everything else on the page is CSS.
 
 ## What the headless check proves
 
@@ -72,6 +90,7 @@ a browser's audio stack is not the FM-1's codec, and nothing here says anything
 about audio-block time on the JieLi. That still needs the board.
 
 The page was checked in a cloud browser on 24 November 2026: the wasm loaded,
-the STAGE page with the hall drew, `audio on · 48000 Hz · running` appeared, and
-three held keys gave three voices on part 1. No console errors other than a
-missing `favicon.ico`.
+the front panel and its STAGE page drew, `audio on · 48000 Hz · running`
+appeared, and held keys gave three voices on part 1. No console errors other
+than a missing `favicon.ico`. The layout was looked at at 1440 px and at
+420 px wide; nothing was tried on a phone or in Safari.
