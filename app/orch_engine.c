@@ -1114,10 +1114,10 @@ void orch_render_q23(int32_t *out, unsigned frames)
         orch_perf_advance_sample(sample_counter);
         drain_performance_events();
         seq_tick();
-        /* Accumulate after Q15 pan scaling. With at most ORCH_MAX_VOICES
+        /* Accumulate after Q8 pan scaling. With at most ORCH_MAX_VOICES
          * voices the Q23 sums fit in int32_t, avoiding a 64-bit divide helper
          * that the PI32v2 runtime does not provide. The multiply remains
-         * 64-bit so full-scale Q23 samples retain their precision. */
+         * 64-bit so full-scale samples retain their precision. */
         int32_t left = 0, right = 0;
         unsigned active = 0U;
         for (unsigned i = 0; i < ORCH_MAX_VOICES; ++i) {
@@ -1128,8 +1128,8 @@ void orch_render_q23(int32_t *out, unsigned frames)
             ++active;
             const int32_t amp = (v->out * v->env >> 15);
             const int32_t g = (amp * (int32_t)v->velocity) >> 7;
-            left += (int32_t)(((int64_t)g * v->pan_l) >> 15);
-            right += (int32_t)(((int64_t)g * v->pan_r) >> 15);
+            left += (int32_t)(((int64_t)g * v->pan_l) >> 8);
+            right += (int32_t)(((int64_t)g * v->pan_r) >> 8);
         }
         const int32_t div = active ? (int32_t)active : 1;
         int32_t l = left / div;
