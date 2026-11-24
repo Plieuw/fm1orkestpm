@@ -131,6 +131,7 @@ The optional sequencer arranger is now implemented behind `orch_seq_set_adaptive
 - Held pitch classes form a live chord mask. Pattern notes are voiced to the nearest held chord tone; equal-distance choices follow the player's latest melodic direction.
 - During quiet or sparse input, inner chord slots can thin out while slot zero remains the rhythmic/harmonic anchor.
 - Velocity accents and gate length respond to the player's average velocity and inter-onset activity.
+- Clearing the held input chord clears stale sequencer context; a long phrase also tapers ARP phrase density toward a cadence.
 - The original 16-step note/velocity/gate storage is never rewritten. The arranger modifies playback only, and if no player input is available it leaves the pattern unchanged.
 - Added a host regression test for the disabled passthrough and enabled chord-following behaviour.
 
