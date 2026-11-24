@@ -305,8 +305,7 @@ static void perform_step(unsigned part, perf_part_t *p, uint32_t now,
 {
     uint8_t held[PERF_HELD], held_vel[PERF_HELD];
     const unsigned n=held_sorted(p,held,held_vel);
-    ++p->phrase_step;
-    if (!n) { release_all(part,p); p->running=0U; return; }
+    if (!n) { ++p->phrase_step; release_all(part,p); p->running=0U; return; }
 
     unsigned arp_note=0U, arp_vel=0U, arp_hit=0U;
     unsigned seq_notes[4], seq_vel[4], seq_n=0U;
@@ -356,7 +355,7 @@ static void perform_step(unsigned part, perf_part_t *p, uint32_t now,
             append_unique(out,outv,&count,quantize_note(p,held,n,seq_notes[i]),
                           groove_velocity(p,p->step,seq_vel[i]));
     }
-    if (!count) { ++p->step; return; }
+    if (!count) { ++p->step; ++p->phrase_step; return; }
 
     const unsigned gate_base=p->cfg.gate>100U?100U:p->cfg.gate;
     const unsigned gate_pct=groove_gate(p,p->step,gate_base);
@@ -385,6 +384,7 @@ static void perform_step(unsigned part, perf_part_t *p, uint32_t now,
         }
     }
     ++p->step;
+    ++p->phrase_step;
 }
 
 static void clock_step(unsigned part, perf_part_t *p, uint32_t now)
