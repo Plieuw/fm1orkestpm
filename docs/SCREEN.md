@@ -30,31 +30,44 @@ a loop over pixels.
 
 ## Only what moves is repainted
 
-The control task compares two signatures per scan: the page's own settings (a
-mode, a mix, the open step) and the values that change on their own (the running
-sequencer step, the arp's held keys, a part starting or stopping). A setting
-redraws the page; a live value repaints only the pixels it moves — two step
-cells, the row of key dots, the players on the stage.
+The control task compares three signatures per scan: the page's own settings (a
+mode, a mix, the open step), the values that change on their own (the running
+sequencer step, the arp's held keys, a part starting or stopping), and the knob
+strip. Each has its own cost:
+
+* a setting redraws the page body;
+* a live value repaints only the pixels it moves — two step cells, the row of
+  key dots, or the players on the stage;
+* a turned knob patches its own cell: its cap, its arc, its name and its value,
+  and the cell that lost the highlight before it.
+
+On the stage page the hall is two pictures: the art (wall, opening with its
+arch, boards, pool of light, curtains, audience) is drawn when the page is
+entered, and the life (players, the listener's seat, the instrument's name) is
+drawn on its own afterwards. A knob turn there no longer repaints the wall.
 
 ## What drawing costs
 
 Measured on the host with `tests/run_panel_bench.sh`, which drives the same five
 pages through the same controls as the preview and counts the calls:
 
-| page | fills before | fills now |
+| what | fills before | fills now |
 | --- | --- | --- |
-| STAGE | 63 106 | 13 473 |
-| ARP | 9 370 | 1 007 |
-| SEQUENCE | 61 723 | 6 635 |
-| FX | 87 262 | 10 757 |
-| CONSOLE | 4 366 | 889 |
-| **five pages** | **225 827** | **32 761** |
+| STAGE | 63 106 | 4 740 |
+| ARP | 9 370 | 1 013 |
+| SEQUENCE | 61 723 | 2 150 |
+| FX | 87 262 | 7 152 |
+| CONSOLE | 4 366 | 1 241 |
+| one knob turn | — | 554 |
+| its highlight fading | 819 | 197 |
+| **five pages** | **225 827** | **17 047** |
 
-The pixels are the same (949 k before, 886 k now — the desks and step bars are
-flat bands instead of gradients), so this is the same screen for 15% of the
-fills. The remaining count is dominated by the repaints a knob turn causes, not
-by the shapes. These are host numbers for the number of calls; they are not a
-measurement of the FM-1's own frame time, which needs the board.
+The pixels are the same (949 k before, 462 k now — the desks and step bars are
+flat bands instead of gradients, and the hall's art is only painted when the
+page is entered), so this is the same screen for 7.5% of the fills. What is left
+is the page body a setting repaints, not the shapes and not the strip. These are
+host numbers for the number of calls; they are not a measurement of the FM-1's
+own frame time, which needs the board.
 
 ## One palette, the page's own
 
@@ -123,11 +136,11 @@ The panel is one translation unit: `app/orch_ui.c` included from `app/`, so
 | `app/orch_ui_path.inc` | paths, the span rasterizer, strokes |
 | `app/orch_ui_draw.inc` | `mix565`, `isqrt`, gradients, discs, pens, arcs, curves |
 | `app/orch_ui_view.inc` | the string helpers, `kv`, `card`, `bar`, `text_center` |
-| `app/orch_ui_strip.inc` | the four knobs, their value arcs and the strip |
-| `app/orch_ui_stage.inc` | the STAGE page and the hall |
+| `app/orch_ui_strip.inc` | the four knobs, their value arcs, the strip and its per-cell patch |
+| `app/orch_ui_stage.inc` | the STAGE page, the hall's art and its life |
 | `app/orch_ui_pages.inc` | ARP and SEQUENCE |
 | `app/orch_ui_fx.inc` | CONSOLE and FX |
-| `app/orch_ui_frame.inc` | the title bar, the page switch, the two repaint signatures, the live repaint |
+| `app/orch_ui_frame.inc` | the title bar, the body, the two repaint signatures, the live repaint |
 | `app/orch_ui_state.inc` | the edits, the save record, the note map, the LEDs, the knob speed |
 | `app/orch_ui_api.inc` | the entry points the app calls |
 
@@ -152,7 +165,8 @@ recorded steps and the playing step marked, the FX page with all four effects
 on and the delay row selected, and the CONSOLE page.
 
 `tests/run_panel_bench.sh` runs the same five pages with the fill and text-blit
-calls counted, and prints them per page:
+calls counted, and prints them per page, plus what one knob turn and its fade
+cost:
 
 ```sh
 FM1_CORE=../fm1-core sh tests/run_panel_bench.sh /tmp/bench
