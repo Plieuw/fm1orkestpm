@@ -82,13 +82,21 @@ animation went from 1 970 fills to 503, and the whole five-page visit from
 a measurement of the FM-1's own frame time, which needs the board.
 
 The one thing on the screen that follows the sound is counted apart, as
-`sound 0.5s` in the same bench: a note held for half a second, with the panel
-scanned every 25 ms. The light over the boards costs five fills an update and
-updates at most once every 50 ms, so it can never cost more than 100 fills a
-second; the half second in the bench is 124 fills including the lamps' own
-overlays. `level` prints the value it started from, 255 of 255 for one loud
-note, and 0 once the note has been let go and its tail rendered — the level
-follows the samples, not the gate.
+`sound 0.5s` and `orchestra` in the same bench: a note held for half a second,
+then a full orchestra, with the panel scanned every 25 ms. The light over the
+boards costs five fills an update and updates at most once every 50 ms, so it
+can never cost more than 100 fills a second; the bench's half second of one note
+is 268 fills including the lamps' own overlays.
+
+Its scale is the orchestra's, nought to 24: a voice is three steps, so eight
+voices — the four parts at two each — are 24 of 24, and the peak of the block
+moves the light inside that size, so an attack widens the cone and a ringing
+note narrows it again. `level` prints it: 6 for one held note (two players in
+this engine), 24 for the eight-voice orchestra, 0 once the notes are let go and
+their tails rendered. The count is the part the renderer cannot give: it keeps
+its mix at one level whatever the polyphony — measured on the host, one voice
+peaks 4.5 M of Q23's 8.39 M and eight peak 3.7 M — so the output says how loud
+the music is and the voices say how big the orchestra is.
 
 ## The hall is a photograph
 
@@ -187,14 +195,16 @@ above the boards and nowhere else. `KNOB3` moves the listener across, `KNOB4`
 back.
 
 In front of the boards, on the dark floor between the hall and the listener,
-lies a light whose width is what is coming out of the instrument: three bands of
-amber falling away from the stage — a cone narrow at the boards and wider as it
-reaches the floor — with a brighter line where it lands. It follows the output
-and not the gate, so a chord left ringing takes the light down while the keys
-are still down; the lamps above it keep following which parts sound, because
-that is a different question and the panel answers both. The floor it lies on is
-the photograph's own dark colour, kept as `LIP_DARK`: an update is a trough and
-four bars, so nothing behind the light is ever repainted.
+lies a light that is the orchestra's size and the music's loudness at once:
+three bands of amber falling away from the stage — a cone narrow at the boards
+and wider as it reaches the floor — with a brighter line where it lands. Its
+width is calibrated on the hall's own full orchestra, eight voices, which fills
+it; the peak of the output moves it inside that width, so an attack widens it
+and a note left ringing narrows it while the key is still down. The lamps above
+keep following which parts sound, because that is a different question and the
+panel answers both. The floor it lies on is the photograph's own dark colour,
+kept as `LIP_DARK`: an update is a trough and four bars, so nothing behind the
+light is ever repainted.
 
 *ARP* — the pattern itself: the eight notes of one cycle rising across the
 octaves, joined by a line, each with a bar as long as its gate, the held keys as
@@ -229,7 +239,7 @@ The panel is one translation unit: `app/orch_ui.c` included from `app/`, so
 | `app/orch_ui_strip.inc` | the four knobs, their value arcs, the strip and its per-cell patch |
 | `app/orch_ui_photo.inc` | the hall as a photograph: the palette, and the runs of each frame |
 | `app/orch_ui_stage.inc` | the STAGE page: the photograph, the lamps, the players, the light over the boards |
-| `app/orch_level.inc` | the output the light follows: peak per block, falling back |
+| `app/orch_level.inc` | the light's level: the orchestra's scale (24 at eight voices) and the output's peak inside it |
 | `app/orch_ui_pages.inc` | ARP and SEQUENCE |
 | `app/orch_ui_fx.inc` | CONSOLE and FX |
 | `app/orch_ui_frame.inc` | the title bar, the body, the three repaint signatures, the live repaint |
