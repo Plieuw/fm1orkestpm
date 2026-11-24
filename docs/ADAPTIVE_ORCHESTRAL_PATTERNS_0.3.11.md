@@ -107,3 +107,17 @@ Keep all 31 existing ARP types. Add adaptive modifiers rather than replacing the
 - External clock is not overridden.
 - Manual sequence edits are preserved.
 - Host regression tests pass; PI32v2 target build, RAM/CPU measurement and package validation are required before a flashable beta is claimed.
+
+
+## First implementation pass (0.3.11)
+
+Implemented on the feature branch:
+
+- The performance engine now tracks player-input contour separately from generated ARP notes, so the pattern does not learn recursively from its own output.
+- ARP octave span responds to recent input activity.
+- Random/contour ARP variants can follow ascending or descending player motion.
+- Generated phrase density and register respond to activity; cluster size and peak accents respond to recent dynamics.
+- The 16-step sequencer keeps the stored note, velocity and gate values intact, but gently blends its gate length with the adaptive articulation class (tied, normal, short, fast or accented).
+- Added a regression test proving that the same held chord produces a different first note in the contour-following ARP when the player approaches it with an ascending versus descending line.
+
+Host CI on the implementation commit: application sources and native bridge compile; HAWK overlay validation and host tests pass. PI32v2 target build is still a separate validation gate. This is not yet a flashable or physically tested firmware release.
