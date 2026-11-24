@@ -238,6 +238,31 @@ static void test_adsr_shapes_transient_energy(void)
     CHECK(fast > slow * 2);
 }
 
+static void test_connected_legato_preserves_waveguide(void)
+{
+    int64_t before = 0;
+    solo_part(ORCH_FAM_STRINGS);
+    CHECK(orch_engine_set_adsr(0U, 180U, 220U, 82U, 420U) == 0);
+    midi(0x90U, 60U, 100U);
+    for (unsigned i = 0; i < 18U; ++i)
+        before = render_energy(1U);
+    CHECK(before > 0);
+
+    /* A short, intentional gap should be interpreted as connected. The
+     * released resonator is reused and retuned, rather than restarted silent. */
+    midi(0x80U, 60U, 0U);
+    render(1U);
+    midi(0x90U, 62U, 104U);
+    const int64_t after = render_energy(1U);
+    CHECK(after > before / 3);
+    CHECK(orch_voices_of_part(0U) == 1U);
+    CHECK(orch_active_voices() == 1U);
+    midi(0x80U, 62U, 0U);
+    render(500U);
+    CHECK(orch_active_voices() == 0U);
+    orch_init();
+}
+
 static void test_adaptive_sustain_expression(void)
 {
     int32_t low = 32767, high = -32768;
@@ -462,6 +487,7 @@ int main(void)
     test_instruments();
     test_divisi_players();
     test_adsr_shapes_transient_energy();
+    test_connected_legato_preserves_waveguide();
     test_adaptive_sustain_expression();
     test_release_and_sustain();
     test_sequencer();
