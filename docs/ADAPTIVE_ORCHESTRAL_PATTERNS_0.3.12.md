@@ -191,3 +191,18 @@ The curve is fixed-point, table-driven and bounded; no floating-point or per-sam
 ### Player-rest phrasing pass
 
 Incoming note timing now marks a fresh phrase after a sustained gap (smoothed inter-onset interval above 1.5 seconds). On the first two generated phrase positions after that rest, the phrase density is slightly reduced to preserve breathing space; the first entrance receives a restrained accent cue. The cue is learned from physical player input only, not generated ARP/phrase notes. It does not alter MIDI clock, stored sequencer steps or the selected rhythm mask.
+
+
+## 0.3.13 — orchestral call-and-response prototype
+
+A new optional cross-part response scheduler is available through `orch_call_response_configure(enabled, leader, follower, interval)`.
+
+- It listens only to incoming MIDI note-ons assigned to the selected leader part; generated ARP/phrase/sequencer notes do not recursively trigger it.
+- Every second eligible leader note schedules a short answer in the follower part, leaving space for the caller.
+- The answer is delayed by an eighth-note duration derived from the engine tempo and held for one eighth-note duration.
+- The answer transposes by the configured semitone interval, clamped to a conservative MIDI register (36–96).
+- It uses the follower part's existing instrument, adaptive articulation and divisi path through `engine_note_on_part()`.
+- Disabled by default; the current interface is an engine API for the UI integration agent. Existing part/channel routing is unchanged.
+- One pending response at a time prevents overlapping scheduled answers from building up. The eight-voice engine ceiling still applies.
+
+This is a first musical prototype, not yet a complete multi-section arranger: it does not infer harmonic function or compose a full counter-melody. Those are the next refinement targets after validation and UI mapping.

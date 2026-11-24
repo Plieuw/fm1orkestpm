@@ -44,6 +44,9 @@ void orch_seq_clear(void);
 void orch_seq_set_part(unsigned part);
 /* Optional orchestral arranger; disabled by default. */
 void orch_seq_set_adaptive(unsigned enabled);
+/* Optional cross-part call/response; disabled by default. Interval is semitones. */
+void orch_call_response_configure(unsigned enabled, unsigned leader,
+                                  unsigned follower, int interval);
 
 unsigned orch_active_voices(void);
 
