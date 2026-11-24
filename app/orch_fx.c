@@ -30,7 +30,7 @@
 /* Modulated line shared by the chorus and the ensemble: 93 ms, enough for the
  * three ensemble taps at 18/23/29 ms plus their sweep. Both effects read the
  * dry signal from it, so it is written once per sample. */
-#define MOD_SIZE 2048U
+#define MOD_SIZE 1024U
 #define MOD_MASK (MOD_SIZE - 1U)
 
 /* One echo line per channel: 371 ms, a power of two so the index wraps with a
@@ -38,13 +38,13 @@
 #define DLY_SIZE 4096U
 #define DLY_MASK (DLY_SIZE - 1U)
 
-/* Octave-up grain buffer: two 1024-sample grains, read at double speed. */
+/* Octave-up grain buffer: two 512-sample grains, read at double speed. */
 #define PB_SIZE 2048U
 #define PB_MASK (PB_SIZE - 1U)
 #define PB_GRAIN 512U
 
-#define COMB_MAX 384U
-#define AP_MAX 192U
+#define COMB_MAX 256U
+#define AP_MAX 128U
 #define COMB_COUNT 4U
 #define AP_COUNT 2U
 
@@ -181,8 +181,8 @@ static void clear_state(void)
 
 void orch_fx_init(void)
 {
-    static const uint16_t comb_tune[COMB_COUNT] = { 306U, 326U, 350U, 372U };
-    static const uint16_t ap_tune[AP_COUNT] = { 153U, 121U };
+    static const uint16_t comb_tune[COMB_COUNT] = { 204U, 218U, 234U, 248U };
+    static const uint16_t ap_tune[AP_COUNT] = { 102U, 81U };
     static const uint8_t defaults_mix[ORCH_FX_SLOT_COUNT] = { 40U, 30U, 25U, 25U };
     static const uint8_t defaults_a[ORCH_FX_SLOT_COUNT] = { 25U, 30U, 50U, 55U };
     static const uint8_t defaults_b[ORCH_FX_SLOT_COUNT] = { 50U, 50U, 35U, 25U };
@@ -342,8 +342,8 @@ void orch_fx_process(int32_t *stereo, unsigned frames)
             if (ensemble_on) {
                 ensemble_phase += ensemble_inc;
                 int32_t wl = 0, wr = 0;
-                /* three taps at 18/23/29 ms, each with its own LFO phase */
-                static const uint16_t base[3] = { 800U, 1024U, 1280U };
+                /* three short ensemble taps at roughly 5/7/9 ms */
+                static const uint16_t base[3] = { 240U, 320U, 400U };
                 for (unsigned t = 0; t < 3U; ++t) {
                     const uint32_t ph = ensemble_phase + t * 0x55555555U;
                     wl += mod_tap(mod_l, (int32_t)base[t], ph, ensemble_depth, 0U);
