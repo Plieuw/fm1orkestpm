@@ -774,11 +774,17 @@ static unsigned seq_adapt_note(unsigned part, unsigned note)
 {
     if (!seq_adaptive || part >= ORCH_PARTS) return note;
     const uint16_t mask = seq_input_chord_mask[part];
-    if (!mask) return note;
+    if (!mask || !seq_input_have_note[part] ||
+        (uint32_t)(sample_counter - seq_input_last_on[part]) >= ORCH_SAMPLE_RATE * 2U)
+        return note;
+    /* Keep the stored step as the anchor, but gently pull its register toward
+     * the player's latest pitch. A 2:1 weighting prevents the arranger from
+     * simply copying the input melody while still following register changes. */
+    const unsigned target = (note * 2U + seq_input_note[part]) / 3U;
     unsigned best = note, best_dist = 128U;
     for (unsigned candidate = 0; candidate < 128U; ++candidate) {
         if (!(mask & (uint16_t)(1U << (candidate % 12U)))) continue;
-        const unsigned dist = candidate > note ? candidate - note : note - candidate;
+        const unsigned dist = candidate > target ? candidate - target : target - candidate;
         if (dist < best_dist ||
             (dist == best_dist && seq_input_direction[part] > 0 && candidate > best) ||
             (dist == best_dist && seq_input_direction[part] < 0 && candidate < best)) {
@@ -928,7 +934,8 @@ static void seq_tick(void)
             /* In adaptive mode, keep the user's rhythm and step data, but
              * voice chord tones from the live harmony and thin inner voices
              * during quiet/sparse playing. Slot zero remains the anchor. */
-            const unsigned have_input = seq_input_have_note[seq_part];
+            const unsigned have_input = seq_input_have_note[seq_part] &&
+                (uint32_t)(sample_counter - seq_input_last_on[seq_part]) < ORCH_SAMPLE_RATE * 2U;
             if (seq_adaptive && have_input && n > 0U &&
                 (seq_input_activity[seq_part] < 82U ||
                  seq_input_velocity[seq_part] < 46U) &&
