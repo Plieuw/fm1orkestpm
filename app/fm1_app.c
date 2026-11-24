@@ -293,13 +293,15 @@ void groove_screen_control(void)
         }
         if (controls.encoders[1]) {
             int next=(int)selected_cap[selected_part]+controls.encoders[1];
-            if(next<1)next=1; if(next>4)next=4;
+            if(next<1) next=1;
+            if(next>4) next=4;
             panel_apply_cap(selected_part,(unsigned)next);
         }
         if (controls.encoders[2]) {
             int next=(int)selected_art[selected_part]+controls.encoders[2];
             const int count=(int)(sizeof articulation_values/sizeof articulation_values[0]);
-            while(next<0)next+=count; while(next>=count)next-=count;
+            while(next<0) next+=count;
+            while(next>=count) next-=count;
             panel_apply_articulation(selected_part,(unsigned)next);
         }
         if (controls.encoders[3]) {
@@ -351,7 +353,8 @@ void groove_screen_control(void)
             if(next>127)next=127;
             pc->swing=(uint8_t)next; changed=1U;
         }
-        unsigned knob=controls.knob; if(knob>1023U)knob=1023U;
+        unsigned knob=controls.knob;
+        if(knob>1023U) knob=1023U;
         const uint8_t gate=(uint8_t)(5U+knob*95U/1023U);
         if(gate!=pc->gate){pc->gate=gate;changed=1U;}
         if(changed) panel_apply_performance(selected_part);    }
