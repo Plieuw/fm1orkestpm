@@ -50,6 +50,18 @@ def main() -> None:
     if dirty:
         raise SystemExit("HAWK checkout is not clean; use a disposable checkout")
 
+    # Guard destructive SPI-NOR operations for both production FM-1 flash IDs.
+    # The browser emulator has no physical JEDEC device and is explicitly exempt.
+    flash_hal = root / "firmware" / "hal" / "fm1_flash.h"
+    replace_once(flash_hal,
+        "    if (!FL_RANGE_OK(off, 0x1000u) || (off & 0xFFFu))\n",
+        "    if (!fl_emulated() && !fl_id_ok(fl_jedec_ram())) return -5; /* unsupported flash: refuse erase */\n"
+        "    if (!FL_RANGE_OK(off, 0x1000u) || (off & 0xFFFu))\n")
+    replace_once(flash_hal,
+        "    if (!FL_RANGE_OK(off, n) ||\n",
+        "    if (!fl_emulated() && !fl_id_ok(fl_jedec_ram())) return -5; /* unsupported flash: refuse program */\n"
+        "    if (!FL_RANGE_OK(off, n) ||\n")
+
     app = Path(__file__).resolve().parents[1] / "app"
     dst = fw / "orchestra"
     dst.mkdir(exist_ok=True)
