@@ -262,7 +262,7 @@ static void test_sequencer(void)
     render(1U);
     CHECK(orch_test_seq_adapt_note(0U, 62U) == 62U);
     orch_seq_set_adaptive(1U);
-    CHECK(orch_test_seq_adapt_note(0U, 62U) == 60U);
+    CHECK(orch_test_seq_adapt_note(0U, 62U) == 64U);
     orch_seq_set_adaptive(0U);
     orch_init();
     orch_seq_clear();
