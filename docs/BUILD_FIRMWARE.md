@@ -8,7 +8,7 @@ the synth target.
 
 - Python 3.10 or newer.
 - The matching FM1 Core checkout from https://github.com/rgrvmusic/fm1-core.
-- The JieLi PI32v2 toolchain 2.5.3 (clang 4.0.1, target `pi32v2`, `-mcpu=r3`).
+- The JieLi PI32v2 Linux toolchain (clang 4.0.1, target `pi32v2`, `-mcpu=r3`; FM1 Core documents version 2.5.3). The Linux package is for x86-64; a Chromebook Linux container on ARM64 cannot run that binary natively.
 - The FM1 Core binary SDK and boot resources. Their redistribution terms are
   documented in that repository's `THIRD_PARTY.md`.
 
@@ -38,6 +38,15 @@ python3 tools/build.py --app ../fm1orkestpm/app --clean
 python3 tools/build.py --app ../fm1orkestpm/app --package
 ```
 
+For an x86-64 Linux host, the JieLi package server publishes the Linux
+PI32v2 toolchain. The FM-1 developer wiki documents this installer command:
+
+\`\`\`sh
+curl -fL https://pkgman.jieliapp.com/s/linux-toolchain | tar -xJ -C ~/.jieli
+\`\`\`
+
+Check the extracted compiler version before building. The package endpoint can
+move; pin and record the downloaded archive SHA-256 for repeatable builds.
 If the toolchain is not under `~/.jieli/toolchain`, set
 `FM1_PI32_TOOLCHAIN` to the toolchain directory containing `bin/clang` and
 `bin/ld`. The package command writes `build/fm1.fwsc`.
