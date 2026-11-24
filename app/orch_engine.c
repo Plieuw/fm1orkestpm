@@ -128,6 +128,23 @@ static uint32_t rng = 0x6d2b79f5U;
 
 /* ---------------------------------------------------------------- helpers */
 
+static uint16_t level_compensation_gain(unsigned velocity, uint32_t level)
+{
+    if (level <= 64U) return 32767U;
+    const uint32_t target = (velocity * 5000U) / 100U;
+    uint32_t gain = (target << 15) / level;
+    if (gain < 16384U) gain = 16384U;
+    if (gain > 65535U) gain = 65535U;
+    return (uint16_t)gain;
+}
+
+#ifdef FM1_HOST_TEST
+uint16_t orch_test_level_compensation_gain(unsigned velocity, uint32_t level)
+{
+    return level_compensation_gain(velocity, level);
+}
+#endif
+
 static int32_t clamp16(int32_t x)
 {
     if (x > 32767) return 32767;
@@ -1597,12 +1614,9 @@ static void voice_tick(voice_t *v)
             v->level_follow = current - ((current - (uint32_t)magnitude) >> 12);
         if (++v->level_update_count >= 16U) {
             v->level_update_count = 0U;
-            if (v->level_follow > 64U) {
-                uint32_t gain = (target << 15) / v->level_follow;
-                if (gain < 16384U) gain = 16384U;
-                if (gain > 65535U) gain = 65535U;
-                v->level_gain_q15 = (uint16_t)gain;
-            }
+            if (v->level_follow > 64U)
+                v->level_gain_q15 =
+                    level_compensation_gain(v->velocity, v->level_follow);
         }
     }
 
