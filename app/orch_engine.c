@@ -89,6 +89,12 @@ static uint8_t seq_note[ORCH_STEP_NOTES], seq_active[ORCH_STEP_NOTES];
  * generated sequencer/ARP notes. Counts preserve pitch classes when notes
  * overlap in different octaves. */
 static uint8_t seq_adaptive;
+
+/* Optional one-way orchestral call/response. Disabled by default. */
+static uint8_t response_enabled, response_leader, response_follower;
+static int8_t response_interval;
+static uint8_t response_note, response_stage, response_phrase_count;
+static uint32_t response_on_at, response_off_at;
 static uint8_t seq_input_pc_count[ORCH_PARTS][12];
 static uint16_t seq_input_chord_mask[ORCH_PARTS];
 static uint8_t seq_input_note[ORCH_PARTS], seq_input_velocity[ORCH_PARTS];
@@ -656,6 +662,35 @@ static void engine_sustain(unsigned ch, unsigned on)
     }
 }
 
+
+static void response_schedule(unsigned leader, unsigned note, unsigned velocity)
+{
+    if (!response_enabled || leader != response_leader || !velocity ||
+        response_stage != 0U || response_leader == response_follower) return;
+    /* Alternate answers leave space for the caller's own melodic line. */
+    if (++response_phrase_count & 1U) return;
+    int answer=(int)note+(int)response_interval;
+    if (answer<36) answer=36;
+    if (answer>96) answer=96;
+    response_note=(uint8_t)answer;
+    response_on_at=sample_counter + (ORCH_SAMPLE_RATE*60U)/((uint32_t)tempo*2U);
+    response_off_at=response_on_at + (ORCH_SAMPLE_RATE*60U)/((uint32_t)tempo*2U);
+    response_stage=1U;
+}
+
+static void response_tick(void)
+{
+    if (!response_enabled || response_stage==0U) return;
+    if (response_stage==1U && (int32_t)(sample_counter-response_on_at)>=0) {
+        engine_note_on_part(response_follower,response_note,72U);
+        response_stage=2U;
+    }
+    if (response_stage==2U && (int32_t)(sample_counter-response_off_at)>=0) {
+        engine_note_off_part(response_follower,response_note,0U);
+        response_stage=0U;
+    }
+}
+
 static void drain_events(void)
 {
     while (event_read != event_write) {
@@ -679,6 +714,7 @@ static void drain_events(void)
         } else {
             const unsigned part=orch_part_for_channel(e.channel);
             if (part != 0xFFU) seq_learn_input(part, e.note, e.velocity);
+            if (part != 0xFFU && e.velocity) response_schedule(part,e.note,e.velocity);
             if (!orch_perf_note_event(part,e.note,e.velocity)) {
                 if (e.velocity) engine_note_on(e.channel,e.note,e.velocity);
                 else engine_note_off(e.channel,e.note,e.channel<ORCH_MIDI_CHANNELS &&
@@ -714,6 +750,24 @@ void orch_seq_clear(void)
 void orch_seq_set_part(unsigned part)
 {
     seq_part = (uint8_t)(part < ORCH_PARTS ? part : 0U);
+}
+
+/* Configure a sparse, tempo-synchronised answer line between two parts.
+ * Interval is semitones (-24..24). Disabled by default. */
+void orch_call_response_configure(unsigned enabled, unsigned leader,
+                                  unsigned follower, int interval)
+{
+    if (leader>=ORCH_PARTS || follower>=ORCH_PARTS || leader==follower) {
+        response_enabled=0U; response_stage=0U; return;
+    }
+    if (interval < -24) interval=-24;
+    if (interval > 24) interval=24;
+    response_leader=(uint8_t)leader;
+    response_follower=(uint8_t)follower;
+    response_interval=(int8_t)interval;
+    response_enabled=(uint8_t)(enabled?1U:0U);
+    response_stage=0U;
+    response_phrase_count=0U;
 }
 
 void orch_seq_set_adaptive(unsigned enabled)
@@ -815,6 +869,8 @@ void orch_init(void)
     seq_enabled = seq_started = seq_stop_pending = 0U;
     seq_part = 0U;
     seq_adaptive = 0U;
+    response_enabled=response_stage=response_phrase_count=0U;
+    response_leader=0U; response_follower=1U; response_interval=7;
     current_step = 0U;
     for (unsigned p = 0; p < ORCH_PARTS; ++p) {
         seq_input_chord_mask[p] = 0U;
@@ -1140,6 +1196,7 @@ void orch_render_q23(int32_t *out, unsigned frames)
     for (unsigned f = 0; f < frames; ++f) {
         orch_perf_advance_sample(sample_counter);
         drain_performance_events();
+        response_tick();
         seq_tick();
         /* Pan is Q8 (0..256), not Q15. Accumulate the original Q8 products
          * in int32_t; with at most eight voices the sum is bounded below
