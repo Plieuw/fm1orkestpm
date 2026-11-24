@@ -33,8 +33,8 @@ static void draw_desk(unsigned p)
     fm1_screen_fill(x, DESK_TOP, DESK_W, DESK_H, C_CARD);
     if (voices) {
         const unsigned lit = (DESK_H - 2U) * voices / ceiling;
-        grad(x + 1U, DESK_TOP + DESK_H - 1U - lit, DESK_W - 2U, lit,
-             mix565(C_METER, C_BG, 110U), C_METER);
+        fm1_screen_fill(x + 1U, DESK_TOP + DESK_H - 1U - lit, DESK_W - 2U, lit,
+                        C_METER);
         fm1_screen_fill(x + 1U, DESK_TOP + DESK_H - 1U - lit, DESK_W - 2U, 1U,
                         mix565(C_METER, C_TEXT, 150U));
     }
@@ -48,6 +48,28 @@ static void draw_desk(unsigned p)
         fm1_screen_fill(x - 2U, DESK_TOP + DESK_H + 1U, DESK_W + 4U, 1U, C_AMBER);
         fm1_screen_fill(x - 2U, DESK_TOP - 2U, 1U, DESK_H + 3U, C_AMBER);
         fm1_screen_fill(x + DESK_W + 1U, DESK_TOP - 2U, 1U, DESK_H + 3U, C_AMBER);
+    }
+}
+
+/* The players on the boards, one per part, at its section's place: lit when it
+ * sounds. They are the part of the hall that moves, so they are drawn on their
+ * own whenever a part starts or stops — the wall, the arch and the audience are
+ * only drawn when the page is. */
+static void draw_players(void)
+{
+    const unsigned cx = HALL_X + HALL_W / 2U;
+    const unsigned floor_y = HALL_Y + 92U;
+
+    for (unsigned p = 0; p < ORCH_PARTS; ++p) {
+        const struct orch_part *q = orch_part_get(p);
+        const unsigned pan = orch_stage_place(q->instrument, 128U);
+        const int off = ((int)pan - 128) * 42 / 128;
+        const unsigned x = (unsigned)((int)cx + off);
+        const unsigned y = floor_y + 26U - (unsigned)(off < 0 ? -off : off) / 9U;
+        if (orch_voices_of_part(p))
+            disc(x, y, 4U, C_AMBER2, C_AMBER, C_WOOD);
+        else
+            disc(x, y, 3U, mix565(C_WOOD, C_BG, 130U), C_WOOD, C_WOOD);
     }
 }
 
@@ -94,18 +116,7 @@ static void draw_hall(void)
                         mix565(C_WOOD, C_AMBER2, 34U + r * 7U));
     }
 
-    /* the player of each part on its section's place: lit when it sounds */
-    for (unsigned p = 0; p < ORCH_PARTS; ++p) {
-        const struct orch_part *q = orch_part_get(p);
-        const unsigned pan = orch_stage_place(q->instrument, 128U);
-        const int off = ((int)pan - 128) * 42 / 128;
-        const unsigned x = (unsigned)((int)cx + off);
-        const unsigned y = floor_y + 26U - (unsigned)(off < 0 ? -off : off) / 9U;
-        if (orch_voices_of_part(p))
-            disc(x, y, 5U, mix565(C_AMBER2, C_TEXT, 40U), C_AMBER, C_WOOD);
-        else
-            disc(x, y, 3U, mix565(C_WOOD, C_BG, 130U), C_WOOD, C_WOOD);
-    }
+    draw_players();
 
     /* the curtains at the sides of the opening, in the hall's wine red */
     fm1_screen_fill(cx - 56U, arch_cy - 28U, 5U, 56U, C_CURTAIN);
