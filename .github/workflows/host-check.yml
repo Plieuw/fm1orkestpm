@@ -33,5 +33,7 @@ jobs:
         run: |
           cc -std=c11 -O2 -Wall -Wextra -Werror -Iapp \
              -c runtime/hawk/orch_hawk_bridge.c -o /tmp/orch_hawk_bridge.o
+      - name: Validate HAWK overlay script
+        run: python3 -m py_compile tools/prepare_hawk_runtime.py
       - name: Run host tests
         run: FM1_CORE="$PWD/fm1-core" sh tests/run_tests.sh
