@@ -374,53 +374,31 @@ static void voice_stop(unsigned i)
 
 static unsigned pick_voice(unsigned part)
 {
-    const struct orch_part *cfg = orch_part_get(part);
-    unsigned owned = 0U;
-    int quietest = -1, oldest = -1;
+    (void)part;
+    int quietest = -1;
+    int oldest = -1;
     int32_t quiet_env = 0x7fffffff;
     uint32_t oldest_age = UINT32_MAX;
 
-    for (unsigned i = 0; i < ORCH_MAX_VOICES; ++i)
-        if (voices[i].active && voices[i].part == part) ++owned;
-
-    /* the part's ceiling applies first: prefer freeing one of its own */
-    if (cfg && owned >= cfg->voice_ceiling) {
-        for (unsigned i = 0; i < ORCH_MAX_VOICES; ++i) {
-            voice_t *v = &voices[i];
-            if (!v->active || v->part != part) continue;
-            if (v->releasing && v->env < quiet_env) { quiet_env = v->env; quietest = (int)i; }
-            if (!v->releasing && v->age < oldest_age) { oldest_age = v->age; oldest = (int)i; }
-        }
-        if (quietest >= 0) return (unsigned)quietest;
-        if (oldest >= 0) return (unsigned)oldest;
-    }
-
+    /* One global pool of exactly eight mono voices. Parts do not reserve
+     * voices and cannot impose a private ceiling. A free slot always wins.
+     * If all slots are occupied, steal the quietest release tail first;
+     * otherwise use last-note priority by replacing the oldest held note.
+     * This keeps the newest musical information and lets all parts compete
+     * dynamically for the same eight physical-model voices. */
     for (unsigned i = 0; i < ORCH_MAX_VOICES; ++i) {
-        if (!voices[i].active) return i;
-    }
-    /* The pool is full: release the quietest tail first. Otherwise steal
-     * from the most represented part, preserving a fair section balance
-     * instead of allowing one part to monopolise all eight modeled voices. */
-    quietest = -1; oldest = -1; quiet_env = 0x7fffffff; oldest_age = UINT32_MAX;
-    {
-        unsigned count[ORCH_PARTS] = {0U,0U,0U,0U};
-        for (unsigned i = 0; i < ORCH_MAX_VOICES; ++i)
-            if (voices[i].active && voices[i].part < ORCH_PARTS)
-                ++count[voices[i].part];
-        unsigned fullest = 0U;
-        for (unsigned p = 0; p < ORCH_PARTS; ++p)
-            if (count[p] > fullest) fullest = count[p];
-        for (unsigned i = 0; i < ORCH_MAX_VOICES; ++i) {
-            voice_t *v = &voices[i];
-            if (v->releasing && v->env < quiet_env) {
-                quiet_env = v->env; quietest = (int)i;
-            }
-            if (!v->releasing && count[v->part] == fullest &&
-                v->age < oldest_age) {
-                oldest_age = v->age; oldest = (int)i;
-            }
+        voice_t *v = &voices[i];
+        if (!v->active) return i;
+        if (v->releasing && v->env < quiet_env) {
+            quiet_env = v->env;
+            quietest = (int)i;
+        }
+        if (!v->releasing && v->age < oldest_age) {
+            oldest_age = v->age;
+            oldest = (int)i;
         }
     }
+
     if (quietest >= 0) return (unsigned)quietest;
     return (oldest >= 0) ? (unsigned)oldest : 0U;
 }
