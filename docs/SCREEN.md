@@ -43,8 +43,9 @@ strip. Each has its own cost:
   and the cell that lost the highlight before it.
 
 On the stage page the photograph is the still part: it is drawn when the page is
-entered and when the hall's lights step, and a knob turn there repaints the four
-lamps, the players and the marks over it, not the hall.
+entered, a step of the lights repaints only the band of rows they change in, and
+a knob turn there repaints the four lamps, the players and the marks over it,
+not the hall.
 
 ## What drawing costs
 
@@ -53,28 +54,37 @@ pages through the same controls as the preview and counts the calls:
 
 | what | fills before | fills now |
 | --- | --- | --- |
-| STAGE | 63 106 | 7 773 |
+| STAGE, entered | 63 106 | 2 677 |
 | ARP | 9 370 | 1 013 |
 | SEQUENCE | 61 723 | 2 150 |
 | FX | 87 262 | 7 152 |
 | CONSOLE | 4 366 | 1 241 |
 | one knob turn | — | 554 |
 | its highlight fading | 819 | 197 |
-| **five pages** | **225 827** | **20 080** |
+| **five pages** | **225 827** | **20 512** |
 
-The STAGE figure is the whole visit, as the bench makes it: the page is entered
-on the photograph (the picture, the title, the marks and the strip), and the
-hall's lights then step twice while the chord lasts. The picture alone is 1 190
-fills — a fifth of what the drawn hall cost and a fiftieth of what it cost at
-the start. The photograph is why the total is higher than the drawn hall's
-17 047: realism and animation are what those three thousand fills buy. These
-are host numbers for the number of calls; they are not a measurement of the
-FM-1's own frame time, which needs the board.
+The STAGE figure is entering the hall: the picture, the title, the marks and
+the strip. The lights are counted apart, because they are the part that runs on
+its own; the bench prints them as `lights 1` and `lights 2`, one step each:
+
+| the hall's lights | before | now |
+| --- | --- | --- |
+| one step | 776 / 2 364 | 581 / 1 206 |
+| a step every | 1.2 s | 2.4 s |
+| fills in a second of playing | 647 – 1 970 | 242 – 503 |
+
+That is where the animation was going: up to 1 970 fills a second, twice what a
+knob turn costs, for a picture that had not moved. A step now repaints the band
+the lights are in rather than the hall (see below), there are two frames
+instead of three, and the cycle is slower — so the worst second of the
+animation went from 1 970 fills to 503, and the whole five-page visit from
+23 220 to 20 512. These are host numbers for the number of calls; they are not
+a measurement of the FM-1's own frame time, which needs the board.
 
 ## The hall is a photograph
 
 `tools/panel_photo.py` turns photographs — or stills from a film — into the
-panel's own picture format. The three frames it was used on are in
+panel's own picture format. The two frames it was used on are in
 `tools/panel_photo/` (240 × 164, a few kilobytes each, committed beside the
 tool), so the picture in `app/orch_ui_photo.inc` can be rebuilt from the
 repository alone:
@@ -88,9 +98,9 @@ taken from the images themselves, averages every 2 × 2 block to one cell, and
 writes, for every row, the runs that row is made of:
 
 * three hex characters a run: the palette index, then the run's width in cells;
-* a row table per frame, so `draw_photo()` starts at the right run;
+* a row table per frame, so `draw_photo_rows()` starts at the right run;
 * so the file is not only a picture but the list of window commands that draw
-  it — `fm1_screen_fill` per run, about 1 500 for the whole hall.
+  it — `fm1_screen_fill` per run, about 1 600 for the whole hall.
 
 Neighbouring runs whose colours are close enough to be one are merged
 (`--merge 24`), which is what keeps a row at ten fills instead of a hundred and
@@ -100,19 +110,26 @@ Dithering is off for the same reason: a dithered photograph is a run of one or
 two cells a colour, and that is a thousand extra fills. The palette is small
 exactly where the picture is dark, which is most of a hall at night.
 
-The first image is the rest frame; every later image is an animation frame. The
-hall in the panel has three: the house before the music, the stage with its
-lights up, and one spotlight. While a part is sounding the page steps between
-the lit frames every 1.2 s; when the hall is quiet it stays on the first.
+The first image is the rest frame; every later image is an animation frame, and
+`--band LO:HI` is what makes a step cheap: outside those rows the later frames
+keep the first frame's picture, so the panel can repaint the band the lights
+change in instead of the whole hall.
+
+The hall in the panel has two: the house as it is, and the same hall with the
+lights down over the stage. `--band 0:46` is everything from the top of the
+picture to the boards — the arch and the curtains, where the light changes; the
+seats, the lamps and the front of the hall are the same picture in both, so a
+step never touches them. While a part is sounding the page steps every 2.4 s;
+when the hall is quiet it stays on the first frame.
 
 To change the picture, replace the frames in `tools/panel_photo/` and run the
-same script — it is this command, with those three files:
+same script — it is this command, with those two files:
 
 ```sh
 python3 tools/panel_photo.py --parts --width 240 --height 164 --block 2 \
-    --colors 16 --dither 0 --merge 24 \
-    tools/panel_photo/hall-a.jpg tools/panel_photo/hall-b.jpg \
-    tools/panel_photo/hall-c.jpg -o app/orch_ui_photo.inc
+    --colors 16 --dither 0 --merge 24 --band 0:46 \
+    tools/panel_photo/hall-a.jpg tools/panel_photo/hall-c.jpg \
+    -o app/orch_ui_photo.inc
 ```
 
 `--parts` writes each frame to `app/orch_ui_photo_<n>.inc`, included by
@@ -156,8 +173,9 @@ narrow lamps in the dark rows of seats fill from the bottom up with the voices
 each part is sounding (the selected one amber-capped), the players stand on the
 boards where their sections sit and light up when they sound, the listener's
 seat is amber among the seats, and the selected part's instrument is the one
-word on the page. While a part sounds the hall's own lights step between the
-three frames of the picture. `KNOB3` moves the listener across, `KNOB4` back.
+word on the page. While a part sounds the hall's own lights step, in the band
+above the boards and nowhere else. `KNOB3` moves the listener across, `KNOB4`
+back.
 
 *ARP* — the pattern itself: the eight notes of one cycle rising across the
 octaves, joined by a line, each with a bar as long as its gate, the held keys as
