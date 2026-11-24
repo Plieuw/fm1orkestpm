@@ -53,6 +53,9 @@ typedef struct {
     int32_t accent_q16;
     int32_t energy_q16;
     int32_t excite_follow; /* rectified model-energy follower, Q15 */
+    uint32_t level_follow; /* slow output-level follower, rectified PCM */
+    uint16_t level_gain_q15;
+    uint8_t level_update_count;
     uint32_t expr_phase, expr_inc;
     int32_t expr_q15;
     uint16_t expr_depth;
@@ -494,6 +497,11 @@ static void voice_start(unsigned part, unsigned note, unsigned velocity,
     v->excite = (uint8_t)excite;
     v->damp = prof.damp > 6U ? 6U : prof.damp;
     v->velocity = (uint8_t)velocity;
+    if (!legato_reuse) {
+        v->level_follow = 0U;
+        v->level_gain_q15 = 32767U;
+        v->level_update_count = 0U;
+    }
     v->active = 1U;
     v->gate = (prof.pluck || excite == EXC_STRIKE) ? 0U : 1U;
     v->releasing = 0U;
@@ -1574,6 +1582,30 @@ static void voice_tick(voice_t *v)
         v->out = body_out - v->dc;
     }
 
+    /* Gentle per-instrument loudness compensation. The rectified output
+     * follower estimates each model's sustained level; gain moves slowly
+     * toward a common target proportional to MIDI velocity, so velocity
+     * expression is retained. A +/-6 dB bound prevents noise pumping and
+     * leaves the instrument's spectral identity untouched. */
+    {
+        const int32_t magnitude = v->out < 0 ? -v->out : v->out;
+        const uint32_t target = ((uint32_t)v->velocity * 5000U) / 100U;
+        const uint32_t current = v->level_follow;
+        if ((uint32_t)magnitude > current)
+            v->level_follow = current + (((uint32_t)magnitude - current) >> 9);
+        else
+            v->level_follow = current - ((current - (uint32_t)magnitude) >> 12);
+        if (++v->level_update_count >= 16U) {
+            v->level_update_count = 0U;
+            if (v->level_follow > 64U) {
+                uint32_t gain = (target << 15) / v->level_follow;
+                if (gain < 16384U) gain = 16384U;
+                if (gain > 65535U) gain = 65535U;
+                v->level_gain_q15 = (uint16_t)gain;
+            }
+        }
+    }
+
     /* Four-stage per-voice ADSR. A MIDI note-off can enter release from
      * any point in the contour. Plucks/strikes complete attack + decay before
      * their automatic release, so the physical model is allowed to ring. */
@@ -1642,6 +1674,7 @@ void orch_render_q23(int32_t *out, unsigned frames)
             if (!v->active) continue;
             ++active;
             int32_t amp = (v->out * v->env >> 15);
+            amp = (amp * (int32_t)v->level_gain_q15) >> 15;
             amp = (amp * (32767 + v->expr_q15)) >> 15;
             {
                 const struct orch_part *cfg = orch_part_get(v->part);
