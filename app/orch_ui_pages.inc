@@ -46,6 +46,21 @@ static void page_knobs(void)
     }
 }
 
+/* The keys that are held, as dots under the axis. The arp itself does not move
+ * once a mode is chosen, so this row is all a new chord has to repaint. */
+static void draw_arp_keys(void)
+{
+    const unsigned held = orch_arp_held(ui.part);
+    const unsigned x0 = 12U, w = SW - 24U;
+    const unsigned axis = BODY_Y + 10U + 84U;
+
+    fm1_screen_fill(x0, axis + 6U, w, 8U, C_CARD);
+    for (unsigned i = 0; i < 8U; ++i) {
+        const unsigned x = x0 + 6U + i * (w - 12U) / 7U;
+        disc(x, axis + 9U, 2U, i < held ? C_AMBER2 : C_LINE, C_BG, C_CARD);
+    }
+}
+
 /* --- arp ------------------------------------------------------------------ */
 
 /* The arpeggio as a picture: the shape of the mode across three octaves, with
@@ -56,7 +71,6 @@ static void page_arp(void)
     const unsigned mode = orch_arp_mode_of(ui.part);
     const unsigned oct = orch_arp_octaves_of(ui.part);
     const unsigned gate = orch_arp_gate_of(ui.part);
-    const unsigned held = orch_arp_held(ui.part);
     const unsigned on = orch_arp_enabled(ui.part);
     const unsigned top = BODY_Y + 10U, h = 84U;
     const unsigned x0 = 12U, w = SW - 24U;
@@ -92,22 +106,51 @@ static void page_arp(void)
         if (i + 1U < n) {
             const unsigned nx = x0 + (i + 1U) * (w - 1U) / (n - 1U);
             const unsigned nup = order[i + 1U] * (h - 14U) / ((n - 1U) * oct / 2U + 1U) + 6U;
-            pen((int)x, (int)y, (int)nx, (int)(axis - nup), 1U,
+            pen((int)x, (int)y, (int)nx, (int)(axis - nup), 2U,
                 on ? mix565(C_CARD, C_AMBER, 90U) : C_LINE, C_CARD);
         }
     }
 
-    /* the keys that are held: up to eight, as dots under the axis */
-    for (unsigned i = 0; i < 8U; ++i) {
-        const unsigned x = x0 + 6U + i * (w - 12U) / 7U;
-        disc(x, axis + 9U, 2U, i < held ? C_AMBER2 : C_LINE, C_BG, C_CARD);
-    }
+    draw_arp_keys();
 
     /* the rate, as one word, over the frame */
     text(12U, BODY_Y + 6U, div_name(orch_arp_div_of(ui.part)),
          on ? C_AMBER : C_DIM, C_CARD, 40U);
     text(SW - 12U - span(arp_mode_name(mode)) - 6U, BODY_Y + 6U,
          arp_mode_name(mode), C_DIM, C_CARD, 60U);
+}
+
+/* One step of the grid: its card, filled by its velocity, framed when it is the
+ * open step and underlined when it is the one playing. It is drawn on its own
+ * as well, because a running sequencer changes two cells a step and nothing
+ * else on the page. */
+static void draw_step_cell(unsigned i)
+{
+    const unsigned y = BODY_Y + 8U;
+    const unsigned cell = 14U;
+    const unsigned x = 8U + i * cell;
+    const uint16_t bg = (i == ui.seq_step) ? C_ROW : C_CARD;
+
+    fm1_screen_fill(x, y + 8U, 12U, 26U, bg);
+    fm1_screen_fill(x, y + 8U, 12U, 1U, C_LINE);
+    fm1_screen_fill(x + 11U, y + 8U, 1U, 26U, C_LINE);
+    fm1_screen_fill(x, y + 33U, 12U, 1U, C_LINE);
+    const unsigned vel = seq_notes[i][0].velocity;
+    if (vel) {
+        const unsigned h = 2U + vel * 22U / 127U;
+        fm1_screen_fill(x + 2U, y + 32U - h, 8U, h, C_AMBER);
+        fm1_screen_fill(x + 2U, y + 32U - h, 8U, 1U,
+                        mix565(C_AMBER, C_TEXT, 90U));
+    }
+    if (i == ui.seq_step) {
+        fm1_screen_fill(x, y + 8U, 12U, 1U, C_AMBER);
+        fm1_screen_fill(x, y + 33U, 12U, 1U, C_AMBER);
+        fm1_screen_fill(x, y + 8U, 1U, 26U, C_AMBER);
+        fm1_screen_fill(x + 11U, y + 8U, 1U, 26U, C_AMBER);
+    }
+    if (i == orch_seq_position()) {
+        fm1_screen_fill(x + 2U, y + 35U, 8U, 2U, ui.seq_on ? C_METER : C_CARD);
+    }
 }
 
 /* --- sequencer ------------------------------------------------------------ */
@@ -117,43 +160,25 @@ static void page_arp(void)
 static void page_seq(void)
 {
     const unsigned y = BODY_Y + 8U;
-    const unsigned cell = 14U;
 
     if (ui.rec) {
         disc(SW - 12U, y + 4U, 3U, C_REC, mix565(C_REC, C_BG, 120U), C_BG);
     }
 
-    /* sixteen steps: a card per step, filled by its velocity */
-    for (unsigned i = 0; i < ORCH_SEQ_STEPS; ++i) {
-        const unsigned x = 8U + i * cell;
-        const uint16_t bg = (i == ui.seq_step) ? C_ROW : C_CARD;
-        fm1_screen_fill(x, y + 8U, 12U, 26U, bg);
-        fm1_screen_fill(x, y + 33U, 12U, 1U, C_LINE);
-        const unsigned vel = seq_notes[i][0].velocity;
-        if (vel) {
-            const unsigned h = 2U + vel * 22U / 127U;
-            grad(x + 2U, y + 32U - h, 8U, h, mix565(C_AMBER, C_BG, 90U), C_AMBER);
-        }
-        if (i == ui.seq_step) {
-            fm1_screen_fill(x, y + 8U, 12U, 1U, C_AMBER);
-            fm1_screen_fill(x, y + 33U, 12U, 1U, C_AMBER);
-            fm1_screen_fill(x, y + 8U, 1U, 26U, C_AMBER);
-            fm1_screen_fill(x + 11U, y + 8U, 1U, 26U, C_AMBER);
-        }
-        if (i == orch_seq_position()) {
-            fm1_screen_fill(x + 2U, y + 35U, 8U, 2U, ui.seq_on ? C_METER : C_CARD);
-        }
-    }
+    for (unsigned i = 0; i < ORCH_SEQ_STEPS; ++i)
+        draw_step_cell(i);
 
     /* the selected step's notes as a line over the whole range of the keys */
     card(6U, BODY_Y + 50U, SW - 12U, 62U, C_CARD);
     unsigned char pitch[ORCH_SEQ_STEPS];
     unsigned count = 0U;
     unsigned lo = 127U, hi = 0U;
+    unsigned last = 60U;                  /* a rest holds the note before it */
     for (unsigned i = 0; i < ORCH_SEQ_STEPS; ++i) {
-        const unsigned note = seq_notes[i][0].velocity ? seq_notes[i][0].note : 0U;
-        pitch[count++] = (unsigned char)(note ? note : 0U);
-        if (note && note < lo) lo = note;
+        const unsigned note = seq_notes[i][0].velocity ? seq_notes[i][0].note : last;
+        last = note;
+        pitch[count++] = (unsigned char)note;
+        if (note < lo) lo = note;
         if (note > hi) hi = note;
     }
     if (hi <= lo) { lo = 48U; hi = 72U; }
@@ -162,15 +187,15 @@ static void page_seq(void)
         curve_v[i] = pitch[i] <= hi
                          ? (unsigned char)(4U + (pitch[i] - lo) * 92U / (hi - lo))
                          : 4U;
-    curve(curve_v, count, 10U, BODY_Y + 54U, SW - 20U, 54U,
+    curve(curve_v, count, 10U, BODY_Y + 58U, SW - 20U, 46U,
           ui.seq_on ? C_METER : C_AMBER, C_CARD);
 
     /* the step that is open, at its own height, amber */
     {
         const unsigned i = ui.seq_step < count ? ui.seq_step : 0U;
         const unsigned x = 10U + i * (SW - 21U) / (count - 1U);
-        const unsigned yy = BODY_Y + 54U + 54U - 1U -
-            (unsigned)(curve_v[i] * 53U / 100U);
+        const unsigned yy = BODY_Y + 58U + 46U - 1U -
+            (unsigned)(curve_v[i] * 45U / 100U);
         disc(x, yy, 3U, C_AMBER2, C_AMBER, C_CARD);
     }
 
