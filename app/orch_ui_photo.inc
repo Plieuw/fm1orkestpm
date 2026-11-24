@@ -5,10 +5,9 @@
  * width in cells — one fm1_screen_fill each, so this is not only a
  * picture but the list of window commands that draw it.
  *
- * from tools/panel_photo/hall-a.jpg, tools/panel_photo/hall-b.jpg
- *     tools/panel_photo/hall-c.jpg
+ * from tools/panel_photo/hall-a.jpg, tools/panel_photo/hall-c.jpg
  * 240 x 164 at 2x2, 16 colours, dither 0.00, merge 24
- * 3 frame(s)
+ * 2 frame(s); the light changes only in rows 0..46
  */
 #define PHOTO_W 240U
 #define PHOTO_H 164U
@@ -16,21 +15,22 @@
 #define PHOTO_COLS 120U
 #define PHOTO_ROWS 82U
 #define PHOTO_COLOURS 16U
-#define PHOTO_FRAMES 3U
+#define PHOTO_FRAMES 2U
+#define PHOTO_BAND_LO 0U
+#define PHOTO_BAND_HI 46U
 
 static const uint16_t photo_palette[PHOTO_COLOURS] = {
-    0x0020, 0x1860, 0x9307, 0xD448, 0x4143, 0x7204, 0xAC2B, 0xE56B,
-    0x28A1, 0xD56E, 0x3901, 0xDE31, 0xEF18, 0x4921, 0x5961, 0x79C1,
+    0x0020, 0x1860, 0x3901, 0xFDAB, 0xFE6C, 0xFEB2, 0xB40B, 0xE4CA,
+    0x8A85, 0xCBE7, 0xF4E7, 0x5183, 0xB304, 0xA348, 0x69C2, 0x7225,
 };
 
 #include "orch_ui_photo_0.inc"
 #include "orch_ui_photo_1.inc"
-#include "orch_ui_photo_2.inc"
 
 static const char *const photo_frame_runs[PHOTO_FRAMES] = {
-    photo_runs0, photo_runs1, photo_runs2
+    photo_runs0, photo_runs1
 };
 static const uint16_t *const photo_frame_rows[PHOTO_FRAMES] = {
-    photo_rows0, photo_rows1, photo_rows2
+    photo_rows0, photo_rows1
 };
 
