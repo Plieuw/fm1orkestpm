@@ -167,6 +167,27 @@ static unsigned held_sorted(const perf_part_t *p, uint8_t *notes, uint8_t *vel)
     return n;
 }
 
+/* Find the chord tone closest to the player's latest pitch across the
+ * available register. Equal-distance ties follow the player's contour. */
+static unsigned contour_anchor(const perf_part_t *p, const uint8_t *notes,
+                               unsigned n, unsigned octaves)
+{
+    const unsigned total=n*octaves;
+    unsigned best=0U;
+    unsigned best_distance=256U;
+    for(unsigned i=0U;i<total;++i) {
+        const int pitch=(int)notes[i%n]+(int)(12U*(i/n));
+        const unsigned distance=(unsigned)(pitch>(int)p->input_note ?
+            pitch-(int)p->input_note : (int)p->input_note-pitch);
+        if(distance<best_distance ||
+           (distance==best_distance && p->input_direction>0 && i>best) ||
+           (distance==best_distance && p->input_direction<0 && i<best)) {
+            best=i; best_distance=distance;
+        }
+    }
+    return best;
+}
+
 static unsigned root_note(const perf_part_t *p, const uint8_t *notes)
 {
     return p->cfg.root ? (unsigned)(p->cfg.root-1U) : (unsigned)(notes[0]%12U);
@@ -263,7 +284,11 @@ static unsigned arp_pick(perf_part_t *p, const uint8_t *notes, const uint8_t *ve
                     (p->input_direction > 0 ? step%n : n-1U-step%n) : rnd(p)%n):
         (mode==4U)?(p->last_note?((step+n)%n):0U):
         (mode==5U)?(step*2U)%n:
-        (mode==6U)?(step/2U)%n:(n-1U-(step/2U)%n);
+        (mode==6U)?(step/2U)%n:
+        (p->input_have_note ?
+            (contour_anchor(p,notes,n,1U)%n +
+             (p->input_direction<0 ? n-(step%n) : step%n))%n :
+            (n-1U-(step/2U)%n));
     *out=(unsigned)notes[idx]+12U*((pat%4U==1U)?1U:0U);
     *out_vel=vel[idx];
     return 1U;
@@ -306,7 +331,13 @@ static unsigned phrase_pick(perf_part_t *p, const uint8_t *notes,
         break;
     }
     case 5U: idx=(p->phrase_step&1U)?total-1U-(p->phrase_step/2U)%total:(p->phrase_step/2U)%total;break;
-    default: idx=(pos*3U+ge)%total; break;
+    default:
+        if(p->input_have_note) {
+            const unsigned anchor=contour_anchor(p,notes,n,range);
+            const unsigned offset=(p->phrase_step/2U)%total;
+            idx=(anchor+(p->input_direction<0 ? total-offset : offset))%total;
+        } else idx=(pos*3U+ge)%total;
+        break;
     }
     unsigned cluster=p->cfg.cluster<1U?1U:p->cfg.cluster>4U?4U:p->cfg.cluster;
     /* Thin chord clusters in quiet passages; allow fuller divisi at peaks. */
