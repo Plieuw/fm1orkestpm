@@ -89,7 +89,7 @@ paused. It updates all four parts, their instruments/articulations/divisi
 caps, the complete ARP/phrase-sequencer configuration (pattern/profile,
 tempo, division, gate, swing, logic, quantization, density, range, cluster,
 accent, repeat, groove, latch and clock mode), and all four master FX slots
-(enable, mix, parameter A and parameter B). The live adaptive learner
+(enable, mix, parameter A and parameter B). It also recalls a dedicated 16-step orchestral motif (including rests, velocity accents and gate lengths), selects its instrument part, enables adaptive chord/contour revoicing, and configures the scene's call-and-response pairing. The live adaptive learner
 continues responding to incoming player notes after loading.
 
 Factory scenes: Cinema Strings, Baroque, Wind Choir, Brass Fan, Pizz Motion,
