@@ -36,6 +36,7 @@ void orch_ui_init(void)
     draw_page();
     drawn_signature = page_signature();
     drawn_live = page_live_signature();
+    drawn_strip = strip_signature();
     update_leds();
 }
 
@@ -257,9 +258,11 @@ void orch_ui_handle(const struct fm1_controls *controls)
 
     if (dirty) {
         draw_title();
-        draw_page();
+        draw_body();
+        patch_strip();
         drawn_signature = page_signature();
         drawn_live = page_live_signature();
+        drawn_strip = strip_signature();
     }
     update_leds();
 }
@@ -277,18 +280,25 @@ void orch_ui_control(void)
     if (ui.chord_left && (int32_t)(now - ui.chord_off_at) >= 0) release_chord();
     update_meters();
 
-    /* A setting of the page changed: draw it. Otherwise only what moves on its
-     * own is repainted — a sequencer step, the arp's held keys, a part starting
-     * or stopping. Both are compared every scan, so a page never lags. */
+    /* Three things can change: the page's settings, the values that move on
+     * their own, and the strip. Each has its own cost — a page body, a couple
+     * of cells, or one knob. */
     const uint32_t sig = page_signature();
     const uint32_t live = page_live_signature();
+    const uint32_t strip = strip_signature();
     if (sig != drawn_signature) {
         drawn_signature = sig;
         drawn_live = live;
-        draw_page();
+        drawn_strip = strip;
+        draw_body();
+        draw_strip();
     } else if (live != drawn_live) {
         page_live(drawn_live);
         drawn_live = live;
+    } else if (strip != drawn_strip) {
+        page_knobs();
+        patch_strip();
+        drawn_strip = strip;
     }
 }
 
