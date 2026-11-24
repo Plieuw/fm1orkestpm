@@ -125,3 +125,29 @@ current feature branch. The eight factory scenes assign per-section ADSR and
 LFO values during preset recall. The LFO is additive to the legacy vibrato.
 Separate VCA response/velocity curves, host regression tests for modulation,
 and FM1 hardware verification remain future work.
+
+
+## Adaptive ADSR + transient modelling (0.3.12 work)
+
+The per-voice ADSR now has two jobs: it remains the amplitude contour, and it
+also shapes the physical-model excitation. Attack level controls the evolving
+excitation pressure for bowed strings, breath, brass and choir; struck voices
+receive the same contour on their initial impulse while their resonant body is
+still allowed to ring. This makes attack, decay and sustain audible in the
+instrument's behaviour, not only as a post-model VCA multiplier.
+
+A lightweight rectified energy follower tracks the recent model output. Its
+fast attack / slower release response contributes a bounded brightness change,
+while the ADSR attack stage adds a short transient-brightness lift that settles
+as the note opens. The existing per-instrument damping and LFO brightness
+remain in control; the new terms are clamped to the same safe damping range.
+
+Adaptive intent continues to scale the authored ADSR attack and release. ARP
+and phrase-sequencer notes enter the same note-on / voice-start path as live
+MIDI, so they inherit this envelope-driven excitation and transient response
+without separate timing rules or extra panel controls. The existing ADSR
+controls and preset workflow are unchanged.
+
+Validation added: a host regression compares early-note energy for fast and
+slow ADSR attacks. Target CPU headroom and listening tests on FM1 remain
+required; this is not yet a hardware-verified sound-design result.
