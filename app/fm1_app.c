@@ -158,9 +158,11 @@ static void panel_draw(void)
         panel_text(152U,126U,line,ink);
         panel_text(8U,150U,pc->inverse?"INVERSE ON":"INVERSE OFF",cyan);
         line[0]='R';line[1]='O';line[2]='O';line[3]='T';line[4]=' ';
-        line[5]=pc->root?(char)('0'+pc->root):'A';line[6]=0;panel_text(8U,174U,line,ink);
-        panel_text(8U,204U,"ENC1 DENS ENC2 RANGE",cyan);
-        panel_text(8U,224U,"ENC3 CLUSTER ENC4 REPEAT B14 PAGE",amber);
+        if(pc->root==0U){line[5]='A';line[6]='U';line[7]='T';line[8]='O';line[9]=0;}
+        else{line[5]=(char)('0'+pc->root/10U);line[6]=(char)('0'+pc->root%10U);line[7]=0;}
+        panel_text(8U,174U,line,ink);
+        panel_text(8U,204U,"B5 INV B6 ROOT B7 AUTO",cyan);
+        panel_text(8U,224U,"B8 QTZ B14 PAGE",amber);
         return;
     }
     if (panel_perf_page == 1U) {
