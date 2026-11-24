@@ -677,7 +677,6 @@ void groove_midi_init(void)
         (void)orch_perf_set_config(p,&perf_config[p]);
 }
 void groove_midi_poll(void) {}
-void groove_midi_panic(void) { orch_panic(); }
 unsigned groove_midi_mode(unsigned track) { (void)track; return 0U; }
 void groove_midi_note(unsigned track,unsigned note,unsigned velocity)
 {
