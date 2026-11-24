@@ -310,14 +310,15 @@ void groove_screen_control(void)
         }
     } else {
         struct orch_perf_config *pc=&perf_config[selected_part];
-        if (edges & (1UL<<5)) pc->velocity_groove=(uint8_t)((pc->velocity_groove+1U)&7U);
-        if (edges & (1UL<<6)) pc->gate_groove=(uint8_t)((pc->gate_groove+1U)&7U);
-        if (edges & (1UL<<7)) pc->arp_enabled=(uint8_t)!pc->arp_enabled;
-        if (edges & (1UL<<8)) pc->phrase_enabled=(uint8_t)!pc->phrase_enabled;
-        if (edges & (1UL<<9)) pc->latch=(uint8_t)!pc->latch;
-        if (edges & (1UL<<10)) pc->logic=(uint8_t)((pc->logic+1U)%ORCH_PERF_LOGIC_COUNT);
-        if (edges & (1UL<<11)) pc->external_clock=(uint8_t)!pc->external_clock;
-        if (edges & (1UL<<12)) pc->quantize=(uint8_t)((pc->quantize+1U)%18U);
+        uint8_t changed=0U;
+        if (edges & (1UL<<5)) { pc->velocity_groove=(uint8_t)((pc->velocity_groove+1U)&7U); changed=1U; }
+        if (edges & (1UL<<6)) { pc->gate_groove=(uint8_t)((pc->gate_groove+1U)&7U); changed=1U; }
+        if (edges & (1UL<<7)) { pc->arp_enabled=(uint8_t)!pc->arp_enabled; changed=1U; }
+        if (edges & (1UL<<8)) { pc->phrase_enabled=(uint8_t)!pc->phrase_enabled; changed=1U; }
+        if (edges & (1UL<<9)) { pc->latch=(uint8_t)!pc->latch; changed=1U; }
+        if (edges & (1UL<<10)) { pc->logic=(uint8_t)((pc->logic+1U)%ORCH_PERF_LOGIC_COUNT); changed=1U; }
+        if (edges & (1UL<<11)) { pc->external_clock=(uint8_t)!pc->external_clock; changed=1U; }
+        if (edges & (1UL<<12)) { pc->quantize=(uint8_t)((pc->quantize+1U)%18U); changed=1U; }
         if (controls.encoders[0]) {
             if (pc->arp_enabled) {
                 int next=(int)pc->arp_type+controls.encoders[0];
@@ -330,27 +331,30 @@ void groove_screen_control(void)
                 while(next>=(int)ORCH_PERF_GE_COUNT)next-=(int)ORCH_PERF_GE_COUNT;
                 pc->phrase_ge=(uint8_t)next;
             }
+            changed=1U;
         }
         if (controls.encoders[1]) {
             int next=(int)pc->bpm+controls.encoders[1];
-            if(next<40)next=40; if(next>250)next=250;
-            pc->bpm=(uint16_t)next;
+            if(next<40)next=40;
+            if(next>250)next=250;
+            pc->bpm=(uint16_t)next; changed=1U;
         }
         if (controls.encoders[2]) {
             int next=(int)pc->division+controls.encoders[2];
             while(next<0)next+=(int)ORCH_PERF_DIVISIONS;
             while(next>=(int)ORCH_PERF_DIVISIONS)next-=(int)ORCH_PERF_DIVISIONS;
-            pc->division=(uint8_t)next;
+            pc->division=(uint8_t)next; changed=1U;
         }
         if (controls.encoders[3]) {
             int next=(int)pc->swing+controls.encoders[3]*4;
-            if(next<0)next=0; if(next>127)next=127;
-            pc->swing=(uint8_t)next;
+            if(next<0)next=0;
+            if(next>127)next=127;
+            pc->swing=(uint8_t)next; changed=1U;
         }
         unsigned knob=controls.knob; if(knob>1023U)knob=1023U;
-        pc->gate=(uint8_t)(5U+knob*95U/1023U);
-        panel_apply_performance(selected_part);
-    }
+        const uint8_t gate=(uint8_t)(5U+knob*95U/1023U);
+        if(gate!=pc->gate){pc->gate=gate;changed=1U;}
+        if(changed) panel_apply_performance(selected_part);    }
     for (unsigned b=0;b<14U;++b)
         fm1_led_set(b,(buttons>>b)&1U);
     for (unsigned k=0;k<PANEL_KEY_COUNT;++k)
