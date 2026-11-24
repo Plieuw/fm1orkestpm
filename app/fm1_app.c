@@ -42,6 +42,8 @@ static uint32_t previous_buttons;
 static uint32_t last_panel_poll;
 static uint16_t key_velocity = 96U;
 static uint8_t panel_dirty = 1U;
+static uint8_t panel_perf_page;
+static struct orch_perf_config perf_config[PANEL_PARTS];
 
 /* A tiny 3x5 uppercase font. Drawing is control-task-only and uses the
  * platform's documented RGB565 rectangle primitive; no hidden SDK symbols. */
@@ -124,6 +126,15 @@ static void panel_apply_articulation(unsigned part, unsigned index)
     panel_dirty=1U;
 }
 
+static void panel_apply_performance(unsigned part)
+{
+    if (part >= PANEL_PARTS) return;
+    fm1_engine_pause();
+    (void)orch_perf_set_config(part, &perf_config[part]);
+    fm1_engine_resume();
+    panel_dirty = 1U;
+}
+
 static void panel_draw(void)
 {
     static const uint16_t bg=0x0841U, ink=0xFFFFU, cyan=0x07FFU;
@@ -147,7 +158,7 @@ static void panel_draw(void)
     fm1_screen_fill(8U,188U,216U,8U,0x39E7U);
     fm1_screen_fill(8U,188U,(216U*selected_cap[p])/4U,8U,green);
     panel_text(8U,204U,"ENC1 INST ENC2 CAP",cyan);
-    panel_text(8U,224U,"B1-4 PART B5 PANIC",red);
+    panel_text(8U,224U,"B1-4 PART B5 PANIC B14 PERF",red);
 }
 
 static void panel_part_select(unsigned part)
@@ -166,12 +177,15 @@ void groove_screen_init(void)
         selected_instrument[p]=instrument_default[p];
         selected_cap[p]=2U;
         selected_art[p]=0U;
+        orch_perf_default_config(&perf_config[p]);
+        (void)orch_perf_set_config(p,&perf_config[p]);
     }
     for (unsigned k=0;k<PANEL_KEY_COUNT;++k) key_channel[k]=0U;
     previous_keys=0U;
     previous_buttons=0U;
     last_panel_poll=0U;
     key_velocity=96U;
+    panel_perf_page=0U;
     panel_dirty=1U;
     panel_draw();
 }
