@@ -112,7 +112,8 @@ static struct orch_step_note seq_notes[ORCH_SEQ_STEPS][SEQ_SLOTS];
 static uint16_t text_buf[SW * 8U];
 static uint8_t shown_voices[ORCH_PARTS];
 static uint32_t next_scan;
-static uint32_t drawn_signature;
+static uint32_t drawn_signature;   /* the page's own settings, as last drawn */
+static uint32_t drawn_live;        /* and its live values */
 
 
 /* --- strings -------------------------------------------------------------- */
@@ -163,7 +164,7 @@ static const char *page_name(unsigned p)
  * pages that use them, then the edits and the entry points. Nothing here is
  * compiled on its own. */
 #include "orch_ui_font.inc"    /* the 5x7 font and text() */
-#include "orch_ui_draw.inc"    /* gradients, discs, arcs, curves */
+#include "orch_ui_draw.inc"    /* colour, geometry, gradients, discs, arcs */
 #include "orch_ui_view.inc"    /* strings, rows, cards, meters */
 #include "orch_ui_strip.inc"   /* the four knobs' cells along the bottom */
 #include "orch_ui_stage.inc"   /* the parts page and the hall */
