@@ -41,9 +41,9 @@ python3 tools/build.py --app ../fm1orkestpm/app --package
 For an x86-64 Linux host, the JieLi package server publishes the Linux
 PI32v2 toolchain. The FM-1 developer wiki documents this installer command:
 
-\`\`\`sh
+```sh
 curl -fL https://pkgman.jieliapp.com/s/linux-toolchain | tar -xJ -C ~/.jieli
-\`\`\`
+```
 
 Check the extracted compiler version before building. The package endpoint can
 move; pin and record the downloaded archive SHA-256 for repeatable builds.
