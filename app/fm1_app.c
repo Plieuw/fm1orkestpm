@@ -67,7 +67,7 @@ static const orchestra_preset_t orchestra_presets[] = {
       {1,0,1,1},{22,0,18,34} },
     { "BRASS FAN", {0,10,11,12}, {0,3,0,3}, {1,3,3,2}, 0,0,0,0,104,4,76,2,3,72,2,
       {0,0,0,1},{0,0,0,22} },
-    { "PIZZ MOTION", {0,1,4,14}, {7,7,7,3}, {3,2,2,1}, 1,1,5,12,126,5,105,2,3,64,1,
+    { "PIZZ MOTION", {0,1,4,14}, {4,4,4,3}, {3,2,2,1}, 1,1,5,12,126,5,105,2,3,64,1,
       {1,1,0,1},{28,20,0,24} },
     { "AMBIENT", {2,3,5,17}, {0,0,0,0}, {2,2,2,2}, 0,1,0,19,68,6,72,4,2,36,3,
       {1,1,1,1},{38,42,36,48} },
@@ -175,10 +175,10 @@ static void panel_apply_preset(unsigned index)
     fm1_engine_pause();
     for (unsigned part=0U; part<PANEL_PARTS; ++part) {
         (void)orch_engine_set_instrument(part,p->inst[part]);
-        (void)orch_engine_set_articulation(part,p->art[part]);
+        (void)orch_engine_set_articulation(part,articulation_values[p->art[part]]);
         (void)orch_engine_set_player_cap(part,p->cap[part]);
         selected_instrument[part]=p->inst[part];
-        selected_art[part]=0U;
+        selected_art[part]=p->art[part];
         selected_cap[part]=p->cap[part];
         orch_perf_default_config(&perf_config[part]);
         perf_config[part].arp_enabled=p->arp;
