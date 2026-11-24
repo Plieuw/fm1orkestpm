@@ -1415,10 +1415,17 @@ static void seq_tick(void)
 
 /* --------------------------------------------------------------- render */
 
-static void voice_tick(voice_t *v)
+/* Return the part's LFO destination mask so the mixer can reuse the same
+ * config lookup. This function is the per-sample hot path: resolve the part,
+ * LFO and instrument profile once, not separately for each modulation stage. */
+static unsigned voice_tick(voice_t *v)
 {
-    if (!v->active) return;
+    if (!v->active) return 0U;
 
+    const struct orch_part *cfg = orch_part_get(v->part);
+    const struct orch_lfo *lfo = cfg ? &cfg->lfo : 0;
+    const struct instrument_profile *ip = &INST_PROFILE[v->instrument];
+    const unsigned lfo_destinations = lfo ? lfo->destinations : 0U;
     uint32_t len = v->len_q16;
     if (v->glide_left) {
         if (v->len_step & 0x80000000U) {
@@ -1447,9 +1454,7 @@ static void voice_tick(voice_t *v)
 
     /* General LFO runs independently of the legacy expressive vibrato. */
     {
-        const struct orch_part *cfg = orch_part_get(v->part);
-        const struct orch_lfo *lfo = cfg ? &cfg->lfo : 0;
-        if (lfo && lfo->destinations && v->lfo_depth) {
+        if (lfo && lfo_destinations && v->lfo_depth) {
             if (v->lfo_delay_left) --v->lfo_delay_left;
             else {
                 const uint32_t old_phase = v->lfo_phase;
@@ -1536,9 +1541,7 @@ static void voice_tick(voice_t *v)
     damp_value += (transient_q15 >> 13) + (v->excite_follow >> 14);
     if (damp_value > 6) damp_value = 6;
     {
-        const struct orch_part *cfg = orch_part_get(v->part);
-        const struct orch_lfo *lfo = cfg ? &cfg->lfo : 0;
-        if (lfo && (lfo->destinations & ORCH_LFO_BRIGHTNESS)) {
+        if (lfo_destinations & ORCH_LFO_BRIGHTNESS) {
             const int bounded_depth = v->lfo_depth > 24U ? 24 : (int)v->lfo_depth;
             const int shift = ((int)v->lfo_value * bounded_depth) / (32768 * 12);
             damp_value += shift;
@@ -1554,7 +1557,6 @@ static void voice_tick(voice_t *v)
     v->out = smoothed;
     /* loop loss is calibrated per round trip at note start, not per sample:
      * otherwise low notes decay faster simply because their delay is longer. */
-    const struct instrument_profile *ip = &INST_PROFILE[v->instrument];
     int32_t loop = (int32_t)(((int64_t)smoothed * v->loop_gain_q23) >> 23);
     if (ip->half_period) loop = -loop;
 
@@ -1700,6 +1702,25 @@ static void voice_tick(voice_t *v)
     if (v->stroke_left) {
         if (!--v->stroke_left) v->gate = 0U;
     }
+    return lfo_destinations;
+}
+
+/* Division by the small active-voice count is common on every sample.
+ * Keep the divisors constant at compile time so the target compiler can use
+ * reciprocal multiplies instead of a general integer divide helper. */
+static int32_t divide_voice_sum(int32_t value, unsigned voices_active)
+{
+    switch (voices_active) {
+    case 1U: return value;
+    case 2U: return value / 2;
+    case 3U: return value / 3;
+    case 4U: return value / 4;
+    case 5U: return value / 5;
+    case 6U: return value / 6;
+    case 7U: return value / 7;
+    case 8U: return value / 8;
+    default: return 0;
+    }
 }
 
 void orch_render_q23(int32_t *out, unsigned frames)
@@ -1719,16 +1740,14 @@ void orch_render_q23(int32_t *out, unsigned frames)
         for (unsigned i = 0; i < ORCH_MAX_VOICES; ++i) {
             voice_t *v = &voices[i];
             if (!v->active) continue;
-            voice_tick(v);
+            const unsigned lfo_destinations = voice_tick(v);
             if (!v->active) continue;
             ++active;
             int32_t amp = (v->out * v->env >> 15);
             amp = (amp * (int32_t)v->level_gain_q15) >> 15;
             amp = (amp * (32767 + v->expr_q15)) >> 15;
             {
-                const struct orch_part *cfg = orch_part_get(v->part);
-                const struct orch_lfo *lfo = cfg ? &cfg->lfo : 0;
-                if (lfo && (lfo->destinations & ORCH_LFO_TREMOLO)) {
+                if (lfo_destinations & ORCH_LFO_TREMOLO) {
                     const int32_t depth = (int32_t)v->lfo_depth * 245 / 100;
                     const int32_t gain = 32767 - ((v->lfo_value + 32768) * depth >> 16);
                     amp = (amp * gain) >> 15;
@@ -1738,9 +1757,8 @@ void orch_render_q23(int32_t *out, unsigned frames)
             left += g * (int32_t)v->pan_l;
             right += g * (int32_t)v->pan_r;
         }
-        const int32_t div = active ? (int32_t)active : 1;
-        int32_t l = left / div;
-        int32_t r = right / div;
+        int32_t l = active ? divide_voice_sum(left, active) : 0;
+        int32_t r = active ? divide_voice_sum(right, active) : 0;
         if (l > Q23_MAX) l = Q23_MAX;
         if (l < Q23_MIN) l = Q23_MIN;
         if (r > Q23_MAX) r = Q23_MAX;
