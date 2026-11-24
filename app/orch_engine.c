@@ -91,6 +91,7 @@ static uint8_t sustain[ORCH_MIDI_CHANNELS];
 static struct orch_step_note pattern[ORCH_SEQ_STEPS][ORCH_STEP_NOTES];
 static uint8_t pattern_count[ORCH_SEQ_STEPS];
 static uint8_t seq_note[ORCH_STEP_NOTES], seq_active[ORCH_STEP_NOTES];
+static uint32_t seq_note_id[ORCH_STEP_NOTES];
 /* Optional arranger context is learned from incoming MIDI only, never from
  * generated sequencer/ARP notes. Counts preserve pitch classes when notes
  * overlap in different octaves. */
@@ -370,12 +371,6 @@ static void part_note_remove_id(unsigned part, uint32_t id)
     for (unsigned i = 0; i < PART_NOTES; ++i)
         if (rt->notes[i].used && rt->notes[i].id == id)
             rt->notes[i].used = rt->notes[i].held = 0U;
-}
-
-static void part_note_remove(unsigned part, unsigned note)
-{
-    uint32_t id;
-    if (part_note_pop_oldest(part, note, &id)) part_note_remove_id(part, id);
 }
 
 static unsigned part_note_count(unsigned part)
@@ -767,11 +762,13 @@ static void engine_sustain(unsigned ch, unsigned on)
     if (part == 0xFFU) return;
     for (unsigned i = 0; i < ORCH_MAX_VOICES; ++i) {
         voice_t *v = &voices[i];
-        if (v->active && v->part == part && !v->gate) {
+        if (v->active && v->part == part && !v->gate)
             v->releasing = 1U;
-            part_note_remove_id(part, v->note_id);
-        }
     }
+    /* Also clear sustained note records whose voices were stolen meanwhile. */
+    for (unsigned n = 0; n < PART_NOTES; ++n)
+        if (runtime[part].notes[n].used && !runtime[part].notes[n].held)
+            part_note_remove_id(part, runtime[part].notes[n].id);
 }
 
 
@@ -1076,32 +1073,31 @@ int orch_seq_set_step(unsigned step, unsigned slot, const struct orch_step_note 
 
 /* Sequencer notes enter the same part path as MIDI: the reserved source is
  * SEQ_CHANNEL, mapped to the chosen part by seq_part. */
-static void seq_release_voice(unsigned note)
+static void seq_release_voice(unsigned note, uint32_t note_id)
 {
     const unsigned part = seq_part;
-    uint32_t id = 0U;
-    if (!part_note_pop_oldest(part, note, &id)) return;
     for (unsigned i = 0; i < ORCH_MAX_VOICES; ++i) {
         voice_t *v = &voices[i];
-        if (v->active && v->part == part && v->note_id == id && v->gate) {
+        if (v->active && v->part == part && v->note_id == note_id &&
+            v->note == note && v->gate) {
             v->gate = 0U;
             v->releasing = 1U;
         }
     }
-    part_note_remove_id(part, id);
+    part_note_remove_id(part, note_id);
 }
 
-static void seq_start_voice(unsigned note, unsigned velocity)
+static uint32_t seq_start_voice(unsigned note, unsigned velocity)
 {
     const unsigned part = seq_part;
     struct orch_part *cfg = orch_part_get(part);
-    if (!cfg) return;
+    if (!cfg) return 0U;
     struct orch_intent *in = &runtime[part].intent;
     orch_adaptive_note(&cfg->adaptive, in, note, velocity, sample_counter,
                        cfg->articulation);
     orch_adaptive_velocity(&cfg->adaptive, in, velocity);
     uint32_t id = 0U;
-    if (part_note_add(part, note, &id) < 0) return;
+    if (part_note_add(part, note, &id) < 0) return 0U;
 
     uint8_t notes[PART_NOTES];
     uint32_t ids[PART_NOTES];
@@ -1120,6 +1116,7 @@ static void seq_start_voice(unsigned note, unsigned velocity)
         voice_start(part, note, velocity, id, in, p,
                     runtime[part].plan.detune_cents[p], runtime[part].plan.pan[p]);
     }
+    return id;
 }
 
 /* Match the ARP/phrase engine's 16-step orchestral phrase arc. */
@@ -1154,7 +1151,7 @@ static void seq_tick(void)
     }
     for (unsigned n = 0; n < ORCH_STEP_NOTES; ++n) {
         if (seq_active[n] && (int32_t)(sample_counter - seq_off_at[n]) >= 0) {
-            seq_release_voice(seq_note[n]);
+            seq_release_voice(seq_note[n], seq_note_id[n]);
             seq_active[n] = 0U;
         }
     }
@@ -1188,7 +1185,7 @@ static void seq_tick(void)
                 if (adjusted > 127) adjusted = 127;
                 velocity = (unsigned)adjusted;
             }
-            seq_start_voice(played_note, velocity);
+            seq_note_id[n] = seq_start_voice(played_note, velocity);
             seq_note[n] = (uint8_t)played_note;
             seq_active[n] = 1U;
             /* Preserve the stored gate as the base; adaptive activity adds
