@@ -820,7 +820,22 @@ static void seq_tick(void)
             seq_start_voice(p->note, p->velocity);
             seq_note[n] = p->note;
             seq_active[n] = 1U;
-            const uint32_t gate = p->gate_percent > 100U ? 100U : p->gate_percent;
+            /* The stored gate remains the user's base. Adaptive phrasing
+             * gently reshapes it from the interpreted articulation class. */
+            unsigned gate = p->gate_percent > 100U ? 100U : p->gate_percent;
+            const struct orch_intent *intent = &runtime[seq_part].intent;
+            unsigned adaptive_gate = gate;
+            switch (intent->length_class) {
+            case ORCH_LEN_TIED:     adaptive_gate = 96U; break;
+            case ORCH_LEN_SHORT:    adaptive_gate = 62U; break;
+            case ORCH_LEN_FAST:     adaptive_gate = 48U; break;
+            case ORCH_LEN_ACCENTED: adaptive_gate = 72U; break;
+            case ORCH_LEN_NORMAL:
+            default:                adaptive_gate = 82U; break;
+            }
+            gate = (gate * 3U + adaptive_gate) / 4U;
+            if (gate < 8U) gate = 8U;
+            if (gate > 100U) gate = 100U;
             seq_off_at[n] = sample_counter + (step_samples * gate) / 100U;
         }
     }
