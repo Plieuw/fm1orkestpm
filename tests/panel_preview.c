@@ -3,7 +3,7 @@
  * the only way to look at the screen without an FM-1 attached; it is a preview
  * of the layout, not evidence that the ST7789 shows it.
  *
- *   ./panel_preview /tmp/panel  -> /tmp/panel-{parts,arp,seq,fx}.ppm
+ *   ./panel_preview /tmp/panel  -> /tmp/panel-{parts,arp,seq,fx,glo}.ppm
  */
 #include <stdio.h>
 #include <string.h>
@@ -187,6 +187,13 @@ int main(int argc, char **argv)
     clock_ms += 40U;
     orch_ui_control();
     shot(base, "fx");
+
+    /* CONSOLE: tempo, transpose, scale inside the wooden frame */
+    press(7);              /* GLO */
+    render(120);
+    clock_ms += 40U;
+    orch_ui_control();
+    shot(base, "glo");
 
     return 0;
 }
