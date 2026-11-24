@@ -257,7 +257,9 @@ static void test_sequencer(void)
     orch_seq_clear();
     /* The arranger snaps to a held chord only when explicitly enabled. */
     orch_note_event(0U, 60U, 100U);
+    render(1U);
     orch_note_event(0U, 64U, 100U);
+    render(1U);
     orch_note_event(0U, 67U, 100U);
     render(1U);
     CHECK(orch_test_seq_adapt_note(0U, 62U) == 62U);
