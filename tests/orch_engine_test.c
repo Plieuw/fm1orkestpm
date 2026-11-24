@@ -69,9 +69,7 @@ static void test_instrument_level_compensation_bounds(void)
           orch_test_register_target_scale_q15(60U));
     CHECK(orch_test_register_target_scale_q15(60U) >
           orch_test_register_target_scale_q15(108U));
-    CHECK(orch_test_register_target_scale_q15(60U) ==
-          orch_test_register_target_scale_q15(59U) + 0U ||
-          orch_test_register_target_scale_q15(60U) >= 32767U);
+    CHECK(orch_test_register_target_scale_q15(60U) == 32767U);
 }
 
 static void test_round_trip_loss(void)
