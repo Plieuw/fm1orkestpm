@@ -6,10 +6,13 @@ handover section) and `docs/PANEL.md` (what every control and page does).
 ## Where the work is
 
 The FM-1 panel, the orchestra seating and the movable listener live on
-`beta/0.3.1-build-and-host-checks`, nowhere else. Other branches in this
-repository carry an older, independent panel inside `app/fm1_app.c`; do not
-merge that one next to this. Never force-push a branch another agent works on,
-one topic per commit, and leave `sh tests/run_tests.sh` green.
+`beta/0.4.0-podium-light`, nowhere else. It was branched from the tip of
+`beta/0.3.1-build-and-host-checks` (which still carries the same work up to the
+photographed hall); 0.4.0 adds the photograph, the light over the boards and the
+panel bench. Other branches in this repository carry an older, independent panel
+inside `app/fm1_app.c`; do not merge that one next to this. Never force-push a
+branch another agent works on, one topic per commit, and leave
+`sh tests/run_tests.sh` green.
 
 ## Build and test
 

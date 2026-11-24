@@ -10,13 +10,17 @@ Polyphonic physical-modeling firmware for the M-VAVE FM1 (JieLi WL82 / AC791N, P
 - Physical-modeling-first synthesis. The first prototype is a digital-waveguide string voice.
 - No audio-thread allocation, locks, file access, or display calls.
 
-## Status: 0.3.1-beta, host-validated only
+## Status: 0.4.0-beta, host-validated only
 
 **Nothing here has run on hardware.** Every source compiles with `-Werror`
 against the FM1 Core headers and the host tests pass; no `.fwsc` is built or
-claimed. 0.3.1 repaired the 0.3.0 sources, which did not compile (a truncated
-`orch_engine.c` and a byte-wide field holding Q15 friction values), and added
-the host tests and CI run that were missing.
+claimed. 0.4.0 is the 0.3.1 work with a photographed hall on the STAGE page and
+a light in front of the boards whose width is what is coming out of the
+instrument — calibrated so the full orchestra of eight voices is 24 of 24 —
+with its cost counted by `tests/run_panel_bench.sh`. 0.3.1 repaired the 0.3.0
+sources, which did not compile (a truncated `orch_engine.c` and a byte-wide
+field holding Q15 friction values), and added the host tests and CI run that
+were missing.
 
 The repository began as a license-only project. The first implementation targets the public FM1 Core platform API in https://github.com/rgrvmusic/fm1-core. That platform provides the FM1 board/audio layer and renderer hook; it is not copied into this repository. Building requires a matching FM1 Core checkout and the JieLi PI32v2 2.5.3 toolchain.
 
