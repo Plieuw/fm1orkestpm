@@ -370,6 +370,9 @@ void groove_midi_note(unsigned track,unsigned note,unsigned velocity)
     orch_note_event(track&15U,note,velocity);
 }
 void groove_midi_track_reset(unsigned track) { (void)track; }
+void groove_midi_transport(unsigned owner,uint8_t status) { (void)owner; orch_midi_realtime(status); }
+void groove_midi_clock(unsigned owner,unsigned tempo) { (void)owner; orch_midi_clock_tempo(tempo); }
+void groove_midi_clock_reset(void) { orch_midi_realtime(0xFCU); }
 
 void fm1_app_midi_received(unsigned source,const uint8_t *message,size_t bytes)
 {
