@@ -165,3 +165,15 @@ the target. A connected-note fallback also ensures that a connected lead note is
 realized if divisi hysteresis temporarily leaves the new note unassigned; it uses
 the last active desk rather than silently dropping the melody. Host tests check
 the register contour and preserve the existing overlapping-note ownership test.
+
+
+### Note-off and short-gap legato ownership
+
+A Note Off first marks the oldest held instance of that pitch as released. The
+voice remains eligible as a short-gap legato source while the adaptive phrase
+interpreter considers the next note connected. Handover changes the voice's
+note ID to the new note, so a later Note Off for the old note ID cannot release
+the reassigned voice. Candidate selection no longer uses a fixed envelope
+threshold: a quiet released note can still carry useful resonator state.
+Mallets remain excluded from waveguide legato reuse. Host coverage checks both
+short-gap reuse and overlapping-note old-Note-Off isolation.
