@@ -551,8 +551,12 @@ void orch_midi_short_message(const uint8_t *m, unsigned bytes)
     const unsigned kind = m[0] & 0xf0U, ch = m[0] & 15U;
     if ((kind == 0x80U || kind == 0x90U) && bytes >= 3U)
         enqueue(ch, m[1], (kind == 0x80U || m[2] == 0U) ? 0U : m[2], 0U);
-    else if (kind == 0xb0U && bytes >= 3U && m[1] == 64U)
-        enqueue(ch, 0U, m[2] >= 64U, 1U);
+    else if (kind == 0xb0U && bytes >= 3U) {
+        if (m[1] == 64U)
+            enqueue(ch, 0U, m[2] >= 64U, 1U);
+        else if (m[1] == 120U || m[1] == 123U)
+            enqueue(ch, 0U, 0U, 5U);
+    }
 }
 
 /* The note-on path: interpret, plan divisi, realize the players. */
@@ -651,6 +655,10 @@ static void drain_events(void)
             orch_perf_set_external_tempo((unsigned)e.note | ((unsigned)e.velocity<<7));
         } else if (e.type == 1U) {
             engine_sustain(e.channel, e.velocity);
+        } else if (e.type == 5U) {
+            sustain[e.channel] = 0U;
+            for (unsigned n = 0; n < 128U; ++n)
+                engine_note_off(e.channel, n, 0U);
         } else {
             const unsigned part=orch_part_for_channel(e.channel);
             if (!orch_perf_note_event(part,e.note,e.velocity)) {
