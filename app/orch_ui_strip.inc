@@ -1,9 +1,10 @@
 /* --- the knobs' cells ----------------------------------------------------- */
 
-/* Every page gives its four knobs a job, and the cells under the body say what
- * each one is and where it stands, as HAWK CHUA's screen does: the knob, its
- * label under it and the value under that. The value lights for a second after
- * its knob turns, so the eye finds the one that moved. */
+/* Every page gives its four knobs a job, and the strip under the body shows
+ * what each one is and where it stands: a knob with its value drawn as an arc
+ * around it, its name under it, and the value under that. The arc is the
+ * readout a player can see from a metre away; the number is there when the
+ * value is not a percentage (a rate, a mode, a step). */
 struct knob_cell {
     const char *label;
     char value[10];
@@ -41,36 +42,34 @@ static void cell_number(unsigned i, const char *label, int value, int lo, int hi
     cell_text(i, label, number, pct, 1);
 }
 
-/* A knob: a filled disc with a white pointer from 7:30 to 4:30, drawn with
- * rectangle fills only (there is no line primitive here). */
-static const uint8_t knob_half[23] = {
-    1, 4, 6, 8, 9, 9, 10, 10, 11, 11, 11, 11, 11, 11, 11, 10, 10, 9, 9, 8, 6, 4, 1
-};
-/* The pointer's end for 17 positions, from the left (0) round the top to the
- * right (16), in a 23 pixel disc: x, y from its centre. */
-static const int8_t knob_arm[17][2] = {
-    { -6, 6 }, { -7, 4 }, { -8, 2 }, { -8, -1 }, { -7, -3 }, { -6, -5 },
-    { -4, -7 }, { -2, -8 }, { 0, -8 }, { 2, -8 }, { 4, -7 }, { 6, -5 },
-    { 7, -3 }, { 8, -1 }, { 8, 2 }, { 7, 4 }, { 6, 6 }
-};
+/* The pointer on the knob, drawn the way the angle reads: twelve o'clock at
+ * half of the range. */
+static void sign(unsigned cx, unsigned cy, unsigned pct, uint16_t c)
+{
+    const unsigned i = (192U + (pct > 100U ? 100U : pct) * 128U / 100U) >> 3;
+    const int x = (int)cx + dir_x[i & 31U] * 5 / 64;
+    const int y = (int)cy + dir_y[i & 31U] * 5 / 64;
+    pen((int)cx, (int)cy, x, y, 2U, c, C_ROW);
+    disc(cx, cy, 2U, C_TEXT, c, C_ROW);
+}
 
+/* A knob: a cap shaded from the light at its top left, the pointer, and the
+ * value as an amber arc from 7:30 to 4:30 around it. */
 static void draw_knob(unsigned cx, unsigned y, unsigned pct, int lit)
 {
-    for (unsigned row = 0; row < 23U; ++row) {
-        const unsigned half = knob_half[row];
-        fm1_screen_fill(cx - half, y + row, half * 2U, 1U, lit ? C_ROW : C_CARD);
-    }
-    const int8_t *arm = knob_arm[(pct > 100U ? 100U : pct) * 16U / 100U];
-    for (unsigned k = 3U; k <= 7U; k += 2U) {
-        const int px = (int)cx + (int)arm[0] * (int)k / 8;
-        const int py = (int)y + 11 + (int)arm[1] * (int)k / 8;
-        fm1_screen_fill((unsigned)px, (unsigned)py, 2U, 2U,
-                        lit ? C_AMBER2 : C_DIM);
+    const unsigned cy = y + 12U;
+    disc(cx, cy, 12U, mix565(C_ROW, C_TEXT, 90U), C_BG, C_BG);
+    disc(cx, cy, 10U, mix565(C_ROW, C_TEXT, 60U), C_ROW, C_BG);
+    sign(cx, cy, pct, lit ? C_AMBER2 : C_DIM);
+    arc_soft(cx, cy, 14U, 192U, 320U, 1U, mix565(C_BG, C_TEXT, 30U), C_BG);
+    if (pct) {
+        const unsigned a = 192U + (pct > 100U ? 100U : pct) * 128U / 100U;
+        arc_soft(cx, cy, 14U, 192U, a, 2U, lit ? C_AMBER2 : C_AMBER, C_BG);
     }
 }
 
 /* The strip along the bottom: a hairline, then the four knobs with their
- * labels and values on the case's own coffee. */
+ * names and values on the case's own coffee. */
 static void draw_strip(void)
 {
     const int hot = (int32_t)(fm1_millis() - ui.hot_until) < 0;
@@ -79,9 +78,9 @@ static void draw_strip(void)
     for (unsigned c = 0; c < 4U; ++c) {
         const struct knob_cell *k = &cells[c];
         const unsigned cx = c * 60U + 30U;
-        draw_knob(cx, STRIP_Y + 4U, k->pct, k->lit);
-        text_center(cx, STRIP_Y + 28U, k->label, C_DIM, C_BG);
-        text_center(cx, STRIP_Y + 38U, k->value,
+        draw_knob(cx, STRIP_Y + 14U, k->pct, k->lit);
+        text_center(cx, STRIP_Y + 30U, k->label, C_DIM, C_BG);
+        text_center(cx, STRIP_Y + 40U, k->value,
                     (hot && ui.hot_cell == c) ? C_AMBER2
                                               : (k->lit ? C_TEXT : C_DIM),
                     C_BG);

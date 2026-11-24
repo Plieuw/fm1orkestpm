@@ -70,8 +70,7 @@ static unsigned span(const char *s)
 
 /* One row of a settings page: the label in grey at the left, the value in its
  * own colour against the right edge. Right-aligned, so a value that grows a
- * digit pushes left instead of running into the label (the FX page used to
- * overlap its columns, which is what this shape is for). */
+ * digit pushes left instead of running into the label. */
 static void kv(unsigned y, const char *label, const char *value, uint16_t vc,
                uint16_t bg)
 {
@@ -81,14 +80,6 @@ static void kv(unsigned y, const char *label, const char *value, uint16_t vc,
         text(SW - 10U - w, y, value, vc, bg, w);
     else
         text(10U, y, value, vc, bg, SW - 20U);
-}
-
-static void kv_num(unsigned y, const char *label, unsigned value, unsigned width,
-                   uint16_t vc, uint16_t bg)
-{
-    char number[8];
-    put_num(number, 0, sizeof number, value, width);
-    kv(y, label, number, vc, bg);
 }
 
 /* A card: the case's darker coffee with a hairline around it. */
