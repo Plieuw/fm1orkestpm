@@ -52,6 +52,21 @@ static uint32_t q23_power(uint32_t base, unsigned exponent)
     return (uint32_t)value;
 }
 
+extern uint16_t orch_test_level_compensation_gain(unsigned velocity, uint32_t level);
+
+static void test_instrument_level_compensation_bounds(void)
+{
+    const uint16_t quiet = orch_test_level_compensation_gain(127U, 1000U);
+    const uint16_t loud = orch_test_level_compensation_gain(127U, 30000U);
+    const uint16_t full_velocity = orch_test_level_compensation_gain(127U, 10000U);
+    const uint16_t half_velocity = orch_test_level_compensation_gain(64U, 10000U);
+    CHECK(quiet == 65535U);       /* no more than +6 dB */
+    CHECK(loud == 16384U);        /* no more than -6 dB */
+    CHECK(full_velocity > half_velocity);
+    CHECK(half_velocity > 0U);
+    CHECK(orch_test_level_compensation_gain(127U, 32U) == 32767U);
+}
+
 static void test_round_trip_loss(void)
 {
     const uint32_t low_note = orch_test_loop_gain_per_sample_q23(32400U, 400U);
@@ -506,6 +521,7 @@ static void test_articulation(void)
 
 int main(void)
 {
+    test_instrument_level_compensation_bounds();
     test_round_trip_loss();
     test_string_pitch_autocorrelation();
     test_routing();
