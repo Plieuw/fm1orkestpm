@@ -117,7 +117,7 @@ Implemented on the feature branch:
 - ARP octave span responds to recent input activity.
 - Random/contour ARP variants can follow ascending or descending player motion.
 - Generated phrase density and register respond to activity; cluster size and peak accents respond to recent dynamics.
-- The 16-step sequencer keeps the stored note, velocity and gate values intact, but gently blends its gate length with the adaptive articulation class (tied, normal, short, fast or accented).
+- The first sequencer pass preserved stored note data and adapted gate length; the follow-up below replaces that provisional behaviour with a dedicated player-input arranger.
 - Added a regression test proving that the same held chord produces a different first note in the contour-following ARP when the player approaches it with an ascending versus descending line.
 
 Host CI on the implementation commit: application sources and native bridge compile; HAWK overlay validation and host tests pass. PI32v2 target build is still a separate validation gate. This is not yet a flashable or physically tested firmware release.
