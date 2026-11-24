@@ -51,6 +51,7 @@ typedef struct {
     int32_t sustain_level;
     int32_t accent_q16;
     int32_t energy_q16;
+    int32_t excite_follow; /* rectified model-energy follower, Q15 */
     uint16_t vib_phase, vib_inc;
     uint32_t lfo_phase, lfo_inc, lfo_delay_left, lfo_fade_frames, lfo_fade_gain;
     uint32_t lfo_hold;
@@ -467,6 +468,7 @@ static void voice_start(unsigned part, unsigned note, unsigned velocity,
     v->gate = (prof.pluck || excite == EXC_STRIKE) ? 0U : 1U;
     v->releasing = 0U;
     v->struck = 0U;
+    v->excite_follow = 0;
     v->env_stage = 1U;
     v->auto_release = (uint8_t)(prof.pluck || excite == EXC_STRIKE);
     v->strike_left = 0U;
@@ -1285,7 +1287,22 @@ static void voice_tick(voice_t *v)
      * fundamental over a round trip (0.994^200 is 0.28), so the loop uses a
      * two-tap smoother instead: highs die within a round trip, the
      * fundamental rings for seconds. More damping = darker and shorter. */
+    /* ADSR also shapes excitation timbre. A rectified follower tracks recent
+     * acoustic energy; the attack contour supplies a short-lived transient. */
+    {
+        int32_t target = smoothed < 0 ? -smoothed : smoothed;
+        if (target > 32767) target = 32767;
+        const int32_t delta = target - v->excite_follow;
+        v->excite_follow += delta >> (delta > 0 ? 2 : 6);
+    }
+    const int32_t env_q15 = v->env < 0 ? 0 :
+        (v->env > ORCH_ENV_MAX ? ORCH_ENV_MAX : v->env);
+    const int32_t transient_q15 = (v->env_stage == 1U)
+        ? (ORCH_ENV_MAX - env_q15) : 0;
+    const int32_t excitation_gain_q15 = 16384 + (env_q15 >> 1);
     int damp_value = v->damp ? v->damp : 2U;
+    damp_value += (transient_q15 >> 13) + (v->excite_follow >> 14);
+    if (damp_value > 6) damp_value = 6;
     {
         const struct orch_part *cfg = orch_part_get(v->part);
         const struct orch_lfo *lfo = cfg ? &cfg->lfo : 0;
@@ -1313,7 +1330,7 @@ static void voice_tick(voice_t *v)
     if (v->strike_left) {
         --v->strike_left;
         const int32_t burst = (noise16() * (int32_t)v->velocity) >> 8;
-        loop += burst >> 1;
+        loop += ((burst >> 1) * excitation_gain_q15) >> 15;
     }
     if (v->gate && v->excite != EXC_STRIKE) {
         const int32_t noise = noise16();
@@ -1329,15 +1346,21 @@ static void voice_tick(voice_t *v)
             const int32_t drive = ((int32_t)v->velocity * rosin) >> 6;
             int32_t exc = (noise * drive) >> 15;
             exc = (exc * (int32_t)(65536 + ((v->energy_q16 - ORCH_Q16) >> 1))) >> 16;
-            loop += exc + ((noise * ip->air_noise) >> 10);
-            loop += (delayed * (int32_t)v->accent_q16) >> 24;
+            {
+                const int32_t air = (noise * ip->air_noise) >> 10;
+                const int32_t bite = (delayed * (int32_t)v->accent_q16) >> 24;
+                loop += ((exc + air + bite) * excitation_gain_q15) >> 15;
+            }
             break;
         }
         case EXC_BREATH: {
             const int32_t jet = triangle32(v->excite_phase);
             v->excite_phase += v->excite_inc;
-            loop += ((jet * (int32_t)v->velocity) >> 8) / 3;
-            loop += (noise * ip->air_noise) >> 10;
+            {
+                const int32_t breath = (((jet * (int32_t)v->velocity) >> 8) / 3) +
+                                       ((noise * ip->air_noise) >> 10);
+                loop += (breath * excitation_gain_q15) >> 15;
+            }
             break;
         }
         case EXC_LIP: {
@@ -1346,14 +1369,18 @@ static void voice_tick(voice_t *v)
             int32_t pressure = ((lip * (int32_t)v->velocity) >> 7) - (delayed >> 1);
             if (pressure > 12000) pressure = 12000;
             if (pressure < -12000) pressure = -12000;
-            loop += pressure >> 2;
+            loop += ((pressure >> 2) * excitation_gain_q15) >> 15;
             break;
         }
         case EXC_VOICE: {
             const int32_t fundamental = triangle32(v->excite_phase);
             const int32_t overtone = triangle32(v->excite_phase * 2U);
             v->excite_phase += v->excite_inc;
-            loop += ((fundamental * 3 + overtone) * (int32_t)v->velocity) >> 11;
+            {
+                const int32_t voiced = ((fundamental * 3 + overtone) *
+                                        (int32_t)v->velocity) >> 11;
+                loop += (voiced * excitation_gain_q15) >> 15;
+            }
             break;
         }
         case EXC_STRIKE:
