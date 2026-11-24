@@ -1,18 +1,21 @@
 # Artwork and credits
 
 There are no photographs in `web/emu/assets/` and no third-party images on the
-page: both files are vector drawings made for this project, and everything else
-on `web/emu/index.html` is CSS.
+page: the one file there is a vector drawing made for this project, and
+everything else on `web/emu/index.html` is CSS.
 
 | file | what it is | licence |
 | --- | --- | --- |
 | `hall.svg` | the Musikverein's Great Hall: gilded coffered ceiling, arcade of lit windows, panelled dado, the organ's pipes on the stage, rows of red seats with aisles and brass rails, chandeliers, a warm spotlight and a vignette | GPL-3.0-or-later, like the rest of the repository |
-| `wood.svg` | a 256 px seamless walnut-grain tile for the cheeks of the front panel | GPL-3.0-or-later |
 
-They are drawn to be seen the way the page shows them: `hardware.css` blurs the
-hall 1.6 px and dims it behind the instrument, so the artwork is built out of
+It is drawn to be seen the way the page shows it: `hardware.css` puts the hall
+behind the case, blurred and at 16 % opacity, so the artwork is built out of
 large shapes and a warm palette rather than detail. Open the SVG on its own in
 a browser to see it undistorted.
+
+A second drawing, `wood.svg` (a walnut-grain tile for the cheeks of the old
+photographic front panel), was removed when the page took HAWK CHUA's flat case;
+it is in the history, one line above the removal, if it is wanted again.
 
 ## Why vectors instead of the photographs
 
