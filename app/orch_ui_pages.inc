@@ -46,90 +46,153 @@ static void page_knobs(void)
     }
 }
 
-/* --- the pages ------------------------------------------------------------ */
+/* --- arp ------------------------------------------------------------------ */
 
+/* The arpeggio as a picture: the shape of the mode across three octaves, with
+ * the gate drawn as the length each note is held and the held keys as the
+ * dots under the axis. Nothing in words except the rate, which is a fraction. */
 static void page_arp(void)
 {
-    const int on = (int)orch_arp_enabled(ui.part);
+    const unsigned mode = orch_arp_mode_of(ui.part);
+    const unsigned oct = orch_arp_octaves_of(ui.part);
+    const unsigned gate = orch_arp_gate_of(ui.part);
     const unsigned held = orch_arp_held(ui.part);
-    char line[40];
-    unsigned n;
+    const unsigned on = orch_arp_enabled(ui.part);
+    const unsigned top = BODY_Y + 10U, h = 84U;
+    const unsigned x0 = 12U, w = SW - 24U;
+    const unsigned axis = top + h;
 
-    n = put(line, 0, sizeof line, "PART ");
-    n = put_num(line, n, sizeof line, ui.part + 1U, 1U);
-    kv(BODY_Y + 2U, line, on ? "ARP ON" : "ARP OFF", on ? C_METER : C_DIM, C_BG);
+    /* the frame the pattern is drawn in */
+    card(6U, BODY_Y + 4U, SW - 12U, h + 22U, C_CARD);
+    fm1_screen_fill(x0, axis, w, 1U, C_LINE);
 
-    kv(BODY_Y + 22U, "MODE", arp_mode_name(orch_arp_mode_of(ui.part)), C_AMBER, C_BG);
-    kv_num(BODY_Y + 36U, "OCTAVES", orch_arp_octaves_of(ui.part), 1U, C_TEXT, C_BG);
-    kv(BODY_Y + 50U, "RATE", div_name(orch_arp_div_of(ui.part)), C_TEXT, C_BG);
-    kv_num(BODY_Y + 64U, "GATE %", orch_arp_gate_of(ui.part), 3U, C_TEXT, C_BG);
-    kv_num(BODY_Y + 78U, "HELD NOTES", held, 1U, held ? C_METER : C_DIM, C_BG);
+    /* which way it runs: up, down, up-down, random, as played */
+    const unsigned n = 8U;
+    unsigned order[8];
+    for (unsigned i = 0; i < n; ++i) {
+        unsigned k = i;
+        switch (mode) {
+        case 1: k = n - 1U - i; break;                       /* down */
+        case 2: k = i < n / 2U ? i : n - 1U - i; break;       /* up-down */
+        case 3: k = (i * 5U + 3U) % n; break;                 /* random */
+        default: break;
+        }
+        order[i] = k * oct / 2U;
+    }
 
-    /* how much of the part's voices the arpeggiator has taken */
-    bar(10U, BODY_Y + 92U, SW - 20U, 3U,
-        held >= 8U ? 100U : held * 12U, C_METER, C_CARD);
+    for (unsigned i = 0; i < n; ++i) {
+        const unsigned x = x0 + i * (w - 1U) / (n - 1U);
+        const unsigned up = order[i] * (h - 14U) / ((n - 1U) * oct / 2U + 1U) + 6U;
+        const unsigned y = axis - up;
+        /* the gate: how long this note is held, as a bar on its own row */
+        const unsigned len = 4U + gate * (w / n - 3U) / 100U;
+        fm1_screen_fill(x, y, len < w - x ? len : w - x, 2U,
+                        on ? mix565(C_CARD, C_METER, 90U) : C_LINE);
+        disc(x, y, 3U, on ? C_METER : C_DIM, mix565(C_CARD, C_METER, 60U), C_CARD);
+        if (i + 1U < n) {
+            const unsigned nx = x0 + (i + 1U) * (w - 1U) / (n - 1U);
+            const unsigned nup = order[i + 1U] * (h - 14U) / ((n - 1U) * oct / 2U + 1U) + 6U;
+            pen((int)x, (int)y, (int)nx, (int)(axis - nup), 1U,
+                on ? mix565(C_CARD, C_AMBER, 90U) : C_LINE, C_CARD);
+        }
+    }
 
-    text(10U, BODY_Y + 104U, "PLAY ARP ON/OFF   SELECT PART", C_DIM, C_BG, SW - 20U);
-    text(10U, BODY_Y + 116U, "ALGORITHM: MODE   PRESETS: SOUND", C_DIM, C_BG, SW - 20U);
-    text(10U, BODY_Y + 128U, "KNOBS: RATE OCT GATE MODE", C_DIM, C_BG, SW - 20U);
+    /* the keys that are held: up to eight, as dots under the axis */
+    for (unsigned i = 0; i < 8U; ++i) {
+        const unsigned x = x0 + 6U + i * (w - 12U) / 7U;
+        disc(x, axis + 9U, 2U, i < held ? C_AMBER2 : C_LINE, C_BG, C_CARD);
+    }
+
+    /* the rate, as one word, over the frame */
+    text(12U, BODY_Y + 6U, div_name(orch_arp_div_of(ui.part)),
+         on ? C_AMBER : C_DIM, C_CARD, 40U);
+    text(SW - 12U - span(arp_mode_name(mode)) - 6U, BODY_Y + 6U,
+         arp_mode_name(mode), C_DIM, C_CARD, 60U);
 }
 
+/* --- sequencer ------------------------------------------------------------ */
+
+/* The pattern as a grid of steps and, under it, the shape of the selected
+ * step: its four notes as a line, so a phrase reads at a glance. */
 static void page_seq(void)
 {
-    char line[40];
-    unsigned n;
+    const unsigned y = BODY_Y + 8U;
+    const unsigned cell = 14U;
 
-    n = put(line, 0, sizeof line, "PART ");
-    n = put_num(line, n, sizeof line, ui.part + 1U, 1U);
-    kv(BODY_Y + 2U, line,
-       ui.rec ? "REC ARMED" : ui.seq_on ? "RUNNING" : "STOPPED",
-       ui.rec ? C_REC : ui.seq_on ? C_METER : C_DIM, C_BG);
+    if (ui.rec) {
+        disc(SW - 12U, y + 4U, 3U, C_REC, mix565(C_REC, C_BG, 120U), C_BG);
+    }
 
-    /* sixteen steps: the selected one is framed in amber, a step with notes
-     * has an amber bar and the step that is sounding has a green one, so a
-     * running pattern is visible while it runs */
+    /* sixteen steps: a card per step, filled by its velocity */
     for (unsigned i = 0; i < ORCH_SEQ_STEPS; ++i) {
-        const unsigned x = 8U + i * 14U;
-        const unsigned y = BODY_Y + 18U;
-        fm1_screen_fill(x, y, 12U, 18U, i == ui.seq_step ? C_ROW : C_CARD);
-        if (seq_notes[i][0].velocity)
-            fm1_screen_fill(x + 2U, y + 10U, 8U, 3U, C_AMBER2);
-        if (i == orch_seq_position())
-            fm1_screen_fill(x + 2U, y + 14U, 8U, 2U, C_METER);
+        const unsigned x = 8U + i * cell;
+        const uint16_t bg = (i == ui.seq_step) ? C_ROW : C_CARD;
+        fm1_screen_fill(x, y + 8U, 12U, 26U, bg);
+        fm1_screen_fill(x, y + 33U, 12U, 1U, C_LINE);
+        const unsigned vel = seq_notes[i][0].velocity;
+        if (vel) {
+            const unsigned h = 2U + vel * 22U / 127U;
+            grad(x + 2U, y + 32U - h, 8U, h, mix565(C_AMBER, C_BG, 90U), C_AMBER);
+        }
         if (i == ui.seq_step) {
-            fm1_screen_fill(x, y, 12U, 1U, C_AMBER);
-            fm1_screen_fill(x, y + 17U, 12U, 1U, C_AMBER);
-            fm1_screen_fill(x, y, 1U, 18U, C_AMBER);
-            fm1_screen_fill(x + 11U, y, 1U, 18U, C_AMBER);
+            fm1_screen_fill(x, y + 8U, 12U, 1U, C_AMBER);
+            fm1_screen_fill(x, y + 33U, 12U, 1U, C_AMBER);
+            fm1_screen_fill(x, y + 8U, 1U, 26U, C_AMBER);
+            fm1_screen_fill(x + 11U, y + 8U, 1U, 26U, C_AMBER);
+        }
+        if (i == orch_seq_position()) {
+            fm1_screen_fill(x + 2U, y + 35U, 8U, 2U, ui.seq_on ? C_METER : C_CARD);
         }
     }
 
-    n = put(line, 0, sizeof line, "STEP ");
-    n = put_num(line, n, sizeof line, ui.seq_step + 1U, 2U);
-    text(10U, BODY_Y + 42U, line, C_AMBER, C_BG, SW - 20U);
-
-    char notes[40];
-    unsigned len = 0U;
-    for (unsigned s = 0; s < SEQ_SLOTS; ++s) {
-        if (!seq_notes[ui.seq_step][s].velocity) {
-            len = put(notes, len, sizeof notes, " -  ");
-            continue;
-        }
-        char nn[4];
-        note_name(seq_notes[ui.seq_step][s].note, nn);
-        len = put(notes, len, sizeof notes, " ");
-        len = put(notes, len, sizeof notes, nn);
-        len = put(notes, len, sizeof notes, " ");
+    /* the selected step's notes as a line over the whole range of the keys */
+    card(6U, BODY_Y + 50U, SW - 12U, 62U, C_CARD);
+    unsigned char pitch[ORCH_SEQ_STEPS];
+    unsigned count = 0U;
+    unsigned lo = 127U, hi = 0U;
+    for (unsigned i = 0; i < ORCH_SEQ_STEPS; ++i) {
+        const unsigned note = seq_notes[i][0].velocity ? seq_notes[i][0].note : 0U;
+        pitch[count++] = (unsigned char)(note ? note : 0U);
+        if (note && note < lo) lo = note;
+        if (note > hi) hi = note;
     }
-    text(10U, BODY_Y + 54U, notes, C_TEXT, C_BG, SW - 20U);
+    if (hi <= lo) { lo = 48U; hi = 72U; }
+    unsigned char curve_v[ORCH_SEQ_STEPS];
+    for (unsigned i = 0; i < count; ++i)
+        curve_v[i] = pitch[i] <= hi
+                         ? (unsigned char)(4U + (pitch[i] - lo) * 92U / (hi - lo))
+                         : 4U;
+    curve(curve_v, count, 10U, BODY_Y + 54U, SW - 20U, 54U,
+          ui.seq_on ? C_METER : C_AMBER, C_CARD);
 
-    kv_num(BODY_Y + 72U, "VELOCITY", seq_notes[ui.seq_step][0].velocity, 3U,
-           C_TEXT, C_BG);
-    kv_num(BODY_Y + 86U, "GATE %", seq_notes[ui.seq_step][0].gate_percent, 3U,
-           C_TEXT, C_BG);
+    /* the step that is open, at its own height, amber */
+    {
+        const unsigned i = ui.seq_step < count ? ui.seq_step : 0U;
+        const unsigned x = 10U + i * (SW - 21U) / (count - 1U);
+        const unsigned yy = BODY_Y + 54U + 54U - 1U -
+            (unsigned)(curve_v[i] * 53U / 100U);
+        disc(x, yy, 3U, C_AMBER2, C_AMBER, C_CARD);
+    }
 
-    text(10U, BODY_Y + 104U, "REC WRITES A STEP FROM THE KEYS",
-         C_DIM, C_BG, SW - 20U);
-    text(10U, BODY_Y + 116U, "PLAY RUNS   ALGORITHM: STEP",
-         C_DIM, C_BG, SW - 20U);
+    /* the open step's number and its notes, small, in the card's corners */
+    {
+        char line[24];
+        unsigned n = put(line, 0, sizeof line, "STEP ");
+        put_num(line, n, sizeof line, ui.seq_step + 1U, 2U);
+        text(10U, BODY_Y + 52U, line, C_DIM, C_CARD, 54U);
+
+        n = 0;
+        for (unsigned s = 0; s < SEQ_SLOTS; ++s) {
+            if (!seq_notes[ui.seq_step][s].velocity) {
+                n = put(line, n, sizeof line, "- ");
+                continue;
+            }
+            char nn[4];
+            note_name(seq_notes[ui.seq_step][s].note, nn);
+            n = put(line, n, sizeof line, nn);
+            n = put(line, n, sizeof line, " ");
+        }
+        text(SW - 10U - span(line), BODY_Y + 52U, line, C_TEXT, C_CARD,
+             span(line));
+    }
 }
