@@ -42,7 +42,7 @@ typedef struct {
     uint32_t excite_phase, excite_inc;
     uint32_t len_q16, len_target_q16, len_step;
     uint32_t glide_left;
-    uint32_t age;
+    uint32_t age, note_id;
     uint32_t loop_gain_q23; /* per-sample gain derived from per-round-trip loss */
     int32_t lp;      /* previous loop sample (the damping filter's state) */
     int32_t dc;      /* output DC blocker state */
@@ -70,7 +70,7 @@ typedef struct {
 typedef struct {
     uint8_t note;
     uint32_t id;
-    uint8_t used;
+    uint8_t used, held;
 } part_note_t;
 
 typedef struct {
@@ -319,6 +319,7 @@ static void part_notes_reset(void)
             runtime[p].notes[i].used = 0U;
             runtime[p].notes[i].note = 0U;
             runtime[p].notes[i].id = 0U;
+            runtime[p].notes[i].held = 0U;
         }
         runtime[p].next_id = 1U;
         runtime[p].last_len_q16 = 0U;
@@ -330,17 +331,12 @@ static int part_note_add(unsigned part, unsigned note, uint32_t *out_id)
 {
     part_runtime_t *rt = &runtime[part];
     for (unsigned i = 0; i < PART_NOTES; ++i) {
-        if (rt->notes[i].used && rt->notes[i].note == note) {
-            rt->notes[i].id = rt->next_id++;
-            *out_id = rt->notes[i].id;
-            return (int)i;
-        }
-    }
-    for (unsigned i = 0; i < PART_NOTES; ++i) {
         if (!rt->notes[i].used) {
             rt->notes[i].used = 1U;
+            rt->notes[i].held = 1U;
             rt->notes[i].note = (uint8_t)note;
             rt->notes[i].id = rt->next_id++;
+            if (!rt->next_id) rt->next_id = 1U;
             *out_id = rt->notes[i].id;
             return (int)i;
         }
@@ -348,11 +344,38 @@ static int part_note_add(unsigned part, unsigned note, uint32_t *out_id)
     return -1;
 }
 
-static void part_note_remove(unsigned part, unsigned note)
+/* MIDI Note Off consumes the oldest still-held instance of this pitch.
+ * Repeated same-pitch Note Ons therefore remain independent. */
+static int part_note_pop_oldest(unsigned part, unsigned note, uint32_t *out_id)
+{
+    part_runtime_t *rt = &runtime[part];
+    int found = -1;
+    uint32_t oldest = UINT32_MAX;
+    for (unsigned i = 0; i < PART_NOTES; ++i) {
+        const part_note_t *n = &rt->notes[i];
+        if (n->used && n->held && n->note == note && n->id < oldest) {
+            oldest = n->id;
+            found = (int)i;
+        }
+    }
+    if (found < 0) return 0;
+    rt->notes[found].held = 0U;
+    *out_id = rt->notes[found].id;
+    return 1;
+}
+
+static void part_note_remove_id(unsigned part, uint32_t id)
 {
     part_runtime_t *rt = &runtime[part];
     for (unsigned i = 0; i < PART_NOTES; ++i)
-        if (rt->notes[i].used && rt->notes[i].note == note) rt->notes[i].used = 0U;
+        if (rt->notes[i].used && rt->notes[i].id == id)
+            rt->notes[i].used = rt->notes[i].held = 0U;
+}
+
+static void part_note_remove(unsigned part, unsigned note)
+{
+    uint32_t id;
+    if (part_note_pop_oldest(part, note, &id)) part_note_remove_id(part, id);
 }
 
 static unsigned part_note_count(unsigned part)
@@ -404,7 +427,7 @@ static unsigned pick_voice(unsigned part)
 }
 
 static void voice_start(unsigned part, unsigned note, unsigned velocity,
-                        const struct orch_intent *in, unsigned player,
+                        uint32_t note_id, const struct orch_intent *in, unsigned player,
                         int8_t player_detune_cents, uint8_t player_pan)
 {
     const struct orch_part *cfg = orch_part_get(part);
@@ -434,6 +457,7 @@ static void voice_start(unsigned part, unsigned note, unsigned velocity,
     v->lp = 0;
     v->dc = 0;
     v->age = ++age_counter;
+    v->note_id = note_id;
     v->note = (uint8_t)note;
     v->channel = (uint8_t)(part < ORCH_PARTS ? part : 0U); /* channel identity is kept by the note */
     v->part = (uint8_t)part;
@@ -700,7 +724,7 @@ static void engine_note_on_part(unsigned part, unsigned note, unsigned velocity)
     for (unsigned p = 0; p < rt->plan.players; ++p) {
         const unsigned idx = rt->plan.assignment[p];
         if (idx >= count || ids[idx] != id) continue;
-        voice_start(part, note, velocity, in, p,
+        voice_start(part, note, velocity, id, in, p,
                     rt->plan.detune_cents[p], rt->plan.pan[p]);
     }
 }
@@ -714,16 +738,18 @@ static void engine_note_on(unsigned ch, unsigned note, unsigned velocity)
 static void engine_note_off_part(unsigned part, unsigned note, unsigned sustain_on)
 {
     if (part >= ORCH_PARTS) return;
+    uint32_t id = 0U;
+    if (!part_note_pop_oldest(part, note, &id)) return;
     struct orch_part *cfg = orch_part_get(part);
     if (cfg) orch_adaptive_off(&cfg->adaptive, sample_counter);
 
     for (unsigned i = 0; i < ORCH_MAX_VOICES; ++i) {
         voice_t *v = &voices[i];
-        if (!v->active || v->part != part || v->note != note) continue;
+        if (!v->active || v->part != part || v->note_id != id) continue;
         v->gate = 0U;
         if (!sustain_on) v->releasing = 1U;
     }
-    if (!sustain_on) part_note_remove(part, note);
+    if (!sustain_on) part_note_remove_id(part, id);
 }
 
 static void engine_note_off(unsigned ch, unsigned note, unsigned sustain_on)
@@ -741,7 +767,10 @@ static void engine_sustain(unsigned ch, unsigned on)
     if (part == 0xFFU) return;
     for (unsigned i = 0; i < ORCH_MAX_VOICES; ++i) {
         voice_t *v = &voices[i];
-        if (v->active && v->part == part && !v->gate) v->releasing = 1U;
+        if (v->active && v->part == part && !v->gate) {
+            v->releasing = 1U;
+            part_note_remove_id(part, v->note_id);
+        }
     }
 }
 
@@ -1050,14 +1079,16 @@ int orch_seq_set_step(unsigned step, unsigned slot, const struct orch_step_note 
 static void seq_release_voice(unsigned note)
 {
     const unsigned part = seq_part;
+    uint32_t id = 0U;
+    if (!part_note_pop_oldest(part, note, &id)) return;
     for (unsigned i = 0; i < ORCH_MAX_VOICES; ++i) {
         voice_t *v = &voices[i];
-        if (v->active && v->part == part && v->note == note && v->gate) {
+        if (v->active && v->part == part && v->note_id == id && v->gate) {
             v->gate = 0U;
             v->releasing = 1U;
         }
     }
-    part_note_remove(part, note);
+    part_note_remove_id(part, id);
 }
 
 static void seq_start_voice(unsigned note, unsigned velocity)
@@ -1086,7 +1117,7 @@ static void seq_start_voice(unsigned note, unsigned velocity)
     for (unsigned p = 0; p < runtime[part].plan.players; ++p) {
         const unsigned idx = runtime[part].plan.assignment[p];
         if (idx >= count || ids[idx] != id) continue;
-        voice_start(part, note, velocity, in, p,
+        voice_start(part, note, velocity, id, in, p,
                     runtime[part].plan.detune_cents[p], runtime[part].plan.pan[p]);
     }
 }
@@ -1496,13 +1527,4 @@ int orch_engine_set_lfo(unsigned part, unsigned wave, unsigned destinations,
 {
     return orch_part_set_lfo(part, wave, destinations, depth, rate_millihz,
                              sync_division, delay_ms, fade_ms);
-}
-int orch_engine_set_voice_ceiling(unsigned part, unsigned voices_)
-{
-    struct orch_part *cfg = orch_part_get(part);
-    if (!cfg) return -1;
-    if (!voices_) voices_ = 1U;
-    if (voices_ > ORCH_MAX_VOICES) voices_ = ORCH_MAX_VOICES;
-    cfg->voice_ceiling = (uint8_t)voices_;
-    return 0;
 }
