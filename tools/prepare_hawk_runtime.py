@@ -65,7 +65,7 @@ def main() -> None:
         "#define ORCH_HAWK_FM1_COMPAT_H\n"
         "/* The engine only uses this placement macro in its HAWK port. */\n"
         "#define FM1_AUDIO_CODE\n"
-        "#define FM1_AUDIO_DATA\n"
+        "#define FM1_AUDIO_DATA __attribute__((section(\".pool\")))\n"
         "#endif\n"
     )
     shutil.copy2(Path(__file__).resolve().parents[1] /
@@ -86,9 +86,7 @@ def main() -> None:
         '#undef parts\n'
         '#define voice_t orch_voice_t\n'
         '#define rng orch_rng_state\n'
-        '#undef ENV_MAX\n'
         '#include "orchestra/orch_engine.c"\n'
-        '#undef ENV_MAX\n'
         '#undef rng\n'
         '#undef voice_t\n'
         '#include "orchestra/orch_fx.c"\n'

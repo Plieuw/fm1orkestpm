@@ -7,7 +7,7 @@
 #include "orch_part.h"
 #include "orch_performance.h"
 
-#define ORCH_MAX_VOICES 12U
+#define ORCH_MAX_VOICES 8U
 #define ORCH_MIDI_CHANNELS 16U
 #define ORCH_SEQ_STEPS 16U
 #define ORCH_STEP_NOTES 4U
@@ -42,12 +42,15 @@ void orch_seq_set_enabled(unsigned enabled);
 int orch_seq_set_step(unsigned step, unsigned slot, const struct orch_step_note *note);
 void orch_seq_clear(void);
 void orch_seq_set_part(unsigned part);
+/* Optional orchestral arranger; disabled by default. */
+void orch_seq_set_adaptive(unsigned enabled);
 
 unsigned orch_active_voices(void);
 
 /* Introspection for the panel and the host tests. */
 #ifdef FM1_HOST_TEST
 uint32_t orch_test_loop_gain_per_sample_q23(unsigned trip_gain_q15, unsigned samples);
+unsigned orch_test_seq_adapt_note(unsigned part, unsigned note);
 #endif
 const struct orch_intent *orch_last_intent(unsigned part);
 

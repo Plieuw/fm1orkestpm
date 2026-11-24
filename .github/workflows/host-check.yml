@@ -56,7 +56,7 @@ jobs:
     env:
       JIELI_TOOLCHAIN: /opt/jieli/toolchain
       AC79_SDK: /opt/ac79-sdk
-      FELUCCA_VERSION: orch-0.3.8-ci
+      FELUCCA_VERSION: orch-0.3.11-beta
       FELUCCA_CPU2: "0"
     steps:
       - name: Install build prerequisites
@@ -108,4 +108,15 @@ jobs:
           ./build.sh 2>&1 | tee orchestral-target-build.log
           test -s build/felucca.bin
           test -s build/hawk-chua.fwsc
-          rm -f build/hawk-chua.fwsc
+          sha256sum build/felucca.bin build/hawk-chua.fwsc build/loader/ota.bin > build/SHA256SUMS
+      - name: Upload FM1 firmware package
+        uses: actions/upload-artifact@v4
+        with:
+          name: fm1-orchestral-0.3.11-beta
+          path: |
+            hawk-chua/build/felucca.bin
+            hawk-chua/build/hawk-chua.fwsc
+            hawk-chua/build/loader/ota.bin
+            hawk-chua/build/SHA256SUMS
+          if-no-files-found: error
+          retention-days: 14
