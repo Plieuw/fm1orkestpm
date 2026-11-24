@@ -107,8 +107,7 @@ external clock and quantization. See `docs/FM1_PANEL.md`.
 Host CI passed after the panel-code change on run
 `45390697106` (compile every application source and run host tests). An
 intermediate formatting commit failed CI; it was corrected in
-`e967e14984210fc04edb2c29e6d5927f774e7a6c`. The later documentation commits
-do not change C sources.
+`e967e14984210fc04edb2c29e6d5927f774e7a6c`. A follow-up panel-display code commit `e6e5051bf645adbecc43ce5304900c7f1ade0fac` also passed host CI on run `45390954769`; the subsequent build-guide formatting commit is documentation-only.
 
 ## Target firmware build
 
