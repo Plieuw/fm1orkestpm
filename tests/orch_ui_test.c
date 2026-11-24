@@ -220,7 +220,7 @@ int main(void)
     CHECK(orch_ui_master_q23 == 0U);
 
     /* FX: the button opens the FX page; the encoders pick an effect and edit
-     * its mix and its two parameters, K4 switches it on and off */
+     * its mix and its four parameters two at a time, K4 switches it on and off */
     press(B_FX);
     CHECK(orch_ui_page() == 4U);
     CHECK(orch_ui_fx_selection() == 0U);
@@ -231,9 +231,16 @@ int main(void)
     turn(E_KNOB1, 2);                         /* mix 25 -> 35, 5 % a detent */
     CHECK(orch_fx_mix(2U) == 35U);
     turn(E_KNOB2, -1);                        /* time 50 -> 45 */
-    CHECK(orch_fx_param_a(2U) == 45U);
+    CHECK(orch_fx_param(2U, 0U) == 45U);
     turn(E_KNOB3, 2);                         /* feedback 35 -> 45 */
-    CHECK(orch_fx_param_b(2U) == 45U);
+    CHECK(orch_fx_param(2U, 1U) == 45U);
+    turn(E_PRESET, 1);                        /* the second pair of parameters */
+    turn(E_KNOB2, 2);                         /* sync: free -> a sixteenth */
+    CHECK(orch_fx_param(2U, 2U) == 10U);
+    CHECK(orch_fx_param(2U, 0U) == 45U);
+    turn(E_KNOB3, 1);                         /* damp stays at the top */
+    CHECK(orch_fx_param(2U, 3U) == 100U);
+    turn(E_PRESET, 1);                        /* and back to the first pair */
     turn(E_KNOB4, 1);
     CHECK(orch_fx_enabled(2U) == 1U);
     turn(E_KNOB4, -1);
@@ -283,8 +290,9 @@ int main(void)
     orch_ui_control();       /* prime the scan timer after the re-init */
     CHECK(orch_fx_enabled(ORCH_FX_DELAY) == 1U);
     CHECK(orch_fx_mix(ORCH_FX_DELAY) == 35U);
-    CHECK(orch_fx_param_a(ORCH_FX_DELAY) == 45U);
-    CHECK(orch_fx_param_b(ORCH_FX_DELAY) == 45U);
+    CHECK(orch_fx_param(ORCH_FX_DELAY, 0U) == 45U);
+    CHECK(orch_fx_param(ORCH_FX_DELAY, 1U) == 45U);
+    CHECK(orch_fx_param(ORCH_FX_DELAY, 2U) == 10U);
     /* and the listener's seat travels in its own block of the same record */
     CHECK(orch_stage_listener_x() == -100);
     CHECK(orch_stage_listener_depth() == 5U);
