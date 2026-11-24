@@ -47,14 +47,16 @@ typedef struct {
     int32_t lp;      /* previous loop sample (the damping filter's state) */
     int32_t dc;      /* output DC blocker state */
     int32_t out;     /* last radiated sample */
-    int32_t env, env_inc, env_dec;
+    int32_t env, env_inc, env_dec, env_decay_step;
+    int32_t sustain_level;
     int32_t accent_q16;
     int32_t energy_q16;
     uint16_t vib_phase, vib_inc;
     uint32_t vib_depth, vib_depth_max, vib_ramp;
     uint32_t vib_delay;
     uint32_t stroke_left;
-    uint32_t attack_left;
+    uint32_t attack_left, decay_left, release_frames;
+    uint8_t env_stage, auto_release;
     uint16_t strike_left;
     int16_t pan_l, pan_r;
     uint8_t note, channel, part, family, instrument, artic, player, excite, damp;
@@ -427,6 +429,8 @@ static void voice_start(unsigned part, unsigned note, unsigned velocity,
     v->gate = (prof.pluck || excite == EXC_STRIKE) ? 0U : 1U;
     v->releasing = 0U;
     v->struck = 0U;
+    v->env_stage = 1U;
+    v->auto_release = (uint8_t)(prof.pluck || excite == EXC_STRIKE);
     v->strike_left = 0U;
 
     /* piano key -> string/bore length; flageolet sounds an octave higher */
@@ -476,21 +480,34 @@ static void voice_start(unsigned part, unsigned note, unsigned velocity,
         v->pan_r = (int16_t)pan;
     }
 
-    /* envelopes: attack from the intent and the articulation */
-    uint32_t atk_ms = (prof.attack_ms * in->attack_mul) >> 16;
-    if (atk_ms < 2U) atk_ms = 2U;
-    if (atk_ms > 400U) atk_ms = 400U;
-    v->env = 0;
+    /* ADSR: instrument-shaped attack/decay/sustain/release. Adaptive intent
+     * scales the authored attack/release; the model's damping is independent. */
     {
-        const uint32_t frames = (atk_ms * ORCH_SAMPLE_RATE) / 1000U;
-        v->env_inc = (int32_t)(ORCH_ENV_MAX / (frames ? frames : 1U));
-        if (v->env_inc < 1) v->env_inc = 1;
-        v->attack_left = frames ? frames : 1U;
+        uint32_t atk_ms = (prof.attack_ms * in->attack_mul) >> 16;
+        uint32_t dec_ms = (uint32_t)prof.attack_ms * 2U + 40U;
         uint32_t rel_ms = ((uint32_t)prof.release_ms * in->release_mul) >> 16;
+        if (atk_ms < 2U) atk_ms = 2U;
+        if (atk_ms > 400U) atk_ms = 400U;
+        if (dec_ms < 20U) dec_ms = 20U;
+        if (dec_ms > 800U) dec_ms = 800U;
         if (rel_ms < 30U) rel_ms = 30U;
         if (rel_ms > 3000U) rel_ms = 3000U;
-        const uint32_t rel_frames = (rel_ms * ORCH_SAMPLE_RATE) / 1000U;
-        v->env_dec = (int32_t)(ORCH_ENV_MAX / (rel_frames ? rel_frames : 1U));
+        const uint32_t atk_frames = (atk_ms * ORCH_SAMPLE_RATE) / 1000U;
+        const uint32_t dec_frames = (dec_ms * ORCH_SAMPLE_RATE) / 1000U;
+        v->release_frames = (rel_ms * ORCH_SAMPLE_RATE) / 1000U;
+        v->attack_left = atk_frames ? atk_frames : 1U;
+        v->decay_left = dec_frames ? dec_frames : 1U;
+        v->env = 0;
+        v->env_inc = ORCH_ENV_MAX / (int32_t)v->attack_left;
+        if (v->env_inc < 1) v->env_inc = 1;
+        /* A modest held sustain leaves room for bow/breath dynamics. Plucks
+         * use a lower sustain then enter release automatically after decay. */
+        v->sustain_level = v->auto_release ? (ORCH_ENV_MAX * 3) / 5
+                                           : (ORCH_ENV_MAX * 4) / 5;
+        v->env_decay_step = (ORCH_ENV_MAX - v->sustain_level) /
+                            (int32_t)v->decay_left;
+        if (v->env_decay_step < 1) v->env_decay_step = 1;
+        v->env_dec = ORCH_ENV_MAX / (int32_t)(v->release_frames ? v->release_frames : 1U);
         if (v->env_dec < 1) v->env_dec = 1;
     }
 
@@ -1237,17 +1254,47 @@ static void voice_tick(voice_t *v)
         v->out = body_out - v->dc;
     }
 
-    /* the envelope: the attack runs even for a pluck (the gate is already
-     * closed), then a held note sustains and a released one decays */
-    if (v->attack_left) {
-        --v->attack_left;
+    /* Four-stage per-voice ADSR. A MIDI note-off can enter release from
+     * any point in the contour. Plucks/strikes complete attack + decay before
+     * their automatic release, so the physical model is allowed to ring. */
+    if (v->releasing && v->env_stage != 4U) {
+        v->env_stage = 4U;
+        v->env_dec = (int32_t)(v->env / (int32_t)(v->release_frames ? v->release_frames : 1U));
+        if (v->env_dec < 1) v->env_dec = 1;
+    }
+    switch (v->env_stage) {
+    case 1U: /* attack */
+        if (v->attack_left) --v->attack_left;
         v->env += v->env_inc;
-        if (v->env > ORCH_ENV_MAX) v->env = ORCH_ENV_MAX;
-    } else if (v->gate) {
-        v->env = ORCH_ENV_MAX;
-    } else {
+        if (!v->attack_left || v->env >= ORCH_ENV_MAX) {
+            v->env = ORCH_ENV_MAX;
+            v->env_stage = 2U;
+        }
+        break;
+    case 2U: /* decay */
+        if (v->decay_left) --v->decay_left;
+        v->env -= v->env_decay_step;
+        if (!v->decay_left || v->env <= v->sustain_level) {
+            v->env = v->sustain_level;
+            v->env_stage = 3U;
+        }
+        break;
+    case 3U: /* sustain */
+        v->env = v->sustain_level;
+        if (!v->gate || v->auto_release) {
+            v->releasing = 1U;
+            v->env_stage = 4U;
+            v->env_dec = (int32_t)(v->env / (int32_t)(v->release_frames ? v->release_frames : 1U));
+            if (v->env_dec < 1) v->env_dec = 1;
+        }
+        break;
+    case 4U: /* release */
         v->env -= v->env_dec;
         if (v->env <= 8) voice_stop((unsigned)(v - voices));
+        break;
+    default:
+        voice_stop((unsigned)(v - voices));
+        break;
     }
     if (v->stroke_left) {
         if (!--v->stroke_left) v->gate = 0U;
