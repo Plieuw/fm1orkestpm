@@ -219,7 +219,6 @@ static void panel_apply_preset(unsigned index)
         {48,38,46,34}, {62,72,58,86}, {28,34,24,20}, {36,48,38,44}
     };
     if (index >= ORCH_PRESET_COUNT) return;
-    if (index >= ORCH_PRESET_COUNT) return;
     const orchestra_preset_t *p = &orchestra_presets[index];
     fm1_engine_pause();
     for (unsigned part=0U; part<PANEL_PARTS; ++part) {
