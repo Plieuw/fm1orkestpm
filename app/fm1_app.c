@@ -224,6 +224,22 @@ static void panel_apply_preset(unsigned index)
         {{18,110,260,78},{25,140,340,82},{35,160,400,84},{12,100,250,80}},
         {{32,180,420,82},{58,240,560,86},{38,170,360,84},{12,120,260,80}}
     };
+    /* Scene modulation: restrained per-section movement, synchronized
+     * where it supports the rhythmic character. sync_division: 0=free,
+     * 1=quarter, 2=eighth, 3=sixteenth, 4=dotted eighth. */
+    static const struct {
+        uint8_t wave, dest, depth, sync;
+        uint16_t rate, delay, fade;
+    } scene_lfo[8][PANEL_PARTS] = {
+        {{0,1,14,0,4200,180,700},{0,1,12,0,3900,220,800},{0,1,10,0,3400,260,900},{0,1,8,0,3000,300,1000}},
+        {{1,1,10,4,5000,40,250},{1,1,8,4,5000,60,300},{1,1,7,4,4500,80,350},{0,0,0,0,5000,0,0}},
+        {{0,1,8,0,2800,300,900},{0,1,10,0,3200,250,800},{0,1,8,0,2600,350,1000},{0,1,6,0,2400,400,1100}},
+        {{0,0,0,0,5000,0,0},{0,0,0,0,5000,0,0},{0,0,0,0,5000,0,0},{1,2,10,2,5000,0,250}},
+        {{1,2,12,2,5000,0,120},{1,2,10,2,5000,0,150},{1,2,8,2,5000,0,180},{1,2,8,2,5000,0,100}},
+        {{0,5,18,0,900,500,1800},{0,5,16,0,750,650,2000},{0,5,14,0,650,800,2200},{0,5,12,0,550,900,2400}},
+        {{3,2,12,2,5000,0,120},{3,2,10,2,5000,0,150},{1,1,8,2,5000,80,250},{3,2,8,2,5000,0,100}},
+        {{0,1,10,0,3600,180,700},{0,1,10,0,3300,200,750},{0,1,8,0,3000,250,850},{0,1,8,0,2800,300,900}}
+    };
     /* Full performance snapshots: ARP + phrase sequencer share the same
      * timing/groove/clock controls, but each scene gets its own character. */
     static const uint8_t fx_a[8][ORCH_FX_SLOT_COUNT] = {
@@ -244,6 +260,10 @@ static void panel_apply_preset(unsigned index)
         (void)orch_engine_set_adsr(part,scene_adsr[index][part].a,
             scene_adsr[index][part].d,scene_adsr[index][part].s,
             scene_adsr[index][part].r);
+        (void)orch_engine_set_lfo(part,scene_lfo[index][part].wave,
+            scene_lfo[index][part].dest,scene_lfo[index][part].depth,
+            scene_lfo[index][part].rate,scene_lfo[index][part].sync,
+            scene_lfo[index][part].delay,scene_lfo[index][part].fade);
         selected_instrument[part]=p->inst[part];
         selected_art[part]=p->art[part];
         selected_cap[part]=p->cap[part];
