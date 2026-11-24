@@ -90,3 +90,6 @@ The FM1 Core API provides `fm1_app_render`, `fm1_app_midi_received`, `groove_scr
 ## 0.3.5 performance engine notes
 
 Source reference is pinned to HAWK CHUA `main` commit `e750df6a2e13490a4f01b84d3f9c553f4612163f`, not a beta. The FM1 port is a new implementation with 31 ARP patterns and 46 authored phrase rhythm profiles. See `docs/HAWK_CHUA_PERFORMANCE_PORT.md` for exact behavior, differences and outstanding target checks. Generated notes must continue to route through `engine_note_on_part()` / `engine_note_off_part()` so instrument profiles, Adaptive Playing and Divisi remain in the signal path.
+
+
+Host CI for the 0.3.5 ARP/phrase implementation passed on code commit `1f9cf1f087c82b8762e97fa71e26cf78b2461c33` (run `45388838986`): every application C source compiled with `-Wall -Wextra -Werror`, and all host test suites passed, including all 31 ARP slots, all 46 phrase slots, external clock routing and engine voice-path integration. The later commit `5fc94dbeef25595eeca0c0e649fc354bf1f90b9d` only corrects source attribution metadata. This is still host-only validation, not a JieLi target build or a physical FM1 test.
