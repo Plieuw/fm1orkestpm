@@ -66,4 +66,8 @@ int orch_perf_pop_event(struct orch_perf_event *event);
 void orch_perf_panic(void);
 unsigned orch_perf_current_step(unsigned part);
 
+#ifdef FM1_HOST_TEST
+unsigned orch_test_phrase_arc_velocity(unsigned velocity, unsigned position);
+#endif
+
 #endif

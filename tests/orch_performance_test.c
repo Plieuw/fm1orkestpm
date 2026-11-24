@@ -109,9 +109,42 @@ static void test_adaptive_contour_changes_arp_direction(void)
     CHECK(ascending!=descending);
 }
 
+static void test_phrase_arc_has_peak_and_cadence(void)
+{
+    const unsigned start=orch_test_phrase_arc_velocity(100U,0U);
+    const unsigned peak=orch_test_phrase_arc_velocity(100U,8U);
+    const unsigned cadence=orch_test_phrase_arc_velocity(100U,15U);
+    CHECK(start<peak);
+    CHECK(peak>cadence);
+    CHECK(cadence<start);
+}
+
+static void test_contour_anchor_arp_starts_near_player(void)
+{
+    struct orch_perf_config c; struct orch_perf_event e;
+    unsigned first=255U;
+    orch_perf_init(); orch_perf_default_config(&c);
+    c.arp_enabled=1U; c.external_clock=1U; c.arp_type=22U;
+    c.division=4U; c.latch=0U;
+    CHECK(orch_perf_set_config(0U,&c)==0);
+    CHECK(orch_perf_note_event(0U,60U,90U)==1);
+    CHECK(orch_perf_note_event(0U,64U,90U)==1);
+    CHECK(orch_perf_note_event(0U,67U,90U)==1);
+    CHECK(orch_perf_note_event(0U,65U,90U)==1);
+    CHECK(orch_perf_note_event(0U,70U,90U)==1);
+    CHECK(orch_perf_note_event(0U,70U,0U)==1);
+    CHECK(orch_perf_note_event(0U,65U,0U)==1);
+    orch_perf_midi_realtime(0xFAU,0U);
+    for(unsigned tick=1U;tick<=36U;++tick) {
+        orch_perf_midi_realtime(0xF8U,tick*918U);
+        while(orch_perf_pop_event(&e)) if(e.note_on && first==255U) first=e.note;
+    }
+    CHECK(first==67U);
+}
+
 int main(void) {
     test_arp_capture_and_release(); test_phrase_generator(); test_latch_and_clock_stop();
-    test_all_pattern_slots(); test_adaptive_contour_changes_arp_direction();
+    test_all_pattern_slots(); test_adaptive_contour_changes_arp_direction(); test_contour_anchor_arp_starts_near_player(); test_phrase_arc_has_peak_and_cadence();
     if(failures){printf("%u performance test(s) failed\n",failures);return 1;}
     puts("orch_performance: all checks passed"); return 0;
 }

@@ -65,7 +65,7 @@ typedef struct {
     /* Player-derived musical context. Updated only on incoming MIDI notes. */
     uint8_t input_note, input_velocity_avg, input_activity, input_phrase_age;
     int8_t input_direction;
-    uint8_t input_have_note, input_peak;
+    uint8_t input_have_note, input_peak, input_after_rest;
     uint32_t input_last_on, input_ioi_avg;
     uint32_t rng;
 } perf_part_t;
@@ -167,6 +167,27 @@ static unsigned held_sorted(const perf_part_t *p, uint8_t *notes, uint8_t *vel)
     return n;
 }
 
+/* Find the chord tone closest to the player's latest pitch across the
+ * available register. Equal-distance ties follow the player's contour. */
+static unsigned contour_anchor(const perf_part_t *p, const uint8_t *notes,
+                               unsigned n, unsigned octaves)
+{
+    const unsigned total=n*octaves;
+    unsigned best=0U;
+    unsigned best_distance=256U;
+    for(unsigned i=0U;i<total;++i) {
+        const int pitch=(int)notes[i%n]+(int)(12U*(i/n));
+        const unsigned distance=(unsigned)(pitch>(int)p->input_note ?
+            pitch-(int)p->input_note : (int)p->input_note-pitch);
+        if(distance<best_distance ||
+           (distance==best_distance && p->input_direction>0 && i>best) ||
+           (distance==best_distance && p->input_direction<0 && i<best)) {
+            best=i; best_distance=distance;
+        }
+    }
+    return best;
+}
+
 static unsigned root_note(const perf_part_t *p, const uint8_t *notes)
 {
     return p->cfg.root ? (unsigned)(p->cfg.root-1U) : (unsigned)(notes[0]%12U);
@@ -221,6 +242,33 @@ static unsigned groove_gate(const perf_part_t *p, unsigned step, unsigned base)
     return out;
 }
 
+/* Shared musical envelope: rise, peak, then breathe into the cadence. */
+static const uint8_t phrase_arc[16] = {
+    82U, 86U, 90U, 95U, 101U, 107U, 113U, 118U,
+    120U, 116U, 108U, 99U, 90U, 82U, 74U, 68U
+};
+
+static unsigned arc_velocity(unsigned velocity, unsigned position)
+{
+    unsigned value=(velocity*(unsigned)phrase_arc[position&15U]+50U)/100U;
+    if(value<1U)value=1U;
+    if(value>127U)value=127U;
+    return value;
+}
+
+static unsigned arc_gate(unsigned gate, unsigned position)
+{
+    unsigned value=(gate*(unsigned)phrase_arc[position&15U]+50U)/100U;
+    if(value<5U)value=5U;
+    if(value>100U)value=100U;
+    return value;
+}
+
+#ifdef FM1_HOST_TEST
+unsigned orch_test_phrase_arc_velocity(unsigned velocity, unsigned position)
+{ return arc_velocity(velocity,position); }
+#endif
+
 static unsigned arp_pick(perf_part_t *p, const uint8_t *notes, const uint8_t *vel,
                          unsigned n, unsigned *out, unsigned *out_vel)
 {
@@ -263,7 +311,12 @@ static unsigned arp_pick(perf_part_t *p, const uint8_t *notes, const uint8_t *ve
                     (p->input_direction > 0 ? step%n : n-1U-step%n) : rnd(p)%n):
         (mode==4U)?(p->last_note?((step+n)%n):0U):
         (mode==5U)?(step*2U)%n:
-        (mode==6U)?(step/2U)%n:(n-1U-(step/2U)%n);
+        (mode==6U)?(step/2U)%n:
+        (p->input_have_note ?
+            (contour_anchor(p,notes,n,1U)%n +
+             (p->input_direction<0 ? n-((step?step-1U:0U)%n) :
+              ((step?step-1U:0U)%n)))%n :
+            (n-1U-(step/2U)%n));
     *out=(unsigned)notes[idx]+12U*((pat%4U==1U)?1U:0U);
     *out_vel=vel[idx];
     return 1U;
@@ -285,6 +338,9 @@ static unsigned phrase_pick(perf_part_t *p, const uint8_t *notes,
         if ((p->phrase_step&15U)>=12U && density>24U) density-=24U;
         /* Long player phrases taper before the next breath / entrance. */
         if (p->input_phrase_age>=10U && density>20U) density-=20U;
+        /* A long player rest starts a fresh phrase softly: leave a little
+         * breathing room before the line fills out again. */
+        if (p->input_after_rest && (pos<2U) && density>18U) density-=18U;
         if ((rnd(p)&127U)>density) return 0U;
     }
     const unsigned mode=ge%7U;
@@ -306,7 +362,13 @@ static unsigned phrase_pick(perf_part_t *p, const uint8_t *notes,
         break;
     }
     case 5U: idx=(p->phrase_step&1U)?total-1U-(p->phrase_step/2U)%total:(p->phrase_step/2U)%total;break;
-    default: idx=(pos*3U+ge)%total; break;
+    default:
+        if(p->input_have_note) {
+            const unsigned anchor=contour_anchor(p,notes,n,range);
+            const unsigned offset=(p->phrase_step/2U)%total;
+            idx=(anchor+(p->input_direction<0 ? total-offset : offset))%total;
+        } else idx=(pos*3U+ge)%total;
+        break;
     }
     unsigned cluster=p->cfg.cluster<1U?1U:p->cfg.cluster>4U?4U:p->cfg.cluster;
     /* Thin chord clusters in quiet passages; allow fuller divisi at peaks. */
@@ -321,6 +383,7 @@ static unsigned phrase_pick(perf_part_t *p, const uint8_t *notes,
         if (pos%4U==0U) v+=((int)p->cfg.accent)/4;
         else if (pos%4U==2U) v-=((int)p->cfg.accent)/8;
         if (p->input_peak && i==0U) v+=((int)p->cfg.accent)/5;
+        if (p->input_after_rest && pos==0U && i==0U) v+=((int)p->cfg.accent)/8;
         if (v<1) v=1;
         if (v>127) v=127;
         out[i]=note; out_vel[i]=(unsigned)v;
@@ -392,17 +455,17 @@ static void perform_step(unsigned part, perf_part_t *p, uint32_t now,
     unsigned out[PERF_MAX_STEP_NOTES], outv[PERF_MAX_STEP_NOTES], count=0U;
     if (use_arp) {
         const unsigned note=quantize_note(p,held,n,arp_note);
-        append_unique(out,outv,&count,note,groove_velocity(p,p->step,arp_vel));
+        append_unique(out,outv,&count,note,arc_velocity(groove_velocity(p,p->step,arp_vel),p->phrase_step));
     }
     if (use_seq) {
         for (unsigned i=0;i<seq_n;++i)
             append_unique(out,outv,&count,quantize_note(p,held,n,seq_notes[i]),
-                          groove_velocity(p,p->step,seq_vel[i]));
+                          arc_velocity(groove_velocity(p,p->step,seq_vel[i]),p->phrase_step));
     }
     if (!count) { ++p->step; ++p->phrase_step; return; }
 
     const unsigned gate_base=p->cfg.gate>100U?100U:p->cfg.gate;
-    const unsigned gate_pct=groove_gate(p,p->step,gate_base);
+    const unsigned gate_pct=arc_gate(groove_gate(p,p->step,gate_base),p->phrase_step);
     const uint32_t gate_samples=(step_len*gate_pct)/100U;
     for (unsigned i=0;i<count;++i)
         generated_on(part,p,out[i],outv[i],now,gate_samples);
@@ -462,7 +525,7 @@ void orch_perf_init(void)
         p->ext_last_tick=p->ext_tick_len=0U; p->ext_age=0U;
         p->alt_state=p->sr_state=p->last_note=p->last_velocity=0U;
         p->input_note=p->input_velocity_avg=0U; p->input_activity=100U;
-        p->input_phrase_age=p->input_peak=0U;
+        p->input_phrase_age=p->input_peak=p->input_after_rest=0U;
         p->input_direction=0; p->input_have_note=0U;
         p->input_last_on=p->input_ioi_avg=0U;
         p->rng=0x6D2B79F5U^(i*0x9E3779B9U);
@@ -532,9 +595,13 @@ int orch_perf_note_event(unsigned part, unsigned note, unsigned velocity)
                         p->input_ioi_avg=p->input_ioi_avg?
                             (p->input_ioi_avg*3U+ioi)/4U:ioi;
                 }
-                if (p->input_ioi_avg > (ORCH_PERF_SAMPLE_RATE * 3U) / 2U)
+                if (p->input_ioi_avg > (ORCH_PERF_SAMPLE_RATE * 3U) / 2U) {
                     p->input_phrase_age=0U;
-                else if (p->input_phrase_age<15U) ++p->input_phrase_age;
+                    p->input_after_rest=1U;
+                } else {
+                    if (p->input_phrase_age<15U) ++p->input_phrase_age;
+                    p->input_after_rest=0U;
+                }
                 if (delta>=5) p->input_peak=1U;
             } else p->input_phrase_age=0U;
             if (had_note && velocity>previous_velocity+20U) p->input_peak=1U;
