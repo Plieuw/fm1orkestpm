@@ -26,8 +26,9 @@ geometry layer:
 `orch_ui_draw.inc` sits on top: `mix565`, `disc`, `pen`, `arc_soft`, `curve`.
 Changing a page is now changing its geometry — a knob is a circle, a stadium and
 an arc, and a bigger knob is a bigger number — instead of rewriting a loop over
-pixels. One page is not drawn at all: the hall on the stage page is a photograph,
-reduced to runs of colour (see below).
+pixels. Five pictures are not drawn at all: the hall on the stage page, and the
+band under the work on each of the four menus, are photographs reduced to runs
+of colour (see below).
 
 ## Only what moves is repainted
 
@@ -47,6 +48,11 @@ entered, a step of the lights repaints only the band of rows they change in, and
 a knob turn there repaints the four lamps, the players and the marks over it,
 not the hall.
 
+Each menu has a band of its own under the work and above the knobs, and it is
+drawn the same way: once, when the page is entered. A knob turn on a menu
+repaints the values over it, not the picture, so the turn still costs what it
+did before the band existed — 539 fills on FX.
+
 ## What drawing costs
 
 Measured on the host with `tests/run_panel_bench.sh`, which drives the same five
@@ -55,13 +61,13 @@ pages through the same controls as the preview and counts the calls:
 | what | fills before | fills now |
 | --- | --- | --- |
 | STAGE, entered | 63 106 | 2 683 |
-| ARP | 9 370 | 1 013 |
-| SEQUENCE | 61 723 | 2 150 |
-| FX | 87 262 | 7 152 |
-| CONSOLE | 4 366 | 1 241 |
-| one knob turn | — | 554 |
+| ARP | 9 370 | 1 199 |
+| SEQUENCE | 61 723 | 2 626 |
+| FX | 87 262 | 7 251 |
+| CONSOLE | 4 366 | 1 803 |
+| one knob turn | — | 539 |
 | its highlight fading | 819 | 197 |
-| **five pages** | **225 827** | **20 653** |
+| **five pages** | **225 827** | **24 108** |
 
 The STAGE figure is entering the hall: the picture, the title, the marks and
 the strip. The lights are counted apart, because they are the part that runs on
@@ -78,8 +84,10 @@ knob turn costs, for a picture that had not moved. A step now repaints the band
 the lights are in rather than the hall (see below), there are two frames
 instead of three, and the cycle is slower — so the worst second of the
 animation went from 1 970 fills to 503, and the whole five-page visit from
-23 220 to 20 653. These are host numbers for the number of calls; they are not
-a measurement of the FM-1's own frame time, which needs the board.
+23 220 to 20 653. The menus' bands bring that visit back to 24 108: 3 455 fills
+for four pictures, each of them paid once per visit, not once per frame. These
+are host numbers for the number of calls; they are not a measurement of the
+FM-1's own frame time, which needs the board.
 
 The one thing on the screen that follows the sound is counted apart, as
 `sound 0.5s` and `orchestra` in the same bench: a note held for half a second,
@@ -138,6 +146,32 @@ picture to the boards — the arch and the curtains, where the light changes; th
 seats, the lamps and the front of the hall are the same picture in both, so a
 step never touches them. While a part is sounding the page steps every 2.4 s;
 when the hall is quiet it stays on the first frame.
+
+The nights start in the same tool. Each of the four menus has a picture of its
+own beside the hall's two frames — `tools/panel_photo/arp.png`, `seq.png`,
+`glo.png`, `fx.png` — and `tools/panel_photo/regen.sh` builds all five includes
+with it. Those four are bands: 240 × 30, the strip a page has free between its
+work and its knobs. A band is a fifth of the panel, so two things happen to the
+photograph first, and both are options of the tool:
+
+* `--pick-rows 30` takes the band from the brightest window of thirty rows
+  instead of the centre of the image, because cropped through the middle a night
+  picture is its darkest part;
+* `--expose 1.35 --contrast 1.15` lifts it enough to carry the picture at that
+  size, so the band is a scene and not a black stripe.
+
+`--name PIC_ARP` is what keeps five pictures in one translation unit apart: the
+defines and the tables carry that prefix (`PIC_ARP_W`, `pic_arp_palette`,
+`pic_arp_runs0`), so `orch_ui_pictures.inc` can hold them all. The pictures
+themselves are the harp the arp plays, the score the sequencer follows, the
+console at the back of the hall, and the rack the effects live in — the same
+hall, seen from the four places the four menus are about.
+
+`orch_ui_picture.inc` is the one place that turns runs into fills: a
+`struct panel_picture` holds a palette, its frames and their row tables, and
+`picture()` / `picture_rows()` draw them at a corner. The hall has been drawn
+through it since the menus got their bands, so there is one drawing path for
+five pictures rather than two.
 
 To change the picture, replace the frames in `tools/panel_photo/` and run the
 same script — it is this command, with those two files:
@@ -208,21 +242,25 @@ light is ever repainted.
 
 *ARP* — the pattern itself: the eight notes of one cycle rising across the
 octaves, joined by a line, each with a bar as long as its gate, the held keys as
-dots under the axis, and the rate and the mode as the only two words.
+dots under the axis, and the rate and the mode as the only two words. Under the
+card, the band: the harp the arp plays.
 
 *SEQUENCE* — sixteen steps as cards whose height is the velocity, the open step
 framed in amber, the playing one underlined in green; under them the phrase as
 a line through the open steps' pitches, with the open step as an amber dot, its
-number and its note names in the corners.
+number and its note names in the corners. Under the card, the band: the score,
+under its one lamp.
 
 *CONSOLE* — three faders (tempo, transpose, volume) with their numbers under
-them, the note map as seven degrees, and the save state as one word.
+them, the note map as seven degrees, and the save state as one word. Under it
+all, the band: the console at the back of the hall, its own faders lit.
 
 *FX* — one line per effect: its name, its mix as a level bar and a lamp for on,
 the open effect marked with an amber edge. Under the list, the shape that
 effect gives a note, drawn from its own two parameters: a wobble for the chorus
 and the ensemble, echoes that decay for the delay, a long ringing tail for the
-shimmer. Its two parameter numbers are the only text on the card.
+shimmer. Its two parameter numbers are the only text on the card. Under the
+card, the band: the rack the effects live in.
 
 ## The files
 
@@ -238,6 +276,9 @@ The panel is one translation unit: `app/orch_ui.c` included from `app/`, so
 | `app/orch_ui_view.inc` | the string helpers, `kv`, `card`, `bar`, `text_center` |
 | `app/orch_ui_strip.inc` | the four knobs, their value arcs, the strip and its per-cell patch |
 | `app/orch_ui_photo.inc` | the hall as a photograph: the palette, and the runs of each frame |
+| `app/orch_ui_picture.inc` | `struct panel_picture`, `picture()`, `picture_rows()`: runs to fills |
+| `app/orch_ui_pic_arp.inc` `_seq` `_glo` `_fx` | the four menus' bands, one picture each |
+| `app/orch_ui_pictures.inc` | which band belongs to which page, and where it hangs |
 | `app/orch_ui_stage.inc` | the STAGE page: the photograph, the lamps, the players, the light over the boards |
 | `app/orch_level.inc` | the light's level: the orchestra's scale (24 at eight voices) and the output's peak inside it |
 | `app/orch_ui_pages.inc` | ARP and SEQUENCE |
