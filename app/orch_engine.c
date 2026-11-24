@@ -536,6 +536,12 @@ static void voice_start(unsigned part, unsigned note, unsigned velocity,
         uint32_t rel_base = (adsr && adsr->release_ms) ? adsr->release_ms : prof.release_ms;
         uint32_t atk_ms = (atk_base * in->attack_mul) >> 16;
         uint32_t rel_ms = (rel_base * in->release_mul) >> 16;
+        /* Shape decay and sustain from musical intent, not clock tempo.
+         * Connected notes retain more body; phrase openings breathe in;
+         * down-bows/new peaks speak more firmly; phrase endings taper. */
+        {
+            uint32_t decay_scale = 65536U;
+                    }
         if (atk_ms < 2U) atk_ms = 2U;
         if (atk_ms > 400U) atk_ms = 400U;
         if (dec_ms < 20U) dec_ms = 20U;
@@ -553,9 +559,24 @@ static void voice_start(unsigned part, unsigned note, unsigned velocity,
         /* A modest held sustain leaves room for bow/breath dynamics. Plucks
          * use a lower sustain then enter release automatically after decay. */
         {
-            unsigned sustain = adsr ? adsr->sustain_percent : 80U;
-            if (v->auto_release && sustain > 60U) sustain = 60U;
-            v->sustain_level = (ORCH_ENV_MAX * (int32_t)sustain) / 100;
+            int sustain = adsr ? adsr->sustain_percent : 80U;
+            /* Recompute the same small phrase bias at the sustain target.
+             * This makes the ADSR's S stage respond to legato, accents and
+             * phrase direction while preserving the user's base setting. */
+            if (in->connected) sustain += 3;
+            if (in->new_high) sustain += 4;
+            if (in->down_bow) sustain += 2;
+            if (in->phrase_start) sustain -= 2;
+            if (in->phrase_end) sustain -= 12;
+            if (family == ORCH_FAM_STRINGS || family == ORCH_FAM_WOODWINDS ||
+                family == ORCH_FAM_BRASS || family == ORCH_FAM_CHOIR) {
+                const int energy_delta = ((int)in->energy - (int)ORCH_Q16) / 16384;
+                sustain += energy_delta > 4 ? 4 : (energy_delta < -4 ? -4 : energy_delta);
+            }
+            if (sustain < 20) sustain = 20;
+            if (sustain > 96) sustain = 96;
+            if (v->auto_release && sustain > 60) sustain = 60;
+            v->sustain_level = (ORCH_ENV_MAX * sustain) / 100;
         }
         v->env_decay_step = (ORCH_ENV_MAX - v->sustain_level) /
                             (int32_t)v->decay_left;
@@ -583,8 +604,14 @@ static void voice_start(unsigned part, unsigned note, unsigned velocity,
         if (depth > 2400U) depth = 2400U;
         v->expr_depth = (uint16_t)depth;
         {
-            const unsigned rate_millihz = 120U +
+            unsigned rate_millihz = 120U +
                 (unsigned)in->density * 18U + (in->new_high ? 25U : 0U);
+            /* Legato phrases breathe more slowly; articulated accents move
+             * the bow/breath support slightly faster, never in BPM lock. */
+            if (in->connected) rate_millihz = (rate_millihz * 82U) / 100U;
+            if (in->down_bow) rate_millihz = (rate_millihz * 108U) / 100U;
+            if (rate_millihz < 90U) rate_millihz = 90U;
+            if (rate_millihz > 360U) rate_millihz = 360U;
             v->expr_inc = rate_millihz * 97U +
                           (rate_millihz * 9U) / 20U;
         }
