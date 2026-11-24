@@ -85,3 +85,24 @@ layout and preset workflow are unchanged.
 This is fixed-point note-on work; no additional per-sample modulation branch
 or new memory allocation is introduced. CI must still confirm compilation and
 tests. Physical FM1 listening and CPU-headroom checks remain outstanding.
+
+
+## Connected legato transitions (next-step implementation)
+
+For connected notes in the same part and divisi player, the engine now reuses
+the existing waveguide voice instead of starting a fresh delay line. It keeps
+the resonator delay/body state and current envelope level, then retunes from
+the current loop length toward the new pitch using the adaptive glide time.
+The envelope receives a short 12 ms transition ramp rather than restarting
+from zero. A recently released source voice can be reused while its envelope
+is still above 20%, which covers the short articulation gap common in played
+legato lines. Old note-off events cannot release the new note because the
+voice is rebound to the new note ID.
+
+This behavior is restricted to connected, non-percussive notes of the same
+part, family and divisi-player slot. It does not borrow a voice from another
+part or turn a mallet strike into a sustained transition. Live MIDI, ARP and
+sequencer inherit it through the shared note-start path. A host regression test
+checks that a connected transition preserves audible energy and does not add a
+second voice. Full target-build, CPU and FM1 listening validation remain
+required.
