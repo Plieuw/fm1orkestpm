@@ -99,19 +99,25 @@ const char *orch_family_name(unsigned family)
 void orch_parts_init(void)
 {
     static const uint16_t channel_map[ORCH_PARTS] = {
-        0x000FU, 0x00F0U, 0x0F00U, 0xF000U
+        0x0001U, 0x0002U, 0x0004U, 0x0008U,
+        0x0010U, 0x0020U, 0x0040U, 0x0080U
+    };
+    static const uint8_t family_map[ORCH_PARTS] = {
+        ORCH_FAM_STRINGS, ORCH_FAM_STRINGS,
+        ORCH_FAM_WOODWINDS, ORCH_FAM_WOODWINDS,
+        ORCH_FAM_BRASS, ORCH_FAM_BRASS,
+        ORCH_FAM_MALLETS, ORCH_FAM_CHOIR
     };
     for (unsigned p = 0; p < ORCH_PARTS; ++p) {
         struct orch_part *part = &parts[p];
         orch_adaptive_init(&part->adaptive);
         orch_divisi_init(&part->divisi);
         part->channels = channel_map[p];
-        part->family = (uint8_t)p;
-        part->instrument = (uint8_t)default_instrument(p);
+        part->family = family_map[p];
+        part->instrument = (uint8_t)default_instrument(family_map[p]);
         part->enabled = 1U;
         part->articulation = ORCH_ART_AUTO;
         part->player_cap = 2U;
-        part->voice_ceiling = ORCH_PART_VOICE_CEIL;
         instrument_adsr(part->instrument, &part->adsr);
         part->lfo.wave = ORCH_LFO_SINE;
         part->lfo.destinations = 0U;

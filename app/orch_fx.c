@@ -208,56 +208,47 @@ void orch_fx_init(void)
 
 void orch_fx_reset(void) { reset_pending = 1U; }
 
-int orch_fx_set_enabled(unsigned slot, unsigned on)
+/* Keep slot validation and percent clamping in one place. These helpers
+ * run in the control path; the audio renderer still reads the byte arrays
+ * directly, so this refactor adds no per-sample work. */
+static int set_fx_value(volatile uint8_t *values, unsigned slot,
+                        unsigned value, unsigned percent)
 {
     if (slot >= ORCH_FX_SLOT_COUNT) return -1;
-    fx_on[slot] = on ? 1U : 0U;
+    if (percent && value > 100U) value = 100U;
+    values[slot] = (uint8_t)value;
     return 0;
+}
+
+static unsigned get_fx_value(const volatile uint8_t *values, unsigned slot)
+{
+    return slot < ORCH_FX_SLOT_COUNT ? values[slot] : 0U;
+}
+
+int orch_fx_set_enabled(unsigned slot, unsigned on)
+{
+    return set_fx_value(fx_on, slot, on ? 1U : 0U, 0U);
 }
 
 int orch_fx_set_mix(unsigned slot, unsigned percent)
 {
-    if (slot >= ORCH_FX_SLOT_COUNT) return -1;
-    if (percent > 100U) percent = 100U;
-    fx_mix[slot] = (uint8_t)percent;
-    return 0;
+    return set_fx_value(fx_mix, slot, percent, 1U);
 }
 
 int orch_fx_set_param_a(unsigned slot, unsigned percent)
 {
-    if (slot >= ORCH_FX_SLOT_COUNT) return -1;
-    if (percent > 100U) percent = 100U;
-    fx_a[slot] = (uint8_t)percent;
-    return 0;
+    return set_fx_value(fx_a, slot, percent, 1U);
 }
 
 int orch_fx_set_param_b(unsigned slot, unsigned percent)
 {
-    if (slot >= ORCH_FX_SLOT_COUNT) return -1;
-    if (percent > 100U) percent = 100U;
-    fx_b[slot] = (uint8_t)percent;
-    return 0;
+    return set_fx_value(fx_b, slot, percent, 1U);
 }
 
-unsigned orch_fx_enabled(unsigned slot)
-{
-    return slot < ORCH_FX_SLOT_COUNT ? fx_on[slot] : 0U;
-}
-
-unsigned orch_fx_mix(unsigned slot)
-{
-    return slot < ORCH_FX_SLOT_COUNT ? fx_mix[slot] : 0U;
-}
-
-unsigned orch_fx_param_a(unsigned slot)
-{
-    return slot < ORCH_FX_SLOT_COUNT ? fx_a[slot] : 0U;
-}
-
-unsigned orch_fx_param_b(unsigned slot)
-{
-    return slot < ORCH_FX_SLOT_COUNT ? fx_b[slot] : 0U;
-}
+unsigned orch_fx_enabled(unsigned slot) { return get_fx_value(fx_on, slot); }
+unsigned orch_fx_mix(unsigned slot) { return get_fx_value(fx_mix, slot); }
+unsigned orch_fx_param_a(unsigned slot) { return get_fx_value(fx_a, slot); }
+unsigned orch_fx_param_b(unsigned slot) { return get_fx_value(fx_b, slot); }
 
 unsigned orch_fx_any_enabled(void)
 {

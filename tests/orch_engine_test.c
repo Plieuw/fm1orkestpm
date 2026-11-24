@@ -36,7 +36,7 @@ static void midi(unsigned status, unsigned d1, unsigned d2)
     orch_midi_short_message(m, 3U);
 }
 
-/* Only part 0 listens, on channels 1-4, with the given family. */
+/* Only part 0 listens, on MIDI channel 1, with the given family. */
 static void solo_part(unsigned family)
 {
     orch_init();
@@ -50,6 +50,27 @@ static uint32_t q23_power(uint32_t base, unsigned exponent)
     for (unsigned i = 0; i < exponent; ++i)
         value = (value * base) >> 23;
     return (uint32_t)value;
+}
+
+extern uint16_t orch_test_level_compensation_gain(unsigned velocity, uint32_t level);
+extern uint16_t orch_test_register_target_scale_q15(unsigned note);
+
+static void test_instrument_level_compensation_bounds(void)
+{
+    const uint16_t quiet = orch_test_level_compensation_gain(127U, 1000U);
+    const uint16_t loud = orch_test_level_compensation_gain(127U, 30000U);
+    const uint16_t full_velocity = orch_test_level_compensation_gain(127U, 10000U);
+    const uint16_t half_velocity = orch_test_level_compensation_gain(64U, 10000U);
+    CHECK(quiet == 65535U);       /* no more than +6 dB */
+    CHECK(loud == 16384U);        /* no more than -6 dB */
+    CHECK(full_velocity > half_velocity);
+    CHECK(half_velocity > 0U);
+    CHECK(orch_test_level_compensation_gain(127U, 32U) == 32767U);
+    CHECK(orch_test_register_target_scale_q15(36U) >
+          orch_test_register_target_scale_q15(60U));
+    CHECK(orch_test_register_target_scale_q15(60U) >
+          orch_test_register_target_scale_q15(108U));
+    CHECK(orch_test_register_target_scale_q15(60U) == 32767U);
 }
 
 static void test_round_trip_loss(void)
@@ -103,15 +124,58 @@ static void test_routing(void)
     CHECK(orch_voices_of_part(1U) == 0U);
     CHECK(orch_note_count(0U) == 1U);
 
-    orch_panic();
+    orch_reset_notes();
     render(1U);
     CHECK(orch_active_voices() == 0U);
     CHECK(orch_note_count(0U) == 0U);
 
-    midi(0x94U, 64U, 100U);      /* channel 5 -> part 1 */
+    midi(0x91U, 64U, 100U);      /* channel 2 -> part 1 */
     render(2U);
     CHECK(orch_voices_of_part(1U) >= 1U);
     CHECK(orch_voices_of_part(0U) == 0U);
+    orch_init();
+}
+
+
+static void test_eight_part_routing(void)
+{
+    orch_init();
+    for (unsigned p = 0; p < 8U; ++p) {
+        CHECK(orch_part_for_channel(p) == p);
+        midi(0x90U | p, 60U + p, 100U);
+    }
+    render(8U);
+    for (unsigned p = 0; p < 8U; ++p)
+        CHECK(orch_note_count(p) == 1U);
+    CHECK(orch_active_voices() <= ORCH_MAX_VOICES);
+    for (unsigned p = 0; p < 8U; ++p)
+        midi(0x80U | p, 60U + p, 0U);
+    render(500U);
+    CHECK(orch_active_voices() == 0U);
+    orch_init();
+}
+
+static void test_repeated_same_pitch_note_off_fifo(void)
+{
+    orch_init();
+    CHECK(orch_engine_set_player_cap(0U, 1U) == 0);
+    midi(0x90U, 60U, 96U);
+    render(2U);
+    midi(0x90U, 60U, 112U);
+    render(2U);
+    CHECK(orch_note_count(0U) == 2U);
+
+    /* The first Note Off consumes only the oldest note instance. */
+    midi(0x80U, 60U, 0U);
+    render(2U);
+    CHECK(orch_note_count(0U) == 1U);
+    CHECK(orch_voices_of_part(0U) >= 1U);
+
+    /* The second Note Off releases the newer instance. */
+    midi(0x80U, 60U, 0U);
+    render(500U);
+    CHECK(orch_note_count(0U) == 0U);
+    CHECK(orch_active_voices() == 0U);
     orch_init();
 }
 
@@ -165,12 +229,114 @@ static void test_divisi_players(void)
     render(2U);
     CHECK(orch_voices_of_part(0U) == 2U);   /* the phrase opens with two players */
 
-    orch_panic();
+    orch_reset_notes();
     render(1U);
     CHECK(orch_engine_set_player_cap(0U, 1U) == 0);
     midi(0x90U, 62U, 100U);
     render(2U);
     CHECK(orch_voices_of_part(0U) == 1U);
+    orch_init();
+}
+
+static int64_t measure_adsr_attack_energy(unsigned attack_ms)
+{
+    int64_t energy = 0;
+    solo_part(ORCH_FAM_STRINGS);
+    CHECK(orch_engine_set_adsr(0U, attack_ms, 180U, 82U, 350U) == 0);
+    midi(0x90U, 60U, 100U);
+    /* First ~26 ms: the ADSR must shape both the output and the excitation. */
+    energy = render_energy(9U);
+    orch_init();
+    return energy;
+}
+
+static void test_adsr_shapes_transient_energy(void)
+{
+    const int64_t fast = measure_adsr_attack_energy(5U);
+    const int64_t slow = measure_adsr_attack_energy(260U);
+    CHECK(fast > 0);
+    CHECK(slow > 0);
+    CHECK(fast > slow * 2);
+}
+
+static void test_overlapping_notes_use_legato_handover(void)
+{
+    solo_part(ORCH_FAM_STRINGS);
+    CHECK(orch_engine_set_player_cap(0U, 1U) == 0);
+    midi(0x90U, 60U, 96U);
+    render(24U);
+    CHECK(orch_voices_of_part(0U) == 1U);
+
+    /* A second pitch arrives before the first Note Off: this is a true
+     * overlapping legato handover, not a fresh attack from silence. */
+    midi(0x90U, 64U, 104U);
+    render(8U);
+    CHECK(orch_last_intent(0U) && orch_last_intent(0U)->connected);
+    CHECK(orch_note_count(0U) == 2U);
+    CHECK(orch_voices_of_part(0U) == 1U);
+    CHECK(orch_active_voices() == 1U);
+
+    /* Releasing the older note must not release the reassigned voice. */
+    midi(0x80U, 60U, 0U);
+    render(2U);
+    CHECK(orch_voices_of_part(0U) == 1U);
+    midi(0x80U, 64U, 0U);
+    render(500U);
+    CHECK(orch_active_voices() == 0U);
+    orch_init();
+}
+
+static void test_connected_legato_preserves_waveguide(void)
+{
+    int64_t before = 0;
+    solo_part(ORCH_FAM_STRINGS);
+    /* Isolate one resonator so this test measures legato reuse rather than
+     * the default two-player divisi arrangement. */
+    CHECK(orch_engine_set_player_cap(0U, 1U) == 0);
+    CHECK(orch_engine_set_adsr(0U, 180U, 220U, 82U, 420U) == 0);
+    midi(0x90U, 60U, 100U);
+    for (unsigned i = 0; i < 18U; ++i)
+        before = render_energy(1U);
+    CHECK(before > 0);
+
+    /* A short, intentional gap should be interpreted as connected. The
+     * released resonator is reused and retuned, rather than restarted silent. */
+    midi(0x80U, 60U, 0U);
+    render(1U);
+    midi(0x90U, 62U, 104U);
+    const int64_t after = render_energy(1U);
+    CHECK(orch_last_intent(0U) && orch_last_intent(0U)->connected);
+    CHECK(after > before / 3);
+    CHECK(orch_voices_of_part(0U) == 1U);
+    CHECK(orch_active_voices() == 1U);
+    midi(0x80U, 62U, 0U);
+    render(500U);
+    CHECK(orch_active_voices() == 0U);
+    orch_init();
+}
+
+static void test_adaptive_sustain_expression(void)
+{
+    int32_t low = 32767, high = -32768;
+    solo_part(ORCH_FAM_STRINGS);
+    CHECK(orch_engine_set_adsr(0U, 2U, 2U, 100U, 900U) == 0);
+    midi(0x90U, 60U, 100U);
+    for (unsigned b = 0; b < 1400U; ++b) {
+        render(1U);
+        {
+            const int32_t value = orch_test_expression_q15();
+            if (value < low) low = value;
+            if (value > high) high = value;
+        }
+    }
+    CHECK(high > low + 500);
+    orch_init();
+
+    /* Percussive mallets should not acquire an artificial held-note swell. */
+    solo_part(ORCH_FAM_MALLETS);
+    midi(0x90U, 60U, 100U);
+    render(20U);
+    CHECK(orch_test_expression_q15() == 0);
     orch_init();
 }
 
@@ -364,12 +530,19 @@ static void test_articulation(void)
 
 int main(void)
 {
+    test_instrument_level_compensation_bounds();
     test_round_trip_loss();
     test_string_pitch_autocorrelation();
     test_routing();
+    test_eight_part_routing();
+    test_repeated_same_pitch_note_off_fifo();
     test_families();
     test_instruments();
     test_divisi_players();
+    test_adsr_shapes_transient_energy();
+    test_connected_legato_preserves_waveguide();
+    test_overlapping_notes_use_legato_handover();
+    test_adaptive_sustain_expression();
     test_release_and_sustain();
     test_sequencer();
     test_sequencer_phrase_arc();

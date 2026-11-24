@@ -9,7 +9,7 @@
 
 #include <stdint.h>
 
-#define ORCH_PERF_PARTS 4U
+#define ORCH_PERF_PARTS 8U
 #define ORCH_PERF_SAMPLE_RATE 44100U
 #define ORCH_PERF_GE_COUNT 46U
 #define ORCH_PERF_ARP_TYPES 31U

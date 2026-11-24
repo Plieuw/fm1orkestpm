@@ -10,8 +10,7 @@
 #include "orch_adaptive.h"
 #include "orch_divisi.h"
 
-#define ORCH_PARTS 4U
-#define ORCH_PART_VOICE_CEIL 4U
+#define ORCH_PARTS 8U
 
 enum orch_family {
     ORCH_FAM_STRINGS = 0,
@@ -58,7 +57,6 @@ struct orch_part {
     uint8_t enabled;
     uint8_t articulation;  /* ORCH_ART_AUTO or a pinned articulation */
     uint8_t player_cap;    /* divisi ceiling for this part */
-    uint8_t voice_ceiling; /* voices this part may hold */
 };
 
 void orch_parts_init(void);

@@ -78,6 +78,7 @@ struct orch_adaptive {
     uint8_t phrase_n;         /* phrase counter, 8-phrase arc */
     uint8_t vel_n;
     uint8_t density;
+    uint8_t held_notes;       /* overlapping gates allow true legato connection */
 };
 
 void orch_adaptive_init(struct orch_adaptive *a);

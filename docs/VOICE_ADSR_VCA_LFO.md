@@ -125,3 +125,52 @@ current feature branch. The eight factory scenes assign per-section ADSR and
 LFO values during preset recall. The LFO is additive to the legacy vibrato.
 Separate VCA response/velocity curves, host regression tests for modulation,
 and FM1 hardware verification remain future work.
+
+
+## Adaptive ADSR + transient modelling (0.3.12 work)
+
+The per-voice ADSR now has two jobs: it remains the amplitude contour, and it
+also shapes the physical-model excitation. Attack level controls the evolving
+excitation pressure for bowed strings, breath, brass and choir; struck voices
+receive the same contour on their initial impulse while their resonant body is
+still allowed to ring. This makes attack, decay and sustain audible in the
+instrument's behaviour, not only as a post-model VCA multiplier.
+
+A lightweight rectified energy follower tracks the recent model output. Its
+fast attack / slower release response contributes a bounded brightness change,
+while the ADSR attack stage adds a short transient-brightness lift that settles
+as the note opens. The existing per-instrument damping and LFO brightness
+remain in control; the new terms are clamped to the same safe damping range.
+
+Adaptive intent continues to scale the authored ADSR attack and release. ARP
+and phrase-sequencer notes enter the same note-on / voice-start path as live
+MIDI, so they inherit this envelope-driven excitation and transient response
+without separate timing rules or extra panel controls. The existing ADSR
+controls and preset workflow are unchanged.
+
+Validation added: a host regression compares early-note energy for fast and
+slow ADSR attacks. Target CPU headroom and listening tests on FM1 remain
+required; this is not yet a hardware-verified sound-design result.
+
+
+## Adaptive sustain expression layer (0.3.13 work)
+
+A second, slow expression contour now sits above the four-stage ADSR. It is
+not a replacement for the user envelope and does not change its attack,
+decay, sustain or release settings. During sustain and release, a smooth
+triangle-derived low-frequency curve gently moves the physical excitation
+and VCA gain. Its rate is set from the adaptive note density and phrase-peak
+intent, not from BPM, so ARP/sequencer timing does not force an audible tremolo.
+
+Depth is family-specific: bowed strings model bow-pressure swell, woodwinds
+model breath support, brass use a restrained pressure variation, and choir
+gets a slightly broader slow breath arc. Mallets and other struck voices have
+no artificial sustain modulation, preserving their natural resonant decay.
+The same voice path is used by live MIDI, ARP and phrase sequencer. The
+modulation is bounded to a few percent and uses fixed-point arithmetic; it
+adds no controls or panel remapping.
+
+Host regression samples the expression state over a sustained string note and
+checks that it evolves, while confirming mallet voices do not receive the
+sustain swell. Target CPU headroom and listening tests on the FM1 remain
+required before release.

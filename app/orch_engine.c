@@ -42,7 +42,9 @@ typedef struct {
     uint32_t excite_phase, excite_inc;
     uint32_t len_q16, len_target_q16, len_step;
     uint32_t glide_left;
-    uint32_t age;
+    uint32_t age, note_id;
+    uint32_t legato_transition_left, legato_transition_total;
+    uint32_t legato_transition_step_q16;
     uint32_t loop_gain_q23; /* per-sample gain derived from per-round-trip loss */
     int32_t lp;      /* previous loop sample (the damping filter's state) */
     int32_t dc;      /* output DC blocker state */
@@ -51,6 +53,13 @@ typedef struct {
     int32_t sustain_level;
     int32_t accent_q16;
     int32_t energy_q16;
+    int32_t excite_follow; /* rectified model-energy follower, Q15 */
+    uint32_t level_follow; /* slow output-level follower, rectified PCM */
+    uint16_t level_gain_q15;
+    uint8_t level_update_count;
+    uint32_t expr_phase, expr_inc;
+    int32_t expr_q15;
+    uint16_t expr_depth;
     uint16_t vib_phase, vib_inc;
     uint32_t lfo_phase, lfo_inc, lfo_delay_left, lfo_fade_frames, lfo_fade_gain;
     uint32_t lfo_hold;
@@ -70,7 +79,7 @@ typedef struct {
 typedef struct {
     uint8_t note;
     uint32_t id;
-    uint8_t used;
+    uint8_t used, held;
 } part_note_t;
 
 typedef struct {
@@ -91,6 +100,7 @@ static uint8_t sustain[ORCH_MIDI_CHANNELS];
 static struct orch_step_note pattern[ORCH_SEQ_STEPS][ORCH_STEP_NOTES];
 static uint8_t pattern_count[ORCH_SEQ_STEPS];
 static uint8_t seq_note[ORCH_STEP_NOTES], seq_active[ORCH_STEP_NOTES];
+static uint32_t seq_note_id[ORCH_STEP_NOTES];
 /* Optional arranger context is learned from incoming MIDI only, never from
  * generated sequencer/ARP notes. Counts preserve pitch classes when notes
  * overlap in different octaves. */
@@ -119,6 +129,43 @@ static uint32_t rng = 0x6d2b79f5U;
 
 /* ---------------------------------------------------------------- helpers */
 
+/* A restrained register contour compensates the model's broad spectral
+ * tilt without flattening musical dynamics: bass notes get a little more
+ * target level, while the extreme upper register gets a little less.
+ * Piecewise-linear ramps avoid audible steps at the band boundaries. */
+static uint32_t register_target_scale_q15(unsigned note)
+{
+    if (note < 36U) return 35389U; /* +8%, lowest register */
+    if (note < 60U) return 35389U - ((note - 36U) * 2622U) / 24U;
+    if (note < 108U) return 32767U - ((note - 60U) * 1966U) / 48U;
+    return 30801U;                 /* -6%, extreme upper register */
+}
+
+static uint16_t level_compensation_gain(unsigned velocity, uint32_t level,
+                                         unsigned note)
+{
+    if (level <= 64U) return 32767U;
+    uint32_t target = (velocity * 5000U) / 100U;
+    /* MIDI velocity and the register contour keep target below 7,000, so
+     * both products fit in 32 bits; avoid a 64-bit divide on the audio path. */
+    target = (target * register_target_scale_q15(note)) >> 15;
+    uint32_t gain = (target << 15) / level;
+    if (gain < 16384U) gain = 16384U;
+    if (gain > 65535U) gain = 65535U;
+    return (uint16_t)gain;
+}
+
+#ifdef FM1_HOST_TEST
+uint16_t orch_test_level_compensation_gain(unsigned velocity, uint32_t level)
+{
+    return level_compensation_gain(velocity, level, 60U);
+}
+uint16_t orch_test_register_target_scale_q15(unsigned note)
+{
+    return (uint16_t)register_target_scale_q15(note);
+}
+#endif
+
 static int32_t clamp16(int32_t x)
 {
     if (x > 32767) return 32767;
@@ -131,15 +178,18 @@ static int32_t triangle32(uint32_t phase);
 /* Cheap fixed-point LFO waveform generation; no floating point in the ISR. */
 static int32_t lfo_wave_value(unsigned wave, uint32_t phase, uint32_t *hold)
 {
-    const int32_t tri = triangle32(phase);
     switch (wave) {
-    case ORCH_LFO_TRIANGLE: return tri;
-    case ORCH_LFO_SAW: return (int32_t)(phase >> 16) - 32768;
-    case ORCH_LFO_SQUARE: return (phase & 0x80000000U) ? 32767 : -32768;
+    case ORCH_LFO_TRIANGLE:
+        return triangle32(phase);
+    case ORCH_LFO_SAW:
+        return (int32_t)(phase >> 16) - 32768;
+    case ORCH_LFO_SQUARE:
+        return (phase & 0x80000000U) ? 32767 : -32768;
     case ORCH_LFO_SAMPLE_HOLD:
         return (int32_t)(*hold >> 16) - 32768;
     case ORCH_LFO_SINE:
     default: {
+        const int32_t tri = triangle32(phase);
         const int32_t a = tri < 0 ? -tri : tri;
         return (tri * (49152 - (a >> 1))) >> 15;
     }
@@ -319,6 +369,7 @@ static void part_notes_reset(void)
             runtime[p].notes[i].used = 0U;
             runtime[p].notes[i].note = 0U;
             runtime[p].notes[i].id = 0U;
+            runtime[p].notes[i].held = 0U;
         }
         runtime[p].next_id = 1U;
         runtime[p].last_len_q16 = 0U;
@@ -330,17 +381,12 @@ static int part_note_add(unsigned part, unsigned note, uint32_t *out_id)
 {
     part_runtime_t *rt = &runtime[part];
     for (unsigned i = 0; i < PART_NOTES; ++i) {
-        if (rt->notes[i].used && rt->notes[i].note == note) {
-            rt->notes[i].id = rt->next_id++;
-            *out_id = rt->notes[i].id;
-            return (int)i;
-        }
-    }
-    for (unsigned i = 0; i < PART_NOTES; ++i) {
         if (!rt->notes[i].used) {
             rt->notes[i].used = 1U;
+            rt->notes[i].held = 1U;
             rt->notes[i].note = (uint8_t)note;
             rt->notes[i].id = rt->next_id++;
+            if (!rt->next_id) rt->next_id = 1U;
             *out_id = rt->notes[i].id;
             return (int)i;
         }
@@ -348,11 +394,32 @@ static int part_note_add(unsigned part, unsigned note, uint32_t *out_id)
     return -1;
 }
 
-static void part_note_remove(unsigned part, unsigned note)
+/* MIDI Note Off consumes the oldest still-held instance of this pitch.
+ * Repeated same-pitch Note Ons therefore remain independent. */
+static int part_note_pop_oldest(unsigned part, unsigned note, uint32_t *out_id)
+{
+    part_runtime_t *rt = &runtime[part];
+    int found = -1;
+    uint32_t oldest = UINT32_MAX;
+    for (unsigned i = 0; i < PART_NOTES; ++i) {
+        const part_note_t *n = &rt->notes[i];
+        if (n->used && n->held && n->note == note && n->id < oldest) {
+            oldest = n->id;
+            found = (int)i;
+        }
+    }
+    if (found < 0) return 0;
+    rt->notes[found].held = 0U;
+    *out_id = rt->notes[found].id;
+    return 1;
+}
+
+static void part_note_remove_id(unsigned part, uint32_t id)
 {
     part_runtime_t *rt = &runtime[part];
     for (unsigned i = 0; i < PART_NOTES; ++i)
-        if (rt->notes[i].used && rt->notes[i].note == note) rt->notes[i].used = 0U;
+        if (rt->notes[i].used && rt->notes[i].id == id)
+            rt->notes[i].used = rt->notes[i].held = 0U;
 }
 
 static unsigned part_note_count(unsigned part)
@@ -374,66 +441,77 @@ static void voice_stop(unsigned i)
 
 static unsigned pick_voice(unsigned part)
 {
-    const struct orch_part *cfg = orch_part_get(part);
-    unsigned owned = 0U;
-    int quietest = -1, oldest = -1;
+    (void)part;
+    int quietest = -1;
+    int oldest = -1;
     int32_t quiet_env = 0x7fffffff;
     uint32_t oldest_age = UINT32_MAX;
 
-    for (unsigned i = 0; i < ORCH_MAX_VOICES; ++i)
-        if (voices[i].active && voices[i].part == part) ++owned;
-
-    /* the part's ceiling applies first: prefer freeing one of its own */
-    if (cfg && owned >= cfg->voice_ceiling) {
-        for (unsigned i = 0; i < ORCH_MAX_VOICES; ++i) {
-            voice_t *v = &voices[i];
-            if (!v->active || v->part != part) continue;
-            if (v->releasing && v->env < quiet_env) { quiet_env = v->env; quietest = (int)i; }
-            if (!v->releasing && v->age < oldest_age) { oldest_age = v->age; oldest = (int)i; }
-        }
-        if (quietest >= 0) return (unsigned)quietest;
-        if (oldest >= 0) return (unsigned)oldest;
-    }
-
+    /* One global pool of exactly eight mono voices. Parts do not reserve
+     * voices and cannot impose a private ceiling. A free slot always wins.
+     * If all slots are occupied, steal the quietest release tail first;
+     * otherwise use last-note priority by replacing the oldest held note.
+     * This keeps the newest musical information and lets all parts compete
+     * dynamically for the same eight physical-model voices. */
     for (unsigned i = 0; i < ORCH_MAX_VOICES; ++i) {
-        if (!voices[i].active) return i;
-    }
-    /* The pool is full: release the quietest tail first. Otherwise steal
-     * from the most represented part, preserving a fair section balance
-     * instead of allowing one part to monopolise all eight modeled voices. */
-    quietest = -1; oldest = -1; quiet_env = 0x7fffffff; oldest_age = UINT32_MAX;
-    {
-        unsigned count[ORCH_PARTS] = {0U,0U,0U,0U};
-        for (unsigned i = 0; i < ORCH_MAX_VOICES; ++i)
-            if (voices[i].active && voices[i].part < ORCH_PARTS)
-                ++count[voices[i].part];
-        unsigned fullest = 0U;
-        for (unsigned p = 0; p < ORCH_PARTS; ++p)
-            if (count[p] > fullest) fullest = count[p];
-        for (unsigned i = 0; i < ORCH_MAX_VOICES; ++i) {
-            voice_t *v = &voices[i];
-            if (v->releasing && v->env < quiet_env) {
-                quiet_env = v->env; quietest = (int)i;
-            }
-            if (!v->releasing && count[v->part] == fullest &&
-                v->age < oldest_age) {
-                oldest_age = v->age; oldest = (int)i;
-            }
+        voice_t *v = &voices[i];
+        if (!v->active) return i;
+        if (v->releasing && v->env < quiet_env) {
+            quiet_env = v->env;
+            quietest = (int)i;
+        }
+        if (!v->releasing && v->age < oldest_age) {
+            oldest_age = v->age;
+            oldest = (int)i;
         }
     }
+
     if (quietest >= 0) return (unsigned)quietest;
     return (oldest >= 0) ? (unsigned)oldest : 0U;
 }
 
+/* A connected note in the same part/player should continue the existing
+ * resonator instead of allocating a fresh, silent waveguide. This is the
+ * physical-model equivalent of a legato bow/breath connection. */
+static int find_legato_voice(unsigned part, unsigned player, unsigned family)
+{
+    int exact = -1;
+    int fallback = -1;
+    uint32_t exact_age = 0U;
+    uint32_t fallback_age = 0U;
+    for (unsigned i = 0; i < ORCH_MAX_VOICES; ++i) {
+        const voice_t *v = &voices[i];
+        /* The divisi planner can renumber desks when a note is released.
+         * Prefer the same desk, but for a connected melody fall back to the
+         * newest resonator in this part/family if the desk index changed.
+         * The adaptive connection window bounds this reuse; no arbitrary
+         * envelope threshold should force a second voice after a quiet note.
+         * Percussive mallets are excluded by the caller. */
+        if (!v->active || v->part != part || v->family != family) continue;
+        if (v->player == player && v->age >= exact_age) {
+            exact = (int)i;
+            exact_age = v->age;
+        }
+        if (v->age >= fallback_age) {
+            fallback = (int)i;
+            fallback_age = v->age;
+        }
+    }
+    return exact >= 0 ? exact : fallback;
+}
+
 static void voice_start(unsigned part, unsigned note, unsigned velocity,
-                        const struct orch_intent *in, unsigned player,
+                        uint32_t note_id, const struct orch_intent *in, unsigned player,
                         int8_t player_detune_cents, uint8_t player_pan)
 {
     const struct orch_part *cfg = orch_part_get(part);
     const unsigned family = cfg ? cfg->family : ORCH_FAM_STRINGS;
     const unsigned instrument = cfg ? cfg->instrument : ORCH_INST_VIOLIN;
     const struct instrument_profile *ip = &INST_PROFILE[instrument < ORCH_INST_COUNT ? instrument : 0U];
-    const unsigned i = pick_voice(part);
+    const int legato_slot = (in->connected && family != ORCH_FAM_MALLETS)
+                               ? find_legato_voice(part, player, family) : -1;
+    const unsigned i = legato_slot >= 0 ? (unsigned)legato_slot : pick_voice(part);
+    const int legato_reuse = legato_slot >= 0;
     voice_t *v = &voices[i];
     struct artic_profile prof;
 
@@ -451,11 +529,14 @@ static void voice_start(unsigned part, unsigned note, unsigned velocity,
     const unsigned family_exc = family_excite(family);
     const unsigned excite = (prof.excite != 0xFFU) ? prof.excite : family_exc;
 
-    for (unsigned n = 0; n < DELAY_SIZE; ++n) v->delay[n] = 0;
-    v->write = 0U;
-    v->lp = 0;
-    v->dc = 0;
+    if (!legato_reuse) {
+        for (unsigned n = 0; n < DELAY_SIZE; ++n) v->delay[n] = 0;
+        v->write = 0U;
+        v->lp = 0;
+        v->dc = 0;
+    }
     v->age = ++age_counter;
+    v->note_id = note_id;
     v->note = (uint8_t)note;
     v->channel = (uint8_t)(part < ORCH_PARTS ? part : 0U); /* channel identity is kept by the note */
     v->part = (uint8_t)part;
@@ -466,12 +547,38 @@ static void voice_start(unsigned part, unsigned note, unsigned velocity,
     v->excite = (uint8_t)excite;
     v->damp = prof.damp > 6U ? 6U : prof.damp;
     v->velocity = (uint8_t)velocity;
+    if (!legato_reuse) {
+        v->level_follow = 0U;
+        v->level_gain_q15 = 32767U;
+        v->level_update_count = 0U;
+    }
     v->active = 1U;
     v->gate = (prof.pluck || excite == EXC_STRIKE) ? 0U : 1U;
     v->releasing = 0U;
     v->struck = 0U;
+    if (!legato_reuse) v->excite_follow = 0;
+    v->expr_phase = legato_reuse ? v->expr_phase : rng;
+    v->expr_inc = 0U;
+    v->expr_q15 = 0;
+    v->expr_depth = 0U;
     v->env_stage = 1U;
     v->auto_release = (uint8_t)(prof.pluck || excite == EXC_STRIKE);
+    /* A connected bow/breath change is blended in over a short window.
+     * Keep the resonator ringing; soften only the new excitation edge. */
+    if (legato_reuse) {
+        unsigned transition_ms = family == ORCH_FAM_STRINGS ? 28U :
+                                 family == ORCH_FAM_BRASS ? 18U : 22U;
+        if (in->down_bow) transition_ms += 5U;
+        v->legato_transition_left = transition_ms * ORCH_SAMPLE_RATE / 1000U;
+        v->legato_transition_total = v->legato_transition_left;
+        v->legato_transition_step_q16 = v->legato_transition_total
+            ? (uint32_t)(((uint64_t)9174U << 16) / v->legato_transition_total)
+            : 0U;
+    } else {
+        v->legato_transition_left = 0U;
+        v->legato_transition_total = 0U;
+        v->legato_transition_step_q16 = 0U;
+    }
     v->strike_left = 0U;
 
     /* piano key -> string/bore length; flageolet sounds an octave higher */
@@ -487,8 +594,9 @@ static void voice_start(unsigned part, unsigned note, unsigned velocity,
 
     uint32_t start = target;
     v->glide_left = 0U;
+    if (legato_reuse) start = v->len_q16;
     if (in->connected && in->glide_ms && runtime[part].last_len_q16) {
-        start = runtime[part].last_len_q16;
+        if (!legato_reuse) start = runtime[part].last_len_q16;
         v->glide_left = ((uint32_t)in->glide_ms * ORCH_SAMPLE_RATE) / 1000U;
     }
     v->len_q16 = start;
@@ -530,6 +638,18 @@ static void voice_start(unsigned part, unsigned note, unsigned velocity,
         uint32_t rel_base = (adsr && adsr->release_ms) ? adsr->release_ms : prof.release_ms;
         uint32_t atk_ms = (atk_base * in->attack_mul) >> 16;
         uint32_t rel_ms = (rel_base * in->release_mul) >> 16;
+        /* Shape decay and sustain from musical intent, not clock tempo.
+         * Connected notes retain more body; phrase openings breathe in;
+         * down-bows/new peaks speak more firmly; phrase endings taper. */
+        {
+            uint32_t decay_scale = 65536U;
+            if (in->phrase_start) decay_scale += 6554U; /* +10% */
+            if (in->connected) decay_scale += 11796U;   /* +18% */
+            if (in->new_high) decay_scale += 6554U;     /* +10% */
+            if (in->down_bow) decay_scale -= 5243U;     /* -8% */
+            if (in->phrase_end) decay_scale -= 6554U;   /* -10% */
+            dec_ms = (dec_ms * decay_scale) >> 16;
+        }
         if (atk_ms < 2U) atk_ms = 2U;
         if (atk_ms > 400U) atk_ms = 400U;
         if (dec_ms < 20U) dec_ms = 20U;
@@ -541,21 +661,76 @@ static void voice_start(unsigned part, unsigned note, unsigned velocity,
         v->release_frames = (rel_ms * ORCH_SAMPLE_RATE) / 1000U;
         v->attack_left = atk_frames ? atk_frames : 1U;
         v->decay_left = dec_frames ? dec_frames : 1U;
-        v->env = 0;
-        v->env_inc = ORCH_ENV_MAX / (int32_t)v->attack_left;
+        if (legato_reuse) {
+            /* Keep the current envelope level and make a short connected
+             * bow/breath transition rather than retriggering from silence. */
+            const uint32_t legato_frames = (12U * ORCH_SAMPLE_RATE) / 1000U;
+            v->attack_left = legato_frames ? legato_frames : 1U;
+            v->env_inc = (ORCH_ENV_MAX - v->env) / (int32_t)v->attack_left;
+        } else {
+            v->env = 0;
+            v->env_inc = ORCH_ENV_MAX / (int32_t)v->attack_left;
+        }
         if (v->env_inc < 1) v->env_inc = 1;
         /* A modest held sustain leaves room for bow/breath dynamics. Plucks
          * use a lower sustain then enter release automatically after decay. */
         {
-            unsigned sustain = adsr ? adsr->sustain_percent : 80U;
-            if (v->auto_release && sustain > 60U) sustain = 60U;
-            v->sustain_level = (ORCH_ENV_MAX * (int32_t)sustain) / 100;
+            int sustain = adsr ? adsr->sustain_percent : 80U;
+            /* Recompute the same small phrase bias at the sustain target.
+             * This makes the ADSR's S stage respond to legato, accents and
+             * phrase direction while preserving the user's base setting. */
+            if (in->connected) sustain += 3;
+            if (in->new_high) sustain += 4;
+            if (in->down_bow) sustain += 2;
+            if (in->phrase_start) sustain -= 2;
+            if (in->phrase_end) sustain -= 12;
+            if (family == ORCH_FAM_STRINGS || family == ORCH_FAM_WOODWINDS ||
+                family == ORCH_FAM_BRASS || family == ORCH_FAM_CHOIR) {
+                const int energy_delta = ((int)in->energy - (int)ORCH_Q16) / 16384;
+                sustain += energy_delta > 4 ? 4 : (energy_delta < -4 ? -4 : energy_delta);
+            }
+            if (sustain < 20) sustain = 20;
+            if (sustain > 96) sustain = 96;
+            if (v->auto_release && sustain > 60) sustain = 60;
+            v->sustain_level = (ORCH_ENV_MAX * sustain) / 100;
         }
         v->env_decay_step = (ORCH_ENV_MAX - v->sustain_level) /
                             (int32_t)v->decay_left;
         if (v->env_decay_step < 1) v->env_decay_step = 1;
         v->env_dec = ORCH_ENV_MAX / (int32_t)(v->release_frames ? v->release_frames : 1U);
         if (v->env_dec < 1) v->env_dec = 1;
+    }
+
+    /* Slow phrase breath: family-specific, deterministic micro-dynamics.
+     * Strings swell through bow pressure, winds/choir through breath support;
+     * struck instruments deliberately receive no sustain wobble. */
+    {
+        unsigned depth = 0U;
+        switch (family) {
+        case ORCH_FAM_STRINGS: depth = 1500U; break;  /* +/- 4.6% */
+        case ORCH_FAM_WOODWINDS: depth = 1850U; break;/* +/- 5.6% */
+        case ORCH_FAM_BRASS: depth = 1050U; break;    /* +/- 3.2% */
+        case ORCH_FAM_CHOIR: depth = 2100U; break;    /* +/- 6.4% */
+        case ORCH_FAM_MALLETS:
+        default: depth = 0U; break;
+        }
+        /* More expressive intent and phrase peaks can breathe a little more,
+         * but the ceiling stays musical and never changes the panel ADSR. */
+        if (in->new_high) depth += depth / 8U;
+        if (depth > 2400U) depth = 2400U;
+        v->expr_depth = (uint16_t)depth;
+        {
+            unsigned rate_millihz = 120U +
+                (unsigned)in->density * 18U + (in->new_high ? 25U : 0U);
+            /* Legato phrases breathe more slowly; articulated accents move
+             * the bow/breath support slightly faster, never in BPM lock. */
+            if (in->connected) rate_millihz = (rate_millihz * 82U) / 100U;
+            if (in->down_bow) rate_millihz = (rate_millihz * 108U) / 100U;
+            if (rate_millihz < 90U) rate_millihz = 90U;
+            if (rate_millihz > 360U) rate_millihz = 360U;
+            v->expr_inc = rate_millihz * 97U +
+                          (rate_millihz * 9U) / 20U;
+        }
     }
 
     v->energy_q16 = (int32_t)in->energy;
@@ -608,12 +783,14 @@ static void voice_start(unsigned part, unsigned note, unsigned velocity,
         v->vib_delay = (uint32_t)((in->phrase_start ? 180U : 120U) * ORCH_SAMPLE_RATE / 1000U);
     }
 
-    v->body_len = (uint16_t)(ORCH_SAMPLE_RATE / (ip->body_hz ? ip->body_hz : 440U));
-    if (v->body_len < 8U) v->body_len = 8U;
-    if (v->body_len > 512U) v->body_len = 512U;
-    v->body_write = 0U; v->body_lp = 0;
-    for (unsigned n = 0; n < v->body_len; ++n) v->body[n] = 0;
-    v->excite_phase = rng ^ (note * 0x9e3779b9U);
+    if (!legato_reuse) {
+        v->body_len = (uint16_t)(ORCH_SAMPLE_RATE / (ip->body_hz ? ip->body_hz : 440U));
+        if (v->body_len < 8U) v->body_len = 8U;
+        if (v->body_len > 512U) v->body_len = 512U;
+        v->body_write = 0U; v->body_lp = 0;
+        for (unsigned n = 0; n < v->body_len; ++n) v->body[n] = 0;
+        v->excite_phase = rng ^ (note * 0x9e3779b9U);
+    }
     v->excite_inc = ip->half_period ? (uint32_t)(0x7fffffffU / (uint32_t)(target >> 16))
                                     : (uint32_t)(0xffffffffU / (uint32_t)(target >> 16));
 
@@ -688,24 +865,49 @@ void orch_midi_short_message(const uint8_t *m, unsigned bytes)
 }
 
 /* The note-on path: interpret, plan divisi, realize the players. */
-static void engine_note_on_part(unsigned part, unsigned note, unsigned velocity)
+/* A connected melody must advance the lead player even when the
+ * divisi planner's hysteresis would otherwise keep every player on the old
+ * held chord. Reassign only one desk (the last active player) to the new note;
+ * the remaining desks retain their chord tones. */
+static void divisi_promote_connected_note(struct orch_part *cfg,
+        struct orch_divisi_plan *plan, const uint8_t *notes,
+        const uint32_t *ids, unsigned count, uint32_t newest_id)
 {
-    if (part >= ORCH_PARTS || !velocity) return;
+    if (!cfg || !plan || !notes || !ids || !count || !plan->players) return;
+    for (unsigned p = 0; p < plan->players; ++p) {
+        const unsigned idx = plan->assignment[p];
+        if (idx < count && ids[idx] == newest_id) return;
+    }
+    unsigned newest = count;
+    for (unsigned i = 0; i < count; ++i)
+        if (ids[i] == newest_id) { newest = i; break; }
+    if (newest >= count) return;
+    const unsigned desk = plan->players - 1U;
+    plan->assignment[desk] = (uint8_t)newest;
+    cfg->divisi.assigned[desk] = 1U;
+    cfg->divisi.note_of_player[desk] = notes[newest];
+    cfg->divisi.id_of_player[desk] = newest_id;
+}
+
+/* Shared realization path for live MIDI and generated ARP/sequencer notes.
+ * Keeping adaptive analysis, note IDs, divisi planning and voice handover in
+ * one place prevents the two event sources from drifting apart. */
+static uint32_t engine_start_part_note(unsigned part, unsigned note, unsigned velocity)
+{
+    if (part >= ORCH_PARTS || note > 127U || !velocity || velocity > 127U)
+        return 0U;
     struct orch_part *cfg = orch_part_get(part);
-    if (!cfg) return;
+    if (!cfg) return 0U;
 
     part_runtime_t *rt = &runtime[part];
     struct orch_intent *in = &rt->intent;
-
     orch_adaptive_note(&cfg->adaptive, in, note, velocity, sample_counter,
                        cfg->articulation);
     orch_adaptive_velocity(&cfg->adaptive, in, velocity);
 
     uint32_t id = 0U;
-    const int slot = part_note_add(part, note, &id);
-    if (slot < 0) return;
+    if (part_note_add(part, note, &id) < 0) return 0U;
 
-    /* plan over every sounding note of this part */
     uint8_t notes[PART_NOTES];
     uint32_t ids[PART_NOTES];
     unsigned count = 0U;
@@ -717,14 +919,30 @@ static void engine_note_on_part(unsigned part, unsigned note, unsigned velocity)
     }
     orch_divisi_plan(&cfg->divisi, notes, ids, count, in->density,
                      cfg->player_cap, &rt->plan);
+    if (in->connected)
+        divisi_promote_connected_note(cfg, &rt->plan, notes, ids, count, id);
 
-    /* realize only the players that took this new note */
+    unsigned started = 0U;
     for (unsigned p = 0; p < rt->plan.players; ++p) {
         const unsigned idx = rt->plan.assignment[p];
         if (idx >= count || ids[idx] != id) continue;
-        voice_start(part, note, velocity, in, p,
+        voice_start(part, note, velocity, id, in, p,
+                    rt->plan.detune_cents[p], rt->plan.pan[p]);
+        ++started;
+    }
+    /* Hysteresis may temporarily leave the newest connected note unassigned.
+     * Always let its lead desk continue the phrase instead of dropping it. */
+    if (!started && in->connected) {
+        const unsigned p = rt->plan.players ? rt->plan.players - 1U : 0U;
+        voice_start(part, note, velocity, id, in, p,
                     rt->plan.detune_cents[p], rt->plan.pan[p]);
     }
+    return id;
+}
+
+static void engine_note_on_part(unsigned part, unsigned note, unsigned velocity)
+{
+    (void)engine_start_part_note(part, note, velocity);
 }
 
 static void engine_note_on(unsigned ch, unsigned note, unsigned velocity)
@@ -736,16 +954,18 @@ static void engine_note_on(unsigned ch, unsigned note, unsigned velocity)
 static void engine_note_off_part(unsigned part, unsigned note, unsigned sustain_on)
 {
     if (part >= ORCH_PARTS) return;
+    uint32_t id = 0U;
+    if (!part_note_pop_oldest(part, note, &id)) return;
     struct orch_part *cfg = orch_part_get(part);
     if (cfg) orch_adaptive_off(&cfg->adaptive, sample_counter);
 
     for (unsigned i = 0; i < ORCH_MAX_VOICES; ++i) {
         voice_t *v = &voices[i];
-        if (!v->active || v->part != part || v->note != note) continue;
+        if (!v->active || v->part != part || v->note_id != id) continue;
         v->gate = 0U;
         if (!sustain_on) v->releasing = 1U;
     }
-    if (!sustain_on) part_note_remove(part, note);
+    if (!sustain_on) part_note_remove_id(part, id);
 }
 
 static void engine_note_off(unsigned ch, unsigned note, unsigned sustain_on)
@@ -763,8 +983,13 @@ static void engine_sustain(unsigned ch, unsigned on)
     if (part == 0xFFU) return;
     for (unsigned i = 0; i < ORCH_MAX_VOICES; ++i) {
         voice_t *v = &voices[i];
-        if (v->active && v->part == part && !v->gate) v->releasing = 1U;
+        if (v->active && v->part == part && !v->gate)
+            v->releasing = 1U;
     }
+    /* Also clear sustained note records whose voices were stolen meanwhile. */
+    for (unsigned n = 0; n < PART_NOTES; ++n)
+        if (runtime[part].notes[n].used && !runtime[part].notes[n].held)
+            part_note_remove_id(part, runtime[part].notes[n].id);
 }
 
 
@@ -1037,7 +1262,7 @@ void orch_init(void)
     }
     sample_counter = step_start = 0U;
     for (unsigned n = 0; n < ORCH_STEP_NOTES; ++n) {
-        seq_active[n] = 0U; seq_off_at[n] = 0U; seq_note[n] = 0U;
+        seq_active[n] = 0U; seq_off_at[n] = 0U; seq_note[n] = 0U; seq_note_id[n] = 0U;
     }
 }
 
@@ -1069,48 +1294,23 @@ int orch_seq_set_step(unsigned step, unsigned slot, const struct orch_step_note 
 
 /* Sequencer notes enter the same part path as MIDI: the reserved source is
  * SEQ_CHANNEL, mapped to the chosen part by seq_part. */
-static void seq_release_voice(unsigned note)
+static void seq_release_voice(unsigned note, uint32_t note_id)
 {
     const unsigned part = seq_part;
     for (unsigned i = 0; i < ORCH_MAX_VOICES; ++i) {
         voice_t *v = &voices[i];
-        if (v->active && v->part == part && v->note == note && v->gate) {
+        if (v->active && v->part == part && v->note_id == note_id &&
+            v->note == note && v->gate) {
             v->gate = 0U;
             v->releasing = 1U;
         }
     }
-    part_note_remove(part, note);
+    part_note_remove_id(part, note_id);
 }
 
-static void seq_start_voice(unsigned note, unsigned velocity)
+static uint32_t seq_start_voice(unsigned note, unsigned velocity)
 {
-    const unsigned part = seq_part;
-    struct orch_part *cfg = orch_part_get(part);
-    if (!cfg) return;
-    struct orch_intent *in = &runtime[part].intent;
-    orch_adaptive_note(&cfg->adaptive, in, note, velocity, sample_counter,
-                       cfg->articulation);
-    orch_adaptive_velocity(&cfg->adaptive, in, velocity);
-    uint32_t id = 0U;
-    if (part_note_add(part, note, &id) < 0) return;
-
-    uint8_t notes[PART_NOTES];
-    uint32_t ids[PART_NOTES];
-    unsigned count = 0U;
-    for (unsigned i = 0; i < PART_NOTES; ++i) {
-        if (!runtime[part].notes[i].used) continue;
-        notes[count] = runtime[part].notes[i].note;
-        ids[count] = runtime[part].notes[i].id;
-        ++count;
-    }
-    orch_divisi_plan(&cfg->divisi, notes, ids, count, in->density,
-                     cfg->player_cap, &runtime[part].plan);
-    for (unsigned p = 0; p < runtime[part].plan.players; ++p) {
-        const unsigned idx = runtime[part].plan.assignment[p];
-        if (idx >= count || ids[idx] != id) continue;
-        voice_start(part, note, velocity, in, p,
-                    runtime[part].plan.detune_cents[p], runtime[part].plan.pan[p]);
-    }
+    return engine_start_part_note(seq_part, note, velocity);
 }
 
 /* Match the ARP/phrase engine's 16-step orchestral phrase arc. */
@@ -1129,15 +1329,25 @@ unsigned orch_test_seq_phrase_arc_velocity(unsigned velocity, unsigned position)
 
 static void seq_tick(void)
 {
-    const uint32_t step_samples = (ORCH_SAMPLE_RATE * 60U) / ((uint32_t)tempo * 4U);
     if (!seq_enabled) {
         if (seq_stop_pending) {
             for (unsigned n = 0; n < ORCH_STEP_NOTES; ++n)
-                if (seq_active[n]) { seq_release_voice(seq_note[n]); seq_active[n] = 0U; }
+                if (seq_active[n]) { seq_release_voice(seq_note[n], seq_note_id[n]); seq_active[n] = 0U; }
             seq_stop_pending = 0U;
         }
         return;
     }
+    /* Tempo changes rarely; cache the integer step length instead of
+     * dividing once per audio sample. */
+    static uint16_t cached_tempo;
+    static uint32_t cached_step_samples;
+    const uint16_t current_tempo = tempo;
+    if (!cached_step_samples || cached_tempo != current_tempo) {
+        cached_tempo = current_tempo;
+        cached_step_samples = (ORCH_SAMPLE_RATE * 60U) /
+                              ((uint32_t)current_tempo * 4U);
+    }
+    const uint32_t step_samples = cached_step_samples;
     if (!seq_started) {
         seq_started = 1U;
         current_step = 15U;
@@ -1145,14 +1355,14 @@ static void seq_tick(void)
     }
     for (unsigned n = 0; n < ORCH_STEP_NOTES; ++n) {
         if (seq_active[n] && (int32_t)(sample_counter - seq_off_at[n]) >= 0) {
-            seq_release_voice(seq_note[n]);
+            seq_release_voice(seq_note[n], seq_note_id[n]);
             seq_active[n] = 0U;
         }
     }
     if ((uint32_t)(sample_counter - step_start) >= step_samples) {
         step_start += step_samples;
         current_step = (uint8_t)((current_step + 1U) & 15U);
-        for (unsigned n = 0; n < ORCH_STEP_NOTES; ++n) {
+        for (unsigned n = 0; n < pattern_count[current_step]; ++n) {
             const struct orch_step_note *p = &pattern[current_step][n];
             if (!p->velocity) continue;
             /* In adaptive mode, keep the user's rhythm and step data, but
@@ -1179,7 +1389,7 @@ static void seq_tick(void)
                 if (adjusted > 127) adjusted = 127;
                 velocity = (unsigned)adjusted;
             }
-            seq_start_voice(played_note, velocity);
+            seq_note_id[n] = seq_start_voice(played_note, velocity);
             seq_note[n] = (uint8_t)played_note;
             seq_active[n] = 1U;
             /* Preserve the stored gate as the base; adaptive activity adds
@@ -1202,10 +1412,17 @@ static void seq_tick(void)
 
 /* --------------------------------------------------------------- render */
 
-static void voice_tick(voice_t *v)
+/* Return the part's LFO destination mask so the mixer can reuse the same
+ * config lookup. This function is the per-sample hot path: resolve the part,
+ * LFO and instrument profile once, not separately for each modulation stage. */
+static unsigned voice_tick(voice_t *v)
 {
-    if (!v->active) return;
+    if (!v->active) return 0U;
 
+    const struct orch_part *cfg = orch_part_get(v->part);
+    const struct orch_lfo *lfo = cfg ? &cfg->lfo : 0;
+    const struct instrument_profile *ip = &INST_PROFILE[v->instrument];
+    const unsigned lfo_destinations = lfo ? lfo->destinations : 0U;
     uint32_t len = v->len_q16;
     if (v->glide_left) {
         if (v->len_step & 0x80000000U) {
@@ -1217,11 +1434,24 @@ static void voice_tick(voice_t *v)
         --v->glide_left;
         len = v->len_q16;
     }
+    /* Phrase-shaped sustain expression, about 0.14-0.30 Hz. A smooth
+     * triangle-derived sine avoids abrupt corners and runs only while the
+     * note is sustaining/releasing. Its depth is instrument-family specific. */
+    if (v->expr_depth && (v->env_stage == 3U || v->env_stage == 4U)) {
+        v->expr_phase += v->expr_inc;
+        {
+            int32_t tri = triangle32(v->expr_phase);
+            const int32_t mag = tri < 0 ? -tri : tri;
+            const int32_t sine = (tri * (49152 - (mag >> 1))) >> 15;
+            v->expr_q15 = (sine * (int32_t)v->expr_depth) >> 15;
+        }
+    } else {
+        v->expr_q15 = 0;
+    }
+
     /* General LFO runs independently of the legacy expressive vibrato. */
     {
-        const struct orch_part *cfg = orch_part_get(v->part);
-        const struct orch_lfo *lfo = cfg ? &cfg->lfo : 0;
-        if (lfo && lfo->destinations && v->lfo_depth) {
+        if (lfo && lfo_destinations && v->lfo_depth) {
             if (v->lfo_delay_left) --v->lfo_delay_left;
             else {
                 const uint32_t old_phase = v->lfo_phase;
@@ -1279,11 +1509,38 @@ static void voice_tick(voice_t *v)
      * fundamental over a round trip (0.994^200 is 0.28), so the loop uses a
      * two-tap smoother instead: highs die within a round trip, the
      * fundamental rings for seconds. More damping = darker and shorter. */
-    int damp_value = v->damp ? v->damp : 2U;
+    /* ADSR also shapes excitation timbre. A rectified follower tracks recent
+     * acoustic energy; the attack contour supplies a short-lived transient. */
     {
-        const struct orch_part *cfg = orch_part_get(v->part);
-        const struct orch_lfo *lfo = cfg ? &cfg->lfo : 0;
-        if (lfo && (lfo->destinations & ORCH_LFO_BRIGHTNESS)) {
+        int32_t target = v->out < 0 ? -v->out : v->out;
+        if (target > 32767) target = 32767;
+        const int32_t delta = target - v->excite_follow;
+        v->excite_follow += delta >> (delta > 0 ? 2 : 6);
+    }
+    const int32_t env_q15 = v->env < 0 ? 0 :
+        (v->env > ORCH_ENV_MAX ? ORCH_ENV_MAX : v->env);
+    const int32_t transient_q15 = (v->env_stage == 1U)
+        ? (ORCH_ENV_MAX - env_q15) : 0;
+    const int32_t env_excitation_q15 = 16384 + (env_q15 >> 1);
+    const int32_t expression_gain_q15 = 32767 + v->expr_q15;
+    int32_t excitation_gain_q15 =
+        (env_excitation_q15 * (expression_gain_q15 >> 1)) >> 14;
+    if (v->legato_transition_left) {
+        const uint32_t total = v->legato_transition_total ? v->legato_transition_total : 1U;
+        const uint32_t left = v->legato_transition_left;
+        const uint32_t elapsed = total > left ? total - left : 0U;
+        /* 72% -> 100% smooth excitation handover; the slope is precomputed
+         * at note-on so the sample loop needs only a 32-bit multiply. */
+        const int32_t blend = 23593 +
+            (int32_t)((elapsed * v->legato_transition_step_q16) >> 16);
+        excitation_gain_q15 = (excitation_gain_q15 * blend) >> 15;
+        --v->legato_transition_left;
+    }
+    int damp_value = v->damp ? v->damp : 2U;
+    damp_value += (transient_q15 >> 13) + (v->excite_follow >> 14);
+    if (damp_value > 6) damp_value = 6;
+    {
+        if (lfo_destinations & ORCH_LFO_BRIGHTNESS) {
             const int bounded_depth = v->lfo_depth > 24U ? 24 : (int)v->lfo_depth;
             const int shift = ((int)v->lfo_value * bounded_depth) / (32768 * 12);
             damp_value += shift;
@@ -1299,7 +1556,6 @@ static void voice_tick(voice_t *v)
     v->out = smoothed;
     /* loop loss is calibrated per round trip at note start, not per sample:
      * otherwise low notes decay faster simply because their delay is longer. */
-    const struct instrument_profile *ip = &INST_PROFILE[v->instrument];
     int32_t loop = (int32_t)(((int64_t)smoothed * v->loop_gain_q23) >> 23);
     if (ip->half_period) loop = -loop;
 
@@ -1307,7 +1563,7 @@ static void voice_tick(voice_t *v)
     if (v->strike_left) {
         --v->strike_left;
         const int32_t burst = (noise16() * (int32_t)v->velocity) >> 8;
-        loop += burst >> 1;
+        loop += ((burst >> 1) * excitation_gain_q15) >> 15;
     }
     if (v->gate && v->excite != EXC_STRIKE) {
         const int32_t noise = noise16();
@@ -1323,15 +1579,21 @@ static void voice_tick(voice_t *v)
             const int32_t drive = ((int32_t)v->velocity * rosin) >> 6;
             int32_t exc = (noise * drive) >> 15;
             exc = (exc * (int32_t)(65536 + ((v->energy_q16 - ORCH_Q16) >> 1))) >> 16;
-            loop += exc + ((noise * ip->air_noise) >> 10);
-            loop += (delayed * (int32_t)v->accent_q16) >> 24;
+            {
+                const int32_t air = (noise * ip->air_noise) >> 10;
+                const int32_t bite = (delayed * (int32_t)v->accent_q16) >> 24;
+                loop += ((exc + air + bite) * excitation_gain_q15) >> 15;
+            }
             break;
         }
         case EXC_BREATH: {
             const int32_t jet = triangle32(v->excite_phase);
             v->excite_phase += v->excite_inc;
-            loop += ((jet * (int32_t)v->velocity) >> 8) / 3;
-            loop += (noise * ip->air_noise) >> 10;
+            {
+                const int32_t breath = (((jet * (int32_t)v->velocity) >> 8) / 3) +
+                                       ((noise * ip->air_noise) >> 10);
+                loop += (breath * excitation_gain_q15) >> 15;
+            }
             break;
         }
         case EXC_LIP: {
@@ -1340,14 +1602,18 @@ static void voice_tick(voice_t *v)
             int32_t pressure = ((lip * (int32_t)v->velocity) >> 7) - (delayed >> 1);
             if (pressure > 12000) pressure = 12000;
             if (pressure < -12000) pressure = -12000;
-            loop += pressure >> 2;
+            loop += ((pressure >> 2) * excitation_gain_q15) >> 15;
             break;
         }
         case EXC_VOICE: {
             const int32_t fundamental = triangle32(v->excite_phase);
             const int32_t overtone = triangle32(v->excite_phase * 2U);
             v->excite_phase += v->excite_inc;
-            loop += ((fundamental * 3 + overtone) * (int32_t)v->velocity) >> 11;
+            {
+                const int32_t voiced = ((fundamental * 3 + overtone) *
+                                        (int32_t)v->velocity) >> 11;
+                loop += (voiced * excitation_gain_q15) >> 15;
+            }
             break;
         }
         case EXC_STRIKE:
@@ -1368,6 +1634,26 @@ static void voice_tick(voice_t *v)
         const int32_t body_out = smoothed + ((v->body_lp * (int32_t)ip->body_mix) >> 7);
         v->dc += (body_out - v->dc) >> 8;
         v->out = body_out - v->dc;
+    }
+
+    /* Gentle per-instrument loudness compensation. The rectified output
+     * follower estimates each model's sustained level; gain moves slowly
+     * toward a common target proportional to MIDI velocity, so velocity
+     * expression is retained. A +/-6 dB bound prevents noise pumping and
+     * leaves the instrument's spectral identity untouched. */
+    {
+        const int32_t magnitude = v->out < 0 ? -v->out : v->out;
+        const uint32_t current = v->level_follow;
+        if ((uint32_t)magnitude > current)
+            v->level_follow = current + (((uint32_t)magnitude - current) >> 9);
+        else
+            v->level_follow = current - ((current - (uint32_t)magnitude) >> 12);
+        if (++v->level_update_count >= 16U) {
+            v->level_update_count = 0U;
+            if (v->level_follow > 64U)
+                v->level_gain_q15 =
+                    level_compensation_gain(v->velocity, v->level_follow, v->note);
+        }
     }
 
     /* Four-stage per-voice ADSR. A MIDI note-off can enter release from
@@ -1415,6 +1701,25 @@ static void voice_tick(voice_t *v)
     if (v->stroke_left) {
         if (!--v->stroke_left) v->gate = 0U;
     }
+    return lfo_destinations;
+}
+
+/* Division by the small active-voice count is common on every sample.
+ * Keep the divisors constant at compile time so the target compiler can use
+ * reciprocal multiplies instead of a general integer divide helper. */
+static int32_t divide_voice_sum(int32_t value, unsigned voices_active)
+{
+    switch (voices_active) {
+    case 1U: return value;
+    case 2U: return value / 2;
+    case 3U: return value / 3;
+    case 4U: return value / 4;
+    case 5U: return value / 5;
+    case 6U: return value / 6;
+    case 7U: return value / 7;
+    case 8U: return value / 8;
+    default: return 0;
+    }
 }
 
 void orch_render_q23(int32_t *out, unsigned frames)
@@ -1434,14 +1739,14 @@ void orch_render_q23(int32_t *out, unsigned frames)
         for (unsigned i = 0; i < ORCH_MAX_VOICES; ++i) {
             voice_t *v = &voices[i];
             if (!v->active) continue;
-            voice_tick(v);
+            const unsigned lfo_destinations = voice_tick(v);
             if (!v->active) continue;
             ++active;
             int32_t amp = (v->out * v->env >> 15);
+            amp = (amp * (int32_t)v->level_gain_q15) >> 15;
+            amp = (amp * (32767 + v->expr_q15)) >> 15;
             {
-                const struct orch_part *cfg = orch_part_get(v->part);
-                const struct orch_lfo *lfo = cfg ? &cfg->lfo : 0;
-                if (lfo && (lfo->destinations & ORCH_LFO_TREMOLO)) {
+                if (lfo_destinations & ORCH_LFO_TREMOLO) {
                     const int32_t depth = (int32_t)v->lfo_depth * 245 / 100;
                     const int32_t gain = 32767 - ((v->lfo_value + 32768) * depth >> 16);
                     amp = (amp * gain) >> 15;
@@ -1451,9 +1756,8 @@ void orch_render_q23(int32_t *out, unsigned frames)
             left += g * (int32_t)v->pan_l;
             right += g * (int32_t)v->pan_r;
         }
-        const int32_t div = active ? (int32_t)active : 1;
-        int32_t l = left / div;
-        int32_t r = right / div;
+        int32_t l = active ? divide_voice_sum(left, active) : 0;
+        int32_t r = active ? divide_voice_sum(right, active) : 0;
         if (l > Q23_MAX) l = Q23_MAX;
         if (l < Q23_MIN) l = Q23_MIN;
         if (r > Q23_MAX) r = Q23_MAX;
@@ -1465,6 +1769,15 @@ void orch_render_q23(int32_t *out, unsigned frames)
 }
 
 /* ----------------------------------------------------------- inspection */
+
+#ifdef FM1_HOST_TEST
+int32_t orch_test_expression_q15(void)
+{
+    for (unsigned i = 0; i < ORCH_MAX_VOICES; ++i)
+        if (voices[i].active) return voices[i].expr_q15;
+    return 0;
+}
+#endif
 
 unsigned orch_active_voices(void)
 {
@@ -1518,13 +1831,4 @@ int orch_engine_set_lfo(unsigned part, unsigned wave, unsigned destinations,
 {
     return orch_part_set_lfo(part, wave, destinations, depth, rate_millihz,
                              sync_division, delay_ms, fade_ms);
-}
-int orch_engine_set_voice_ceiling(unsigned part, unsigned voices_)
-{
-    struct orch_part *cfg = orch_part_get(part);
-    if (!cfg) return -1;
-    if (!voices_) voices_ = 1U;
-    if (voices_ > ORCH_MAX_VOICES) voices_ = ORCH_MAX_VOICES;
-    cfg->voice_ceiling = (uint8_t)voices_;
-    return 0;
 }

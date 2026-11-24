@@ -58,6 +58,7 @@ typedef struct {
     pending_note_t pending[PERF_ACTIVE*3U];
     uint8_t active_count, pending_count;
     uint32_t step, phrase_step, clock_phase, clock_count;
+    uint32_t clock_inc; /* cached BPM-to-Q16 phase increment */
     uint32_t last_sample, step_len, pending_at;
     uint32_t ext_last_tick, ext_tick_len, ext_age;
     uint8_t pending_step, alt_state, sr_state;
@@ -518,6 +519,8 @@ void orch_perf_init(void)
     for (unsigned i=0;i<ORCH_PERF_PARTS;++i) {
         perf_part_t *p=&parts[i];
         orch_perf_default_config(&p->cfg);
+        p->clock_inc=((uint32_t)p->cfg.bpm*24U*PERF_Q16)/
+                     (60U*ORCH_PERF_SAMPLE_RATE);
         p->held_count=p->keys_down=p->running=p->first_pending=0U;
         p->active_count=p->pending_count=0U; p->step=p->phrase_step=0U;
         p->clock_phase=p->clock_count=0U; p->last_sample=0U;
@@ -543,6 +546,8 @@ int orch_perf_set_config(unsigned part, const struct orch_perf_config *c)
     p->cfg=*c;
     if(p->cfg.bpm<40U) p->cfg.bpm=40U;
     if(p->cfg.bpm>250U) p->cfg.bpm=250U;
+    p->clock_inc=((uint32_t)p->cfg.bpm*24U*PERF_Q16)/
+                 (60U*ORCH_PERF_SAMPLE_RATE);
     if(p->cfg.arp_type>=ORCH_PERF_ARP_TYPES)p->cfg.arp_type%=ORCH_PERF_ARP_TYPES;
     p->cfg.phrase_ge%=ORCH_PERF_GE_COUNT;
     p->cfg.division%=ORCH_PERF_DIVISIONS;
@@ -704,8 +709,7 @@ void orch_perf_advance_sample(uint32_t sample_now)
             p->first_pending=0U;
             clock_step(i,p,sample_now);
         }
-        const uint32_t inc=((uint32_t)p->cfg.bpm*24U*PERF_Q16)/(60U*ORCH_PERF_SAMPLE_RATE);
-        p->clock_phase+=inc;
+        p->clock_phase+=p->clock_inc;
         if(p->clock_phase>=PERF_Q16) {
             p->clock_phase-=PERF_Q16;
             ++p->clock_count;

@@ -45,12 +45,19 @@ def main():
             raise SystemExit(f"boot-safety check: supported FM1 flash ID {chip_id} is missing")
     if "static inline int fl_id_ok(uint32_t id) { return id == 0x856014u || id == 0xB36014u; }" not in flash_text:
         raise SystemExit("boot-safety check: FM1 flash-ID allow-list changed or is ambiguous")
-    erase_guard = "if (!fl_emulated() && !fl_id_ok(fl_jedec_ram())) return -5; /* refuse unsupported physical flash */"
-    write_guard = "if (!fl_emulated() && !fl_id_ok(fl_jedec_ram())) return -5; /* refuse unsupported physical flash */"
-    if flash_text.count(erase_guard) != 2 or flash_text.count(write_guard) != 2:
-        raise SystemExit("boot-safety check: erase and program wrappers must both reject unknown physical flash IDs")
-    if "fl_erase4k_ram" not in flash_text or "fl_prog_ram" not in flash_text:
-        raise SystemExit("boot-safety check: RAM flash routines are missing")
+    guard = "if (!fl_emulated() && !fl_id_ok(FL_FAR(fl_jedec_ram)())) return -5; /* refuse unsupported physical flash */"
+    erase_start = flash_text.find("static int fl_erase4k(")
+    write_start = flash_text.find("static int fl_write(")
+    if erase_start < 0 or write_start < 0 or write_start <= erase_start:
+        raise SystemExit("boot-safety check: XIP erase/program wrappers are missing or reordered")
+    erase_body = flash_text[erase_start:write_start]
+    write_body = flash_text[write_start:]
+    if erase_body.count(guard) != 1:
+        raise SystemExit("boot-safety check: erase wrapper must reject unknown physical flash IDs")
+    if write_body.count(guard) != 1:
+        raise SystemExit("boot-safety check: program wrapper must reject unknown physical flash IDs")
+    if "FL_FAR(fl_erase4k_ram)" not in erase_body or "FL_FAR(fl_prog_ram)" not in write_body:
+        raise SystemExit("boot-safety check: guarded wrappers must call the RAM erase/program routines")
     print("Boot-safety check passed: application updates exclude flash head [0x0000, 0x4000).")
     print("User-data gap [0x97000, 0xE0000) remains excluded from update writes.")
     print("Both FM1 JEDEC IDs (0x856014 and 0xB36014) are allowed; unknown physical IDs cannot be erased/programmed.")
