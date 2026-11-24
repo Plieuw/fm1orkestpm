@@ -394,19 +394,27 @@ void groove_screen_control(void)
         if (edges & (1UL<<8)) { pc->quantize=(uint8_t)((pc->quantize+1U)%18U); changed=1U; }
         if (controls.encoders[0]) {
             int v=(int)pc->density+controls.encoders[0]*4;
-            if(v<0)v=0;if(v>127)v=127;pc->density=(uint8_t)v;changed=1U;
+            if(v<0)v=0;
+            if(v>127)v=127;
+            pc->density=(uint8_t)v;changed=1U;
         }
         if (controls.encoders[1]) {
             int v=(int)pc->range+controls.encoders[1];
-            if(v<1)v=1;if(v>4)v=4;pc->range=(uint8_t)v;changed=1U;
+            if(v<1)v=1;
+            if(v>4)v=4;
+            pc->range=(uint8_t)v;changed=1U;
         }
         if (controls.encoders[2]) {
             int v=(int)pc->cluster+controls.encoders[2];
-            if(v<1)v=1;if(v>4)v=4;pc->cluster=(uint8_t)v;changed=1U;
+            if(v<1)v=1;
+            if(v>4)v=4;
+            pc->cluster=(uint8_t)v;changed=1U;
         }
         if (controls.encoders[3]) {
             int v=(int)pc->repeat+controls.encoders[3];
-            if(v<0)v=0;if(v>3)v=3;pc->repeat=(uint8_t)v;changed=1U;
+            if(v<0)v=0;
+            if(v>3)v=3;
+            pc->repeat=(uint8_t)v;changed=1U;
         }
         unsigned knob=controls.knob;
         if(knob>1023U)knob=1023U;
