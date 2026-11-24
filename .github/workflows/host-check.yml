@@ -35,5 +35,17 @@ jobs:
              -c runtime/hawk/orch_hawk_bridge.c -o /tmp/orch_hawk_bridge.o
       - name: Validate HAWK overlay script
         run: python3 -m py_compile tools/prepare_hawk_runtime.py
+      - name: Checkout pinned stable HAWK runtime
+        uses: actions/checkout@v4
+        with:
+          repository: Plieuw/hawk-chua
+          ref: e750df6a2e13490a4f01b84d3f9c553f4612163f
+          path: hawk-chua
+      - name: Apply and validate HAWK source overlay
+        run: |
+          python3 tools/prepare_hawk_runtime.py "$PWD/hawk-chua"
+          grep -q 'orch_hawk_render_q15' hawk-chua/firmware/src/audio.c
+          grep -q 'orchestra/orch_engine.c' hawk-chua/firmware/src/felucca.c
+          grep -q 'orch_hawk_init' hawk-chua/firmware/src/main.c
       - name: Run host tests
         run: FM1_CORE="$PWD/fm1-core" sh tests/run_tests.sh
