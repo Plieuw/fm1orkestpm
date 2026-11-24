@@ -526,11 +526,24 @@ void orch_note_event(unsigned ch, unsigned note, unsigned velocity)
 }
 void orch_panic(void) { enqueue(0U, 0U, 0U, 2U); }
 
+void orch_midi_realtime(unsigned status)
+{
+    if(status==0xF8U || status==0xFAU || status==0xFBU || status==0xFCU)
+        enqueue(0U,status,0U,3U);
+}
+
+void orch_midi_clock_tempo(unsigned bpm)
+{
+    if(bpm<40U)bpm=40U;
+    if(bpm>250U)bpm=250U;
+    enqueue(0U,bpm&127U,(bpm>>7)&127U,4U);
+}
+
 void orch_midi_short_message(const uint8_t *m, unsigned bytes)
 {
     if (!m || !bytes) return;
     if (m[0] == 0xF8U || m[0] == 0xFAU || m[0] == 0xFBU || m[0] == 0xFCU) {
-        enqueue(0U, m[0], 0U, 3U);
+        orch_midi_realtime(m[0]);
         return;
     }
     if (bytes < 2U || m[0] < 0x80U || m[0] >= 0xf0U) return;
@@ -633,6 +646,8 @@ static void drain_events(void)
             orch_perf_panic();
         } else if (e.type == 3U) {
             orch_perf_midi_realtime(e.note,sample_counter);
+        } else if (e.type == 4U) {
+            orch_perf_set_external_tempo((unsigned)e.note | ((unsigned)e.velocity<<7));
         } else if (e.type == 1U) {
             engine_sustain(e.channel, e.velocity);
         } else {
