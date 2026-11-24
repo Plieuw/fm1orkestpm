@@ -154,6 +154,46 @@ static void draw_hall_marks(void)
     draw_instrument_name();
 }
 
+/* The light from the podium: what spills off the front of the boards, as wide
+ * and as bright as what is coming out of the instrument right now. It follows
+ * orch_output_level() — the output — and not which notes are held, so a chord
+ * that is dying takes the light down while the keys are still down. It is the
+ * one part of the page that moves with the music at the panel's own rate.
+ *
+ * It is drawn in a trough of the hall's own dark colour and rebuilt from four
+ * bars, so an update is five fills and nothing under it has to be repainted. */
+#define LIP_X0 68U
+#define LIP_X1 172U
+#define LIP_Y 145U                  /* the dark floor in front of the boards */
+#define LIP_H 7U
+#define LIP_DARK 0x1860             /* that floor's own colour, out of the photo */
+#define LIP_MS 50U                  /* slower than the control task scans */
+static void draw_stage_light(unsigned force)
+{
+    static uint32_t drawn_at;
+    const uint32_t now = fm1_millis();
+    if (!force && (uint32_t)(now - drawn_at) < LIP_MS) return;
+    drawn_at = now;
+
+    const unsigned w = LIP_X1 - LIP_X0;
+    fm1_screen_fill(LIP_X0, LIP_Y, w, LIP_H, LIP_DARK);
+    const unsigned level = orch_output_level();
+    if (!level) return;
+    /* a cone, not a line: narrow where it leaves the boards, wider as it falls
+     * on the floor in front of them — three bands of the same light */
+    const unsigned lit = (w - 8U) * level / 255U;
+    const int cx = (int)(LIP_X0 + w / 2U);
+    const int half = (int)lit / 2;
+    const uint16_t dim = mix565(C_AMBER, LIP_DARK, 150U);
+    const uint16_t mid = mix565(C_AMBER, LIP_DARK, 70U);
+    fm1_screen_fill((unsigned)(cx - half / 2), LIP_Y, (unsigned)half, 3U, dim);
+    fm1_screen_fill((unsigned)(cx - half * 3 / 4), LIP_Y + 3U,
+                    (unsigned)(half * 3 / 2), 3U, mid);
+    fm1_screen_fill((unsigned)(cx - half), LIP_Y + 6U, lit, 1U, C_AMBER);
+    fm1_screen_fill((unsigned)(cx - half / 3), LIP_Y + 1U,
+                    (unsigned)(half * 2 / 3), 1U, C_AMBER2);
+}
+
 /* Everything the panel puts over the photograph. */
 static void draw_hall_overlays(void)
 {
@@ -168,6 +208,7 @@ static void page_parts_full(void)
 {
     draw_photo(stage_frame());
     draw_hall_overlays();
+    draw_stage_light(1);
 }
 
 /* A setting changed, or a part started or stopped: the photograph stays, only
