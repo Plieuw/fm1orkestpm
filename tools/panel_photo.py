@@ -196,8 +196,22 @@ def frame_part(out, f, row_runs, counts):
     counts.append(total)
 
 
+def wrap_sources(sources, width=70):
+    """The frames this picture came from, in the header, on lines that fit."""
+    lines, line = [], " * from"
+    for i, name in enumerate(sources):
+        piece = ("" if i == 0 else ",") + " " + name
+        if len(line) + len(piece) > width and line != " * from":
+            lines.append(line)
+            line = " *     " + name
+        else:
+            line += piece
+    lines.append(line)
+    return "\n".join(lines)
+
+
 def emit_rle(path, frames, palette, width, height, block, strength, merge,
-             parts):
+             parts, sources):
     """The picture as its runs, three hex characters each: the palette index and
     the run's width in cells. A row of the hall is ten runs and thirty
     characters, so the whole hall is a few kilobytes instead of a hundred."""
@@ -209,6 +223,7 @@ def emit_rle(path, frames, palette, width, height, block, strength, merge,
            " * width in cells — one fm1_screen_fill each, so this is not only a",
            " * picture but the list of window commands that draw it.",
            " *",
+           wrap_sources(sources),
            " * %d x %d at %dx%d, %d colours, dither %.2f, merge %d" % (
                width, height, block, block, len(palette), strength, merge),
            " * %d frame(s)" % len(frames),
@@ -279,7 +294,7 @@ def main(argv):
     frames = [quantize(g, palette, args.dither) for g in grids]
     text, counts, _ = emit_rle(args.out, frames, palette, args.width,
                                args.height, args.block, args.dither,
-                               args.merge, args.parts)
+                               args.merge, args.parts, args.images)
     print("%s: %d bytes" % (args.out, len(text)))
     for i, n in enumerate(counts):
         print("frame %d: %5d runs" % (i, n))
