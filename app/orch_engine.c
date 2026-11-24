@@ -93,7 +93,7 @@ static uint8_t seq_adaptive;
 /* Optional one-way orchestral call/response. Disabled by default. */
 static uint8_t response_enabled, response_leader, response_follower;
 static int8_t response_interval;
-static uint8_t response_note, response_stage, response_phrase_count;
+static uint8_t response_note, response_stage, response_phrase_count, response_velocity;
 static uint32_t response_on_at, response_off_at;
 static uint8_t seq_input_pc_count[ORCH_PARTS][12];
 static uint16_t seq_input_chord_mask[ORCH_PARTS];
@@ -355,12 +355,28 @@ static unsigned pick_voice(unsigned part)
     for (unsigned i = 0; i < ORCH_MAX_VOICES; ++i) {
         if (!voices[i].active) return i;
     }
-    /* the pool is full: releasing first, otherwise the oldest note */
+    /* The pool is full: release the quietest tail first. Otherwise steal
+     * from the most represented part, preserving a fair section balance
+     * instead of allowing one part to monopolise all eight modeled voices. */
     quietest = -1; oldest = -1; quiet_env = 0x7fffffff; oldest_age = UINT32_MAX;
-    for (unsigned i = 0; i < ORCH_MAX_VOICES; ++i) {
-        voice_t *v = &voices[i];
-        if (v->releasing && v->env < quiet_env) { quiet_env = v->env; quietest = (int)i; }
-        if (!v->releasing && v->age < oldest_age) { oldest_age = v->age; oldest = (int)i; }
+    {
+        unsigned count[ORCH_PARTS] = {0U,0U,0U,0U};
+        for (unsigned i = 0; i < ORCH_MAX_VOICES; ++i)
+            if (voices[i].active && voices[i].part < ORCH_PARTS)
+                ++count[voices[i].part];
+        unsigned fullest = 0U;
+        for (unsigned p = 0; p < ORCH_PARTS; ++p)
+            if (count[p] > fullest) fullest = count[p];
+        for (unsigned i = 0; i < ORCH_MAX_VOICES; ++i) {
+            voice_t *v = &voices[i];
+            if (v->releasing && v->env < quiet_env) {
+                quiet_env = v->env; quietest = (int)i;
+            }
+            if (!v->releasing && count[v->part] == fullest &&
+                v->age < oldest_age) {
+                oldest_age = v->age; oldest = (int)i;
+            }
+        }
     }
     if (quietest >= 0) return (unsigned)quietest;
     return (oldest >= 0) ? (unsigned)oldest : 0U;
@@ -712,9 +728,18 @@ static void response_schedule(unsigned leader, unsigned note, unsigned velocity)
     answer = (int)response_harmonic_note(leader, (unsigned)answer);
     response_note = (uint8_t)answer;
     response_follower = (uint8_t)response_section_part();
-    const uint32_t eighth = (ORCH_SAMPLE_RATE * 60U) / ((uint32_t)tempo * 2U);
-    response_on_at = sample_counter + eighth;
-    response_off_at = response_on_at + eighth;
+    const uint32_t quarter = (ORCH_SAMPLE_RATE * 60U) / (uint32_t)tempo;
+    const struct orch_part *follower_cfg = orch_part_get(response_follower);
+    /* Strings become a quiet harmonic bed; winds/brass make shorter replies. */
+    if (follower_cfg && follower_cfg->family == ORCH_FAM_STRINGS) {
+        response_velocity = 54U;
+        response_on_at = sample_counter + quarter;
+        response_off_at = response_on_at + quarter * 2U;
+    } else {
+        response_velocity = 72U;
+        response_on_at = sample_counter + quarter / 2U;
+        response_off_at = response_on_at + quarter / 2U;
+    }
     response_stage = 1U;
 }
 
@@ -722,7 +747,7 @@ static void response_tick(void)
 {
     if (!response_enabled || response_stage==0U) return;
     if (response_stage==1U && (int32_t)(sample_counter-response_on_at)>=0) {
-        engine_note_on_part(response_follower,response_note,72U);
+        engine_note_on_part(response_follower,response_note,response_velocity);
         response_stage=2U;
     }
     if (response_stage==2U && (int32_t)(sample_counter-response_off_at)>=0) {
