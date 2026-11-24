@@ -73,10 +73,13 @@ static void draw_players(void)
     }
 }
 
-/* The hall: a wall in the distance with the arch of the stage in it, the floor
- * running towards you, the players where their sections sit and the audience in
- * front. Rectangle fills, discs and arcs — a room, not a photograph of one. */
-static void draw_hall(void)
+/* The hall's own art: the wall, the opening with its arch, the boards in
+ * perspective, the pool of light, the curtains and the rows of the audience.
+ * None of it changes while the panel is on the stage page, and all of it is
+ * what a knob turn used to repaint — so it is drawn once, when the page is
+ * entered, and the players, the listener and the instrument's name are drawn
+ * on their own. */
+static void draw_hall_static(void)
 {
     const unsigned cx = HALL_X + HALL_W / 2U;
     const unsigned arch_cy = HALL_Y + 66U;
@@ -116,14 +119,12 @@ static void draw_hall(void)
                         mix565(C_WOOD, C_AMBER2, 34U + r * 7U));
     }
 
-    draw_players();
-
     /* the curtains at the sides of the opening, in the hall's wine red */
     fm1_screen_fill(cx - 56U, arch_cy - 28U, 5U, 56U, C_CURTAIN);
     fm1_screen_fill(cx + 51U, arch_cy - 28U, 5U, 56U, C_CURTAIN);
 
     /* the audience: a dark band with two rows of seats in it, the listener's
-     * among them in amber */
+     * seat is not one of them — it moves, and is drawn with the players */
     fm1_screen_fill(HALL_X, seat_y - 5U, HALL_W, HALL_H - (seat_y - HALL_Y) + 3U,
                     mix565(C_BG, C_WOOD, 26U));
     for (unsigned row = 0; row < 2U; ++row) {
@@ -135,6 +136,19 @@ static void draw_hall(void)
             disc(x, y, 2U, mix565(C_BG, C_TEXT, 120U), C_BG, C_BG);
         }
     }
+}
+
+/* What does move in the hall: the players, the listener's seat and the name of
+ * the instrument on the selected desk. */
+static void draw_hall_live(void)
+{
+    const unsigned cx = HALL_X + HALL_W / 2U;
+    const unsigned floor_y = HALL_Y + 92U;
+    const unsigned seat_y = floor_y + 44U;
+
+    draw_players();
+
+    /* the listener's seat, amber among the audience */
     {
         const unsigned row = 1U - orch_stage_listener_depth() / 60U;
         const unsigned half = 44U + row * 12U;
@@ -142,7 +156,6 @@ static void draw_hall(void)
         disc((unsigned)x, seat_y + row * 7U, 3U, C_AMBER2, C_AMBER, C_BG);
     }
 
-    /* what is sitting on the selected desk: in the corner of the wall */
     {
         const struct orch_part *part = orch_part_get(ui.part);
         if (part) {
@@ -153,9 +166,19 @@ static void draw_hall(void)
     }
 }
 
-static void page_parts(void)
+static void page_parts_full(void)
 {
+    draw_hall_static();
+    draw_hall_live();
     for (unsigned p = 0; p < ORCH_PARTS; ++p)
         draw_desk(p);
-    draw_hall();
+}
+
+/* Everything on the stage page except the hall's art: what a knob turn or a
+ * part starting actually changes. */
+static void page_parts(void)
+{
+    draw_hall_live();
+    for (unsigned p = 0; p < ORCH_PARTS; ++p)
+        draw_desk(p);
 }
