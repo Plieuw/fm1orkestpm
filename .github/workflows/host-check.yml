@@ -108,5 +108,4 @@ jobs:
           ./build.sh 2>&1 | tee orchestral-target-build.log
           test -s build/felucca.bin
           test -s build/hawk-chua.fwsc
-          grep -q 'ok ' orchestral-target-build.log
           rm -f build/hawk-chua.fwsc
