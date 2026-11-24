@@ -108,11 +108,12 @@ static uint32_t page_signature(void)
         sig ^= (uint32_t)seq_notes[ui.seq_step][0].gate_percent << 24;
         break;
     case PAGE_FX:
-        for (unsigned s = 0; s < ORCH_FX_SLOT_COUNT; ++s)
-            sig = sig * 31U + (uint32_t)orch_fx_enabled(s)
-                + 3U * orch_fx_mix(s) + 7U * orch_fx_param_a(s)
-                + 11U * orch_fx_param_b(s);
-        sig = sig * 31U + ui.fx_sel;
+        for (unsigned s = 0; s < ORCH_FX_SLOT_COUNT; ++s) {
+            sig = sig * 31U + (uint32_t)orch_fx_enabled(s) + 3U * orch_fx_mix(s);
+            for (unsigned i = 0; i < ORCH_FX_PARAMS; ++i)
+                sig = sig * 31U + (uint32_t)(i + 5U) * orch_fx_param(s, i);
+        }
+        sig = sig * 31U + ui.fx_sel + 8U * ui.fx_bank;
         break;
     case PAGE_HOME:
     default:

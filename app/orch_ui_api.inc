@@ -12,6 +12,7 @@ void orch_ui_init(void)
     ui.transpose = 0;
     ui.saved = 0U;
     ui.fx_sel = 0U;
+    ui.fx_bank = 0U;
     ui.buttons = 0U;
     ui.keys = 0U;
     ui.knob = 0U;
@@ -118,7 +119,10 @@ void orch_ui_handle(const struct fm1_controls *controls)
             break;
         }
         case E_PRESET:
-            step_instrument(step);
+            /* on FX this encoder turns the strip over to the effect's other two
+             * parameters; everywhere else it steps the instrument */
+            if (ui.page == PAGE_FX) ui.fx_bank = (uint8_t)!ui.fx_bank;
+            else step_instrument(step);
             dirty = 1;
             break;
         case E_ALGO:
@@ -182,8 +186,9 @@ void orch_ui_handle(const struct fm1_controls *controls)
             break;
         case E_KNOB2:
             if (ui.page == PAGE_FX) {
-                orch_fx_set_param_a(ui.fx_sel,
-                    (unsigned)clamp_percent((int)orch_fx_param_a(ui.fx_sel) + pct_delta(delta) * 5));
+                const unsigned i = ui.fx_bank ? 2U : 0U;
+                orch_fx_set_param(ui.fx_sel, i,
+                    (unsigned)clamp_percent((int)orch_fx_param(ui.fx_sel, i) + pct_delta(delta) * 5));
             } else if (ui.page == PAGE_ARP) {
                 int o = (int)orch_arp_octaves_of(ui.part) + step;
                 if (o < 1) o = 1;
@@ -206,8 +211,9 @@ void orch_ui_handle(const struct fm1_controls *controls)
             break;
         case E_KNOB3:
             if (ui.page == PAGE_FX) {
-                orch_fx_set_param_b(ui.fx_sel,
-                    (unsigned)clamp_percent((int)orch_fx_param_b(ui.fx_sel) + pct_delta(delta) * 5));
+                const unsigned i = ui.fx_bank ? 3U : 1U;
+                orch_fx_set_param(ui.fx_sel, i,
+                    (unsigned)clamp_percent((int)orch_fx_param(ui.fx_sel, i) + pct_delta(delta) * 5));
             } else if (ui.page == PAGE_ARP) {
                 int g = (int)orch_arp_gate_of(ui.part) + pct_delta(delta) * 5;
                 orch_arp_set_gate(ui.part, (unsigned)g);
@@ -217,6 +223,7 @@ void orch_ui_handle(const struct fm1_controls *controls)
                 if (bpm > 300) bpm = 300;
                 ui.tempo = (uint16_t)bpm;
                 orch_seq_set_tempo(ui.tempo);
+                orch_fx_set_tempo(ui.tempo);   /* the echo's SYNC follows it */
             } else {
                 /* the parts page is where the listener sits: KNOB3 moves it
                  * across the stage, 5 a detent and at most 10 when flicked */
