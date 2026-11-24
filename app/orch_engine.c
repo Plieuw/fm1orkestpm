@@ -145,8 +145,10 @@ static uint16_t level_compensation_gain(unsigned velocity, uint32_t level,
 {
     if (level <= 64U) return 32767U;
     uint32_t target = (velocity * 5000U) / 100U;
-    target = (uint32_t)(((uint64_t)target * register_target_scale_q15(note)) >> 15);
-    uint32_t gain = (uint32_t)(((uint64_t)target << 15) / level);
+    /* MIDI velocity and the register contour keep target below 7,000, so
+     * both products fit in 32 bits; avoid a 64-bit divide on the audio path. */
+    target = (target * register_target_scale_q15(note)) >> 15;
+    uint32_t gain = (target << 15) / level;
     if (gain < 16384U) gain = 16384U;
     if (gain > 65535U) gain = 65535U;
     return (uint16_t)gain;
@@ -1342,7 +1344,6 @@ unsigned orch_test_seq_phrase_arc_velocity(unsigned velocity, unsigned position)
 
 static void seq_tick(void)
 {
-    const uint32_t step_samples = (ORCH_SAMPLE_RATE * 60U) / ((uint32_t)tempo * 4U);
     if (!seq_enabled) {
         if (seq_stop_pending) {
             for (unsigned n = 0; n < ORCH_STEP_NOTES; ++n)
@@ -1351,6 +1352,17 @@ static void seq_tick(void)
         }
         return;
     }
+    /* Tempo changes rarely; cache the integer step length instead of
+     * dividing once per audio sample. */
+    static uint16_t cached_tempo;
+    static uint32_t cached_step_samples;
+    const uint16_t current_tempo = tempo;
+    if (!cached_step_samples || cached_tempo != current_tempo) {
+        cached_tempo = current_tempo;
+        cached_step_samples = (ORCH_SAMPLE_RATE * 60U) /
+                              ((uint32_t)current_tempo * 4U);
+    }
+    const uint32_t step_samples = cached_step_samples;
     if (!seq_started) {
         seq_started = 1U;
         current_step = 15U;
