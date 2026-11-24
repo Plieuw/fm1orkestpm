@@ -29,5 +29,83 @@ jobs:
             cc -std=c11 -O2 -Wall -Wextra -Werror -DFM1_HOST_TEST \
                -Ifm1-core/include -Iapp -c "$f" -o "/tmp/$(basename "$f" .c).o"
           done
+      - name: Compile native HAWK bridge
+        run: |
+          cc -std=c11 -O2 -Wall -Wextra -Werror -Iapp \
+             -c runtime/hawk/orch_hawk_bridge.c -o /tmp/orch_hawk_bridge.o
+      - name: Validate HAWK overlay script
+        run: python3 -m py_compile tools/prepare_hawk_runtime.py
+      - name: Checkout pinned stable HAWK runtime
+        uses: actions/checkout@v4
+        with:
+          repository: Plieuw/hawk-chua
+          ref: e750df6a2e13490a4f01b84d3f9c553f4612163f
+          path: hawk-chua
+      - name: Apply and validate HAWK source overlay
+        run: |
+          python3 tools/prepare_hawk_runtime.py "$PWD/hawk-chua"
+          grep -q 'orch_hawk_render_q15' hawk-chua/firmware/src/audio.c
+          grep -q 'orchestra/orch_engine.c' hawk-chua/firmware/src/felucca.c
+          grep -q 'orch_hawk_init' hawk-chua/firmware/src/main.c
       - name: Run host tests
         run: FM1_CORE="$PWD/fm1-core" sh tests/run_tests.sh
+
+  hawk-target-build:
+    runs-on: ubuntu-latest
+    container: debian:bookworm-slim
+    env:
+      JIELI_TOOLCHAIN: /opt/jieli/toolchain
+      AC79_SDK: /opt/ac79-sdk
+      FELUCCA_VERSION: orch-0.3.8-ci
+      FELUCCA_CPU2: "0"
+    steps:
+      - name: Install build prerequisites
+        run: |
+          apt-get update -qq
+          apt-get install -y -qq --no-install-recommends \
+            git ca-certificates curl xz-utils python3 python3-pil python3-fonttools \
+            gcc libc6-dev clang lld >/dev/null
+      - uses: actions/checkout@v4
+      - name: Checkout pinned stable HAWK runtime
+        uses: actions/checkout@v4
+        with:
+          repository: Plieuw/hawk-chua
+          ref: e750df6a2e13490a4f01b84d3f9c553f4612163f
+          path: hawk-chua
+      - name: Cache JieLi toolchain and AC79 SDK
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            /opt/jieli
+            /opt/ac79-sdk
+          key: orchestral-jieli-ac79-sdk-v1.2.1-2023-12-13
+      - name: Install JieLi toolchain
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          sh hawk-chua/tools/get_toolchain.sh /opt/jieli
+          test -x /opt/jieli/toolchain/pi32v2/bin/clang
+      - name: Stage pinned AC79 SDK resources
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          set -e
+          tmp=$(mktemp -d)
+          git clone --depth 1 --branch AC79NN_SDK_V1.2.1_2023-12-13 --filter=blob:none --sparse \
+            https://gitee.com/Jieli-Tech/fw-AC79_AIoT_SDK.git "$tmp/sdk" \
+            && git -C "$tmp/sdk" sparse-checkout set cpu/wl82/tools \
+            || { rm -rf "$tmp/sdk"; git clone --depth 1 --branch AC79NN_SDK_V1.2.1_2023-12-13 \
+                   https://gitee.com/Jieli-Tech/fw-AC79_AIoT_SDK.git "$tmp/sdk"; }
+          mkdir -p "$AC79_SDK/cpu/wl82/tools/cfg"
+          cp "$tmp/sdk/cpu/wl82/tools/uboot.boot" "$tmp/sdk/cpu/wl82/tools/cfg_tool.bin" "$AC79_SDK/cpu/wl82/tools/"
+          cp "$tmp/sdk/cpu/wl82/tools/cfg/eq_cfg_hw.bin" "$AC79_SDK/cpu/wl82/tools/cfg/"
+          cp "$tmp/sdk/LICENSE"* "$AC79_SDK/" 2>/dev/null || true
+          rm -rf "$tmp"
+      - name: Apply orchestral runtime overlay
+        run: python3 tools/prepare_hawk_runtime.py "$PWD/hawk-chua"
+      - name: Build PI32v2 firmware and validate package
+        working-directory: hawk-chua
+        run: |
+          ./build.sh 2>&1 | tee orchestral-target-build.log
+          test -s build/felucca.bin
+          test -s build/hawk-chua.fwsc
+          rm -f build/hawk-chua.fwsc

@@ -156,3 +156,18 @@ Next actual implementation work:
 
 No target firmware, .fwsc, web installer, or physical install is claimed by
 this documentation-only branch.
+
+
+## 0.3.8 native HAWK runtime bridge (2026-11-24)
+
+Branch: `feature/0.3.8-hawk-runtime-bridge` (stacked on PR #9).
+Stable HAWK reference: `main` at `e750df6a2e13490a4f01b84d3f9c553f4612163f`.
+
+Verified details: HAWK uses `FS=44100`, `CTL=32`, `HALF_FRAMES=128`; its
+audio callback calls `keys_block()` then `synth_render()`, producing interleaved
+Q15. The orchestral engine renders interleaved Q23. New bridge files in
+`runtime/hawk/` provide bounded 32-frame Q23 rendering and saturating Q15
+conversion plus channel-aware note/realtime/panic hooks. The bridge is not yet
+wired into HAWK's ISR or key/MIDI path; that requires a coordinated change to
+avoid the old synth and the orchestral engine both receiving notes. The 12-voice
+ceiling remains unmeasured on PI32v2. See `docs/HAWK_RUNTIME_PORT.md`.
