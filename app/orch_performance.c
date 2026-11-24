@@ -512,10 +512,16 @@ void orch_perf_midi_realtime(unsigned status, uint32_t sample_now)
         perf_part_t *p=&parts[i];
         if(!p->cfg.external_clock || (!p->cfg.arp_enabled&&!p->cfg.phrase_enabled))continue;
         if(status==0xFAU) {
-            p->clock_count=division_ticks[p->cfg.division%ORCH_PERF_DIVISIONS]-1U;p->step=p->phrase_step=0U;p->first_pending=0U;p->running=1U;
+            release_all(i,p);
+            p->clock_count=division_ticks[p->cfg.division%ORCH_PERF_DIVISIONS]-1U;
+            p->step=p->phrase_step=0U;
+            p->first_pending=0U;
+            p->running=1U;
             p->ext_last_tick=sample_now;
+            p->ext_age=0U;
         } else if(status==0xFBU) {
             p->running=1U;
+            p->ext_age=0U;
         } else if(status==0xFCU) {
             release_all(i,p);p->running=p->first_pending=p->pending_step=0U;
             p->clock_count=0U;p->ext_last_tick=0U;p->ext_age=0U;
@@ -552,7 +558,11 @@ void orch_perf_advance_sample(uint32_t sample_now)
         }
         if(!p->running || (!p->cfg.arp_enabled&&!p->cfg.phrase_enabled))continue;
         if(p->cfg.external_clock) {
-            if(p->ext_age<PERF_CLOCK_TIMEOUT)++p->ext_age;
+            if(p->ext_age<PERF_CLOCK_TIMEOUT) ++p->ext_age;
+            else if(p->running) {
+                release_all(i,p);
+                p->running=0U;
+            }
             continue;
         }
         if(p->first_pending) {
