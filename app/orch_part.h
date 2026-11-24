@@ -33,6 +33,15 @@ enum orch_instrument {
     ORCH_INST_CHOIR, ORCH_INST_COUNT
 };
 
+enum orch_lfo_wave { ORCH_LFO_SINE=0, ORCH_LFO_TRIANGLE, ORCH_LFO_SAW,
+                     ORCH_LFO_SQUARE, ORCH_LFO_SAMPLE_HOLD };
+enum orch_lfo_dest { ORCH_LFO_PITCH=1U, ORCH_LFO_TREMOLO=2U, ORCH_LFO_BRIGHTNESS=4U };
+struct orch_lfo {
+    uint16_t rate_millihz; /* free-running rate; ignored when sync_division != 0 */
+    uint16_t delay_ms, fade_ms;
+    uint8_t wave, destinations, depth, sync_division;
+};
+
 struct orch_adsr {
     uint16_t attack_ms, decay_ms, release_ms;
     uint8_t sustain_percent;
@@ -42,6 +51,7 @@ struct orch_part {
     struct orch_adaptive adaptive;
     struct orch_divisi_state divisi;
     struct orch_adsr adsr;
+    struct orch_lfo lfo;
     uint16_t channels;     /* bit 0 = MIDI channel 1 */
     uint8_t family;
     uint8_t instrument;
@@ -62,6 +72,9 @@ int orch_part_set_articulation(unsigned part, unsigned articulation);
 int orch_part_set_player_cap(unsigned part, unsigned cap);
 int orch_part_set_adsr(unsigned part, unsigned attack_ms, unsigned decay_ms,
                        unsigned sustain_percent, unsigned release_ms);
+int orch_part_set_lfo(unsigned part, unsigned wave, unsigned destinations,
+                      unsigned depth, unsigned rate_millihz,
+                      unsigned sync_division, unsigned delay_ms, unsigned fade_ms);
 
 const char *orch_family_name(unsigned family);
 
