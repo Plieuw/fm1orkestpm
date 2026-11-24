@@ -62,6 +62,11 @@ typedef struct {
     uint32_t ext_last_tick, ext_tick_len, ext_age;
     uint8_t pending_step, alt_state, sr_state;
     uint8_t last_note, last_velocity;
+    /* Player-derived musical context. Updated only on incoming MIDI notes. */
+    uint8_t input_note, input_velocity_avg, input_activity, input_phrase_age;
+    int8_t input_direction;
+    uint8_t input_have_note, input_peak, input_chord_mask;
+    uint32_t input_last_on, input_ioi_avg;
     uint32_t rng;
 } perf_part_t;
 
@@ -220,7 +225,10 @@ static unsigned arp_pick(perf_part_t *p, const uint8_t *notes, const uint8_t *ve
                          unsigned n, unsigned *out, unsigned *out_vel)
 {
     const unsigned type=p->cfg.arp_type%ORCH_PERF_ARP_TYPES;
-    const unsigned octaves=(type%3U==0U)?1U:(type%3U==1U)?2U:4U;
+    unsigned octaves=(type%3U==0U)?1U:(type%3U==1U)?2U:4U;
+    /* Register follows the player's recent range/energy, but remains bounded. */
+    if (p->input_activity < 72U && octaves > 1U) --octaves;
+    else if (p->input_activity > 150U && octaves < 4U) ++octaves;
     const unsigned total=n*octaves;
     unsigned idx=0U;
     if (type<15U) {
@@ -251,7 +259,8 @@ static unsigned arp_pick(perf_part_t *p, const uint8_t *notes, const uint8_t *ve
     idx=(mode==0U)?step%n:
         (mode==1U)?(n-1U-step%n):
         (mode==2U)?((step&1U)?n-1U-step/2U:step/2U)%n:
-        (mode==3U)?(rnd(p)%n):
+        (mode==3U)?(p->input_have_note && p->input_direction ?
+                    (p->input_direction > 0 ? step%n : n-1U-step%n) : rnd(p)%n):
         (mode==4U)?(p->last_note?((step+n)%n):0U):
         (mode==5U)?(step*2U)%n:
         (mode==6U)?(step/2U)%n:(n-1U-(step/2U)%n);
@@ -267,8 +276,19 @@ static unsigned phrase_pick(perf_part_t *p, const uint8_t *notes,
     const unsigned ge=p->cfg.phrase_ge%ORCH_PERF_GE_COUNT;
     const unsigned pos=p->phrase_step&15U;
     if (!(phrase_rhythm[ge]&(1U<<pos))) return 0U;
-    if ((rnd(p)&127U)>p->cfg.density) return 0U;
-    const unsigned mode=ge%7U, range=p->cfg.range<1U?1U:p->cfg.range>4U?4U:p->cfg.range;
+    {
+        unsigned density=p->cfg.density;
+        /* Follow the player's activity and dynamics: energetic, flowing
+         * input opens the phrase; sparse/soft input leaves orchestral space. */
+        density=(density*(p->input_activity ? p->input_activity : 100U))/100U;
+        if (density>127U) density=127U;
+        if ((p->phrase_step&15U)>=12U && density>24U) density-=24U;
+        if ((rnd(p)&127U)>density) return 0U;
+    }
+    const unsigned mode=ge%7U;
+    unsigned range=p->cfg.range<1U?1U:p->cfg.range>4U?4U:p->cfg.range;
+    if (p->input_activity<72U && range>1U) --range;
+    else if (p->input_activity>150U && range<4U) ++range;
     const unsigned total=n*range;
     unsigned idx=0U;
     switch (mode) {
@@ -286,7 +306,10 @@ static unsigned phrase_pick(perf_part_t *p, const uint8_t *notes,
     case 5U: idx=(p->phrase_step&1U)?total-1U-(p->phrase_step/2U)%total:(p->phrase_step/2U)%total;break;
     default: idx=(pos*3U+ge)%total; break;
     }
-    const unsigned cluster= p->cfg.cluster<1U?1U:p->cfg.cluster>4U?4U:p->cfg.cluster;
+    unsigned cluster=p->cfg.cluster<1U?1U:p->cfg.cluster>4U?4U:p->cfg.cluster;
+    /* Thin chord clusters in quiet passages; allow fuller divisi at peaks. */
+    if (p->input_velocity_avg<52U && cluster>1U) --cluster;
+    if (p->input_peak && cluster<4U) ++cluster;
     const unsigned count=cluster<n?cluster:n;
     for (unsigned i=0;i<count;++i) {
         unsigned k=(idx+i)%total;
@@ -295,6 +318,7 @@ static unsigned phrase_pick(perf_part_t *p, const uint8_t *notes,
         int v=(int)vel[k%n];
         if (pos%4U==0U) v+=((int)p->cfg.accent)/4;
         else if (pos%4U==2U) v-=((int)p->cfg.accent)/8;
+        if (p->input_peak && i==0U) v+=((int)p->cfg.accent)/5;
         if (v<1) v=1;
         if (v>127) v=127;
         out[i]=note; out_vel[i]=(unsigned)v;
@@ -435,6 +459,10 @@ void orch_perf_init(void)
         p->step_len=p->pending_at=0U; p->pending_step=0U;
         p->ext_last_tick=p->ext_tick_len=0U; p->ext_age=0U;
         p->alt_state=p->sr_state=p->last_note=p->last_velocity=0U;
+        p->input_note=p->input_velocity_avg=0U; p->input_activity=100U;
+        p->input_phrase_age=p->input_peak=p->input_chord_mask=0U;
+        p->input_direction=0; p->input_have_note=0U;
+        p->input_last_on=p->input_ioi_avg=0U;
         p->rng=0x6D2B79F5U^(i*0x9E3779B9U);
         for(unsigned n=0;n<PERF_HELD;++n){p->held[n].note=0U;p->held[n].velocity=0U;}
         for(unsigned n=0;n<PERF_ACTIVE;++n){p->active[n].used=0U;p->active[n].note=0U;p->active[n].off_at=0U;}
@@ -484,6 +512,36 @@ int orch_perf_note_event(unsigned part, unsigned note, unsigned velocity)
     perf_part_t *p=&parts[part];
     if(!p->cfg.arp_enabled&&!p->cfg.phrase_enabled)return 0;
     if(velocity) {
+        /* Learn the player's contour before the generated notes are chosen.
+         * This state is intentionally separate from generated_on(), avoiding
+         * feedback loops where the ARP learns from its own output. */
+        if (p->input_have_note) {
+            const int delta=(int)note-(int)p->input_note;
+            if (delta>=2) p->input_direction=1;
+            else if (delta<=-2) p->input_direction=-1;
+            if (p->input_last_on && p->last_sample>p->input_last_on) {
+                const uint32_t ioi=p->last_sample-p->input_last_on;
+                if (ioi<PERF_CLOCK_TIMEOUT*8U)
+                    p->input_ioi_avg=p->input_ioi_avg?
+                        (p->input_ioi_avg*3U+ioi)/4U:ioi;
+            }
+            if (p->input_phrase_age<15U) ++p->input_phrase_age;
+        } else p->input_phrase_age=0U;
+        p->input_note=(uint8_t)note; p->input_have_note=1U;
+        p->input_last_on=p->last_sample;
+        p->input_velocity_avg=p->input_velocity_avg?
+            (uint8_t)(((unsigned)p->input_velocity_avg*3U+velocity)/4U):(uint8_t)velocity;
+        p->input_activity=100U;
+        if (p->input_ioi_avg) {
+            const uint32_t nominal=(ORCH_PERF_SAMPLE_RATE*3U)/4U;
+            if (p->input_ioi_avg<nominal/2U) p->input_activity=165U;
+            else if (p->input_ioi_avg>nominal*2U) p->input_activity=65U;
+            else p->input_activity=(uint8_t)(165U-
+                ((p->input_ioi_avg-nominal/2U)*100U)/(nominal*3U/2U));
+        }
+        p->input_peak=(uint8_t)(velocity>p->input_velocity_avg+20U ||
+                                  (p->input_phrase_age>1U &&
+                                   (note>p->input_note+5U || note+5U<p->input_note)));
         if(!p->keys_down&&p->cfg.latch) p->held_count=0U;
         ++p->keys_down;
         for(unsigned i=0;i<p->held_count;++i) if(p->held[i].note==note)return 1;
@@ -542,6 +600,7 @@ void orch_perf_advance_sample(uint32_t sample_now)
 {
     for(unsigned i=0;i<ORCH_PERF_PARTS;++i) {
         perf_part_t *p=&parts[i];
+        p->last_sample=sample_now;
         if(!p->running && !p->active_count && !p->pending_count) continue;
         active_off_due(i,p,sample_now);
         if(p->pending_count) for(unsigned k=0;k<PERF_ACTIVE*3U;++k) {
