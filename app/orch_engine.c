@@ -473,11 +473,13 @@ static int find_legato_voice(unsigned part, unsigned player, unsigned family)
     uint32_t newest_age = 0U;
     for (unsigned i = 0; i < ORCH_MAX_VOICES; ++i) {
         const voice_t *v = &voices[i];
-        /* A just-released note is still a valid legato source during the
-         * adaptive connection window. Ignore old, nearly silent release tails. */
-        if (v->active && !v->auto_release && v->part == part &&
+        /* A just-released note remains a valid legato source during the
+         * adaptive connection window. Do not require 20% envelope here:
+         * short, soft notes can be below that level but still carry useful
+         * resonator energy. Percussive mallets are excluded by the caller. */
+        if (v->active && v->part == part &&
             v->player == player && v->family == family &&
-            v->env > ORCH_ENV_MAX / 5 && v->age >= newest_age) {
+            v->env > ORCH_ENV_MAX / 64 && v->age >= newest_age) {
             best = (int)i;
             newest_age = v->age;
         }
