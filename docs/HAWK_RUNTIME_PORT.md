@@ -37,10 +37,26 @@ not wired into the HAWK audio ISR yet: event ownership, note routing, and the
 existing `keys_block()`/ARP/KARMA ownership must be changed together to avoid
 duplicate notes or leaving HAWK's old synth active.
 
+## Reproducible source overlay
+
+`tools/prepare_hawk_runtime.py /path/to/hawk-chua` now prepares a disposable
+checkout of the exact stable HAWK commit above. It verifies the commit and a
+clean worktree, copies the orchestral engine sources into
+`firmware/src/orchestra/`, includes them in Felucca's amalgamated translation
+unit, initializes the engine before audio starts, changes the audio callback to
+the Q15 bridge, and routes panel-key/MIDI note-on, note-off, sustain,
+all-notes-off and MIDI realtime events to the orchestral engine.
+
+The script deliberately fails if an upstream patch anchor has changed. It is
+not idempotent: always start with a fresh checkout at the pinned commit. It
+does not change the original `hawk-chua` repository; it operates on the path
+passed to it.
+
 ## Required next integration
 
-1. Add the orchestral engine source files and include paths to the HAWK
-   translation unit/build manifest. Preserve the source licence notices.
+1. Run the overlay script against a clean checkout of the pinned stable HAWK
+   source, then run the full JieLi PI32v2 build. Preserve all source licence
+   notices.
 2. Initialize with `orch_hawk_init()` after platform state is ready and before
    audio starts.
 3. Replace the `synth_render()` call in HAWK's audio block with
@@ -73,7 +89,8 @@ the cap only from measurements. Never infer performance from host tests.
 
 - [x] Stable HAWK runtime API inspected.
 - [x] Q23-to-Q15 bridge source added.
-- [ ] Bridge wired into HAWK audio ISR and MIDI event path.
+- [x] Reproducible overlay script added for audio callback, initialization and MIDI/key event routing.
+- [ ] Overlay applied and validated by the full PI32v2 target build.
 - [ ] Physical panel port verified.
 - [ ] PI32v2 target build and .fwsc package.
 - [ ] HAWK-style Web MIDI installer port and device test.
