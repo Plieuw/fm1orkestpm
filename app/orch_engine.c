@@ -44,6 +44,7 @@ typedef struct {
     uint32_t glide_left;
     uint32_t age, note_id;
     uint32_t legato_transition_left, legato_transition_total;
+    uint32_t legato_transition_step_q16;
     uint32_t loop_gain_q23; /* per-sample gain derived from per-round-trip loss */
     int32_t lp;      /* previous loop sample (the damping filter's state) */
     int32_t dc;      /* output DC blocker state */
@@ -567,9 +568,13 @@ static void voice_start(unsigned part, unsigned note, unsigned velocity,
         if (in->down_bow) transition_ms += 5U;
         v->legato_transition_left = transition_ms * ORCH_SAMPLE_RATE / 1000U;
         v->legato_transition_total = v->legato_transition_left;
+        v->legato_transition_step_q16 = v->legato_transition_total
+            ? (uint32_t)(((uint64_t)9174U << 16) / v->legato_transition_total)
+            : 0U;
     } else {
         v->legato_transition_left = 0U;
         v->legato_transition_total = 0U;
+        v->legato_transition_step_q16 = 0U;
     }
     v->strike_left = 0U;
 
@@ -1544,8 +1549,10 @@ static unsigned voice_tick(voice_t *v)
         const uint32_t total = v->legato_transition_total ? v->legato_transition_total : 1U;
         const uint32_t left = v->legato_transition_left;
         const uint32_t elapsed = total > left ? total - left : 0U;
-        /* 72% -> 100% smooth excitation handover; no silence dip. */
-        const int32_t blend = 23593 + (int32_t)((uint64_t)elapsed * 9174U / total);
+        /* 72% -> 100% smooth excitation handover; the slope is precomputed
+         * at note-on so the sample loop needs only a 32-bit multiply. */
+        const int32_t blend = 23593 +
+            (int32_t)((elapsed * v->legato_transition_step_q16) >> 16);
         excitation_gain_q15 = (excitation_gain_q15 * blend) >> 15;
         --v->legato_transition_left;
     }
