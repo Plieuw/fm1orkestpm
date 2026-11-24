@@ -236,3 +236,12 @@ static const char *page_name(unsigned p)
     };
     return p < PAGE_COUNT ? names[p] : "?";
 }
+
+/* The panel is one translation unit, and its parts live in .inc files that
+ * this file includes in order: strings and the knob cells first, then the
+ * pages that use them, then the edits and the entry points. Nothing here is
+ * compiled on its own. */
+#include "orch_ui_view.inc"    /* strings, knob cells, strip, stage */
+#include "orch_ui_pages.inc"   /* the five pages and the title */
+#include "orch_ui_state.inc"   /* edits, save, note map, leds, speed */
+#include "orch_ui_api.inc"     /* the entry points the app calls */
