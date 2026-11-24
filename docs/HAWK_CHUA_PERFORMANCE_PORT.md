@@ -3,7 +3,8 @@
 ## Stable source selected
 
 The source was read from the repository's **`main` branch**, not from any
-`beta/*` branch.
+`beta/*` branch. HAWK CHUA's `LICENSING.md` identifies `arp.c`, `karma.c`,
+`keys.c` and `sys.h` as GPL-3.0-only files with the GPL-3.0 linking exception.
 
 - Repository: https://github.com/Plieuw/hawk-chua
 - Stable source commit: `e750df6a2e13490a4f01b84d3f9c553f4612163f`
@@ -11,7 +12,7 @@ The source was read from the repository's **`main` branch**, not from any
 - `firmware/src/arp.c` blob: `bf3cae6d503dacd0d354bb8539568160a7e07147`
 - `firmware/src/karma.c` blob: `1dc46323d069596d284c85ed1752c5f48c97bc67`
 - `firmware/src/keys.c` blob: `587b320190166718f565b8643aec0c2341d37556`
-- `firmware/src/sys.h` blob: `b21477ae87960eb5f00b4329fa3aaebdd91219f`
+- `firmware/src/sys.h` blob: `b21477ae87960eb5f00b4329bfa3aaebdd91219f`
 
 The selected stable branch and commit are deliberately pinned in this note.
 The beta branches are not used as a source.
