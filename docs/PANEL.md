@@ -17,14 +17,14 @@ encoders  0 SELECT  1 ALGORITHM  2 PRESETS  3 KNOB1  4 KNOB2  5 KNOB3  6 KNOB4
 | Control | Job |
 | --- | --- |
 | `SELECT` | choose the part (1..4, wraps); the LED of the part lights |
-| `ALGORITHM` | family on PARTS; mode on ARP; step on SEQUENCER; scale on GLOBAL |
+| `ALGORITHM` | family on PARTS; mode on ARP; step on SEQUENCER; scale on GLOBAL; effect on FX |
 | `PRESETS` | next/previous instrument inside the current family, wrapping |
-| `KNOB1` | divisi players 1..4 / arp rate / step velocity |
-| `KNOB2` | voice ceiling / octaves / step gate / semitone transpose |
-| `KNOB3` | tempo in 4 BPM steps / arp gate in 5 % steps |
-| `KNOB4` | semitone transpose / arp mode / clear step / **panic** on GLOBAL |
+| `KNOB1` | divisi players 1..4 / arp rate / step velocity / FX mix |
+| `KNOB2` | voice ceiling / octaves / step gate / semitone transpose / FX parameter A |
+| `KNOB3` | tempo in 4 BPM steps / arp gate in 5 % steps / FX parameter B |
+| `KNOB4` | semitone transpose / arp mode / clear step / FX on-off / **panic** on GLOBAL |
 | `OCT-` `OCT+` | transpose the part an octave down or up (clamped to ±24) |
-| `FX` | sound check: plays a four-part chord, releases it after 900 ms |
+| `FX` | open the FX page (chorus, ensemble, delay, shimmer reverb). Pressed again on that page it is the old sound check: a four-part chord, released after 900 ms |
 | `SCL` | cycle the note map: OFF, MAJOR, MINOR, PENTA |
 | `ENV` `LFO` | articulation step down / up |
 | `EDIT` `HOME` | back to the PARTS page |
@@ -36,13 +36,14 @@ encoders  0 SELECT  1 ALGORITHM  2 PRESETS  3 KNOB1  4 KNOB2  5 KNOB3  6 KNOB4
 | `REC` | arm the keys for step recording (SEQUENCER page only) |
 | panel knob | master level, quadratic, 0..unity; independent of the page |
 
-The master gain is the only word the control task shares with the audio
-interrupt (`orch_ui_master_q23`). The panel never starts a voice directly; it
-asks the engine, and the engine starts it in the render context.
+The master gain (`orch_ui_master_q23`) and one byte per FX setting are the only
+words the control task shares with the audio interrupt. The panel never starts
+a voice directly; it asks the engine, and the engine starts it in the render
+context.
 
 ## Pages
 
-There are four pages: **PARTS**, **ARP**, **SEQUENCER**, **GLOBAL**.
+There are five pages: **PARTS**, **ARP**, **SEQUENCER**, **GLOBAL**, **FX**.
 
 *PARTS* — one row per part: family, instrument and articulation, the player
 count, and a live meter of the voices it is using. The help lines under the
@@ -59,22 +60,31 @@ gate.
 *GLOBAL* — tempo, transpose, scale, volume and the save state, with the shortcuts
 of the buttons that are not page specific.
 
+*FX* — one row per effect: name, on/off, mix and its two parameters. The
+selected row is highlighted. `ALGORITHM` moves the selection, `KNOB1` is the
+mix, `KNOB2` and `KNOB3` are the two parameters of the selected effect, and
+`KNOB4` switches it on or off. The parameter names change with the effect
+(rate/depth for the chorus, rate/width for the ensemble, time/feedback for the
+delay, decay/shimmer for the reverb).
+
 To look at a page without a board, render it on the host:
 
 ```sh
 cc -std=c11 -O2 -DFM1_HOST_TEST -I../fm1-core/include -Iapp \
-   tests/panel_preview.c app/orch_ui.c app/orch_engine.c \
+   tests/panel_preview.c app/orch_ui.c app/orch_engine.c app/orch_fx.c \
    app/orch_adaptive.c app/orch_divisi.c app/orch_part.c -o /tmp/panel_preview -lm
 /tmp/panel_preview /tmp/p
 python3 tools/panel_png.py /tmp/p-parts.ppm /tmp/p-parts.png
 python3 tools/panel_png.py /tmp/p-arp.ppm   /tmp/p-arp.png
 python3 tools/panel_png.py /tmp/p-seq.ppm   /tmp/p-seq.png
+python3 tools/panel_png.py /tmp/p-fx.ppm    /tmp/p-fx.png
 ```
 
-`panel_preview` writes the three pages as PPM: the PARTS page with a four-part
-chord sounding, the ARP page with three held keys, and the SEQUENCER page with
-three recorded steps and the playing step marked. The PNGs are not committed,
-because they are output of that command and would go stale.
+`panel_preview` writes four pages as PPM: the PARTS page with a four-part
+chord sounding, the ARP page with three held keys, the SEQUENCER page with
+three recorded steps and the playing step marked, and the FX page with all four
+effects on and the delay row selected. The PNGs are not committed, because they
+are output of that command and would go stale.
 
 ## Arpeggiator
 
@@ -103,6 +113,31 @@ into the current step and moves to the next step, so a phrase is entered left to
 right. `KNOB1` and `KNOB2` change the velocity and the gate of the selected
 step's first note, `KNOB4` clears the step, `KNOB3` is the tempo.
 
+## Effects
+
+The FX page drives a master effect chain that runs in the audio callback after
+the voice mix (`fm1_app_render()` calls `orch_fx_process()`; the DSP is
+`app/orch_fx.c`, one stereo pass):
+
+```
+chorus -> ensemble -> echo -> shimmer reverb
+```
+
+All four are fixed point, allocation-free and off by default. They are a master
+insert, so **one setting applies to all four parts**; there are no per-part
+sends. Each effect has a dry/wet mix and two parameters, all in percent:
+
+| Effect | Parameter A | Parameter B | What it does |
+| --- | --- | --- | --- |
+| CHORUS | RATE 0.15..5 Hz | DEPTH 2..8 ms | one modulated tap per channel, opposite LFO phase |
+| ENSEMBLE | RATE 0.09..1.8 Hz | WIDTH 1..10 ms | three taps at 18/23/29 ms with their own LFO phases |
+| DELAY | TIME 60..260 ms | FEEDBACK 0..90 % | ping-pong stereo echo, time glides instead of clicking |
+| SHIMMER | DECAY 0.70..0.92 | SHIM 0..70 % | four damped combs and two allpasses per channel, with an octave-up grain shifter in the feedback path |
+
+The delay and reverb tails are flushed by the panic move (`KNOB4` on GLOBAL)
+and by `orch_panic()`, so a stuck tail cannot outlive a panic. The reverb is an
+insert, not a send: at 100 % mix only the reverb is heard.
+
 ## Note map
 
 `orch_ui_map_note()` adds the transpose and then snaps the note **down** to the
@@ -121,6 +156,11 @@ and the five arp settings, followed by an FNV-1a checksum. On start-up the panel
 reads it back and applies it only when the magic and the checksum both match, so
 a blank or half-written sector is ignored rather than loaded.
 
+The FX block (on/off, mix, both parameters per effect) is appended **after** the
+original checksum with its own FNV-1a checksum. That keeps the old record layout
+intact: a record written before the FX existed still loads its parts, and only
+the FX block is skipped, because its checksum cannot match erased flash.
+
 The sequencer's note pattern is **not** in the record yet: the panel mirrors what
 it wrote, and a power cycle leaves the pattern empty. That is a known gap, not a
 bug that is hidden.
@@ -129,16 +169,23 @@ bug that is hidden.
 
 `tests/orch_ui_test.c` drives the panel with stubbed board services and checks
 every button, every encoder role on every page, the note map, the flash save and
-that a recorded step sounds after `PLAY`. `tests/orch_arp_test.c` covers the
-arp. `tests/panel_preview.c` renders the three pages above.
+reload (including the FX block) and that a recorded step sounds after `PLAY`.
+`tests/orch_arp_test.c` covers the arp. `tests/orch_fx_test.c` covers the effect
+chain: bypass is bit exact, the echo arrives at the set time and its feedback
+decays, the reverb tail decays, shimmer changes that tail, hard driving stays
+inside Q23, and panic empties the buffers. `tests/panel_preview.c` renders the
+four pages above.
 
 Not tested, because there is no hardware in this environment:
 
 * that the ST7789 shows what is drawn (colour order, orientation, timing);
 * the real button and encoder scan (the SDK's `fm1_controls_read`);
 * flash wear and a real power cycle after `SAVE`;
-* that the audio output sounds like an orchestra — the measured caveats are in
-  `docs/BRAINSTORM.md`.
+* that the audio output sounds like an orchestra, or how the effects sound —
+  the chain is checked on the host, not heard;
+* the FX cost in the audio interrupt (CPU and about 116 KB of int16 buffers).
+  Every effect starts off, so the default path is unchanged; the measured
+  caveats are in `docs/BRAINSTORM.md`.
 
 The firmware image itself cannot be built here either: the JieLi PI32v2
 toolchain is not available, so `build` stops with
