@@ -109,6 +109,16 @@ static void test_adaptive_contour_changes_arp_direction(void)
     CHECK(ascending!=descending);
 }
 
+static void test_phrase_arc_has_peak_and_cadence(void)
+{
+    const unsigned start=orch_test_phrase_arc_velocity(100U,0U);
+    const unsigned peak=orch_test_phrase_arc_velocity(100U,8U);
+    const unsigned cadence=orch_test_phrase_arc_velocity(100U,15U);
+    CHECK(start<peak);
+    CHECK(peak>cadence);
+    CHECK(cadence<start);
+}
+
 static void test_contour_anchor_arp_starts_near_player(void)
 {
     struct orch_perf_config c; struct orch_perf_event e;
@@ -134,7 +144,7 @@ static void test_contour_anchor_arp_starts_near_player(void)
 
 int main(void) {
     test_arp_capture_and_release(); test_phrase_generator(); test_latch_and_clock_stop();
-    test_all_pattern_slots(); test_adaptive_contour_changes_arp_direction(); test_contour_anchor_arp_starts_near_player();
+    test_all_pattern_slots(); test_adaptive_contour_changes_arp_direction(); test_contour_anchor_arp_starts_near_player(); test_phrase_arc_has_peak_and_cadence();
     if(failures){printf("%u performance test(s) failed\n",failures);return 1;}
     puts("orch_performance: all checks passed"); return 0;
 }
