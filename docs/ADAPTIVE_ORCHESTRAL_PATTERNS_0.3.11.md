@@ -136,3 +136,16 @@ The optional sequencer arranger is now implemented behind `orch_seq_set_adaptive
 - Added a host regression test for the disabled passthrough and enabled chord-following behaviour.
 
 The HAWK amalgamation also had a target-build macro leak: the overlay previously undefined HAWK's own `ENV_MAX` before including the orchestra engine. The orchestra now uses `ORCH_ENV_MAX`, and the overlay leaves HAWK's macro intact for `keys.c`.
+
+
+## FM1 SRAM budget pass
+
+The first PI32v2 target link exposed the device's 72 KiB fast-RAM / 360 KiB pool split. The renderer and FX state have been adjusted for that memory map:
+
+- Large voice waveguide state and the stereo echo ring are placed in the HAWK `.pool` section rather than fast `.bss`.
+- Polyphony ceiling is currently eight simultaneous modeled voices (not twelve) to stay within the FM1 static-memory budget.
+- Chorus/ensemble modulation lines are 2048 samples, echo lines 4096 samples (roughly 14–79 ms), shimmer grain storage is reduced, and reverb comb/allpass lines are shortened for a compact room/ensemble character.
+- The four FX controls and processing algorithms remain available, but the delay/reverb tails are shorter than the desktop/reference implementation.
+- The audio mix now performs Q8 pan scaling before accumulation and uses a 32-bit divisor, avoiding the missing PI32v2 `__divdi3` helper while preserving the intended gain.
+
+This is a memory-fit attempt, not a validated target build. Keep the beta blocked until the linker confirms both `.bss` and `.pool` fit and the physical FM1 audio is tested.
