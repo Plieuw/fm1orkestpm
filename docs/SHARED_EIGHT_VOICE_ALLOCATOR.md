@@ -127,3 +127,12 @@ A regression test covers overlapping notes with a one-player part, confirms
 that the same voice is reused, and checks that releasing the older note does
 not release the reassigned voice. ARP and sequencer notes use this same path.
 Target audio quality and CPU headroom still require listening on physical FM1.
+
+
+### Connected-note priority in divisi
+The divisi planner normally preserves held chord assignments. For a connected
+melodic note, the engine now promotes the newest note onto the final active
+desk when the planner's hysteresis would otherwise leave all desks on older
+held notes. Other desks retain their chord tones. The MIDI and sequencer paths
+use the same promotion helper, allowing a true overlapping legato line without
+breaking the shared voice pool or note-ID release isolation.
