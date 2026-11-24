@@ -65,7 +65,7 @@ typedef struct {
     /* Player-derived musical context. Updated only on incoming MIDI notes. */
     uint8_t input_note, input_velocity_avg, input_activity, input_phrase_age;
     int8_t input_direction;
-    uint8_t input_have_note, input_peak, input_chord_mask;
+    uint8_t input_have_note, input_peak;
     uint32_t input_last_on, input_ioi_avg;
     uint32_t rng;
 } perf_part_t;
@@ -283,6 +283,8 @@ static unsigned phrase_pick(perf_part_t *p, const uint8_t *notes,
         density=(density*(p->input_activity ? p->input_activity : 100U))/100U;
         if (density>127U) density=127U;
         if ((p->phrase_step&15U)>=12U && density>24U) density-=24U;
+        /* Long player phrases taper before the next breath / entrance. */
+        if (p->input_phrase_age>=10U && density>20U) density-=20U;
         if ((rnd(p)&127U)>density) return 0U;
     }
     const unsigned mode=ge%7U;
@@ -460,7 +462,7 @@ void orch_perf_init(void)
         p->ext_last_tick=p->ext_tick_len=0U; p->ext_age=0U;
         p->alt_state=p->sr_state=p->last_note=p->last_velocity=0U;
         p->input_note=p->input_velocity_avg=0U; p->input_activity=100U;
-        p->input_phrase_age=p->input_peak=p->input_chord_mask=0U;
+        p->input_phrase_age=p->input_peak=0U;
         p->input_direction=0; p->input_have_note=0U;
         p->input_last_on=p->input_ioi_avg=0U;
         p->rng=0x6D2B79F5U^(i*0x9E3779B9U);
@@ -530,7 +532,9 @@ int orch_perf_note_event(unsigned part, unsigned note, unsigned velocity)
                         p->input_ioi_avg=p->input_ioi_avg?
                             (p->input_ioi_avg*3U+ioi)/4U:ioi;
                 }
-                if (p->input_phrase_age<15U) ++p->input_phrase_age;
+                if (p->input_ioi_avg > (ORCH_PERF_SAMPLE_RATE * 3U) / 2U)
+                    p->input_phrase_age=0U;
+                else if (p->input_phrase_age<15U) ++p->input_phrase_age;
                 if (delta>=5) p->input_peak=1U;
             } else p->input_phrase_age=0U;
             if (had_note && velocity>previous_velocity+20U) p->input_peak=1U;
