@@ -55,6 +55,7 @@ typedef struct {
     uint32_t lfo_phase, lfo_inc, lfo_delay_left, lfo_fade_frames, lfo_fade_gain;
     uint32_t lfo_hold;
     int16_t lfo_value;
+    uint8_t lfo_depth;
     uint32_t vib_depth, vib_depth_max, vib_ramp;
     uint32_t vib_delay;
     uint32_t stroke_left;
@@ -575,6 +576,19 @@ static void voice_start(unsigned part, unsigned note, unsigned velocity,
         v->lfo_phase = rng;
         v->lfo_hold = rng ^ 0xa5a5f00dU;
         v->lfo_inc = lfo_phase_increment(lfo);
+        if (lfo) {
+            /* Let the adaptive phrase intent breathe the modulation gently:
+             * 0.85..1.15x rate and 0.60..1.20x depth, always bounded. */
+            const uint32_t rate_scale = 55705U +
+                (uint32_t)(((uint64_t)in->vib_intent * 19661U) >> 16);
+            const uint32_t depth_scale = 39322U +
+                (uint32_t)(((uint64_t)in->vib_intent * 39322U) >> 16);
+            v->lfo_inc = (uint32_t)(((uint64_t)v->lfo_inc * rate_scale) >> 16);
+            unsigned depth = (unsigned)(((uint32_t)lfo->depth * depth_scale) >> 16);
+            v->lfo_depth = (uint8_t)(depth > 100U ? 100U : depth);
+        } else {
+            v->lfo_depth = 0U;
+        }
         v->lfo_delay_left = lfo ? ((uint32_t)lfo->delay_ms * ORCH_SAMPLE_RATE) / 1000U : 0U;
         v->lfo_fade_frames = lfo ? ((uint32_t)lfo->fade_ms * ORCH_SAMPLE_RATE) / 1000U : 0U;
         v->lfo_fade_gain = v->lfo_fade_frames ? 0U : 32767U;
@@ -1207,7 +1221,7 @@ static void voice_tick(voice_t *v)
     {
         const struct orch_part *cfg = orch_part_get(v->part);
         const struct orch_lfo *lfo = cfg ? &cfg->lfo : 0;
-        if (lfo && lfo->destinations && lfo->depth) {
+        if (lfo && lfo->destinations && v->lfo_depth) {
             if (v->lfo_delay_left) --v->lfo_delay_left;
             else {
                 const uint32_t old_phase = v->lfo_phase;
@@ -1224,7 +1238,7 @@ static void voice_tick(voice_t *v)
                 value = (value * (int32_t)v->lfo_fade_gain) >> 15;
                 v->lfo_value = (int16_t)value;
                 if (lfo->destinations & ORCH_LFO_PITCH) {
-                    const int32_t cents = ((int32_t)lfo->depth * 50) / 100;
+                    const int32_t cents = ((int32_t)v->lfo_depth * 50) / 100;
                     const int32_t delta = (int32_t)(((int64_t)len * cents * 38 * value) >> 31);
                     const int32_t modulated = (int32_t)len + delta;
                     if (modulated > 16) len = (uint32_t)modulated;
@@ -1270,7 +1284,7 @@ static void voice_tick(voice_t *v)
         const struct orch_part *cfg = orch_part_get(v->part);
         const struct orch_lfo *lfo = cfg ? &cfg->lfo : 0;
         if (lfo && (lfo->destinations & ORCH_LFO_BRIGHTNESS)) {
-            const int bounded_depth = lfo->depth > 24U ? 24 : (int)lfo->depth;
+            const int bounded_depth = v->lfo_depth > 24U ? 24 : (int)v->lfo_depth;
             const int shift = ((int)v->lfo_value * bounded_depth) / (32768 * 12);
             damp_value += shift;
             if (damp_value < 1) damp_value = 1;
@@ -1428,7 +1442,7 @@ void orch_render_q23(int32_t *out, unsigned frames)
                 const struct orch_part *cfg = orch_part_get(v->part);
                 const struct orch_lfo *lfo = cfg ? &cfg->lfo : 0;
                 if (lfo && (lfo->destinations & ORCH_LFO_TREMOLO)) {
-                    const int32_t depth = (int32_t)lfo->depth * 245 / 100;
+                    const int32_t depth = (int32_t)v->lfo_depth * 245 / 100;
                     const int32_t gain = 32767 - ((v->lfo_value + 32768) * depth >> 16);
                     amp = (amp * gain) >> 15;
                 }
