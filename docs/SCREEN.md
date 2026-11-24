@@ -4,27 +4,57 @@ What the FM-1's 240 × 240 panel shows, and the files it is drawn from. The
 controls are in [`PANEL.md`](PANEL.md); the behaviour behind them, and what is
 tested, in [`PANEL-REFERENCE.md`](PANEL-REFERENCE.md).
 
-## Drawn, not printed
+## Vectors, not pixels
 
-The screen is a picture of an instrument, not a page of text. There is no
-framebuffer to read back, so nothing blends against what is already there:
-every shape takes the colour it is drawn on and mixes towards it at its edges.
-That is what makes a disc look round, a knob look turned, and a curve look
-drawn rather than stepped — `orch_ui_draw.inc`:
+The pages are built from paths. A path is a list of points; circles, arcs and
+the bows between two points are flattened into that list when the path is built,
+so the rasterizer only ever sees straight edges. It then fills a path one span
+per scanline: a disc of radius 24 costs 48 fills, not the 1 800 single-pixel
+fills it used to.
 
-* `mix565(a, b, t)` — a colour part-way between two, in RGB565;
-* `grad(x, y, w, h, top, bottom)` — one colour a row, so a field is not a flat
-  block;
-* `disc(cx, cy, r, core, edge, bg)` — a shaded disc with a soft rim: knobs,
-  players, the listener's seat, the lamps on the FX page;
-* `pen(x0, y0, x1, y1, w, fg, bg)` — a capsule, the pen the arcs and the curves
-  are drawn with;
-* `arc_soft(cx, cy, r, a0, a1, w, fg, bg)` — an arc in 256ths of a turn from
-  twelve o'clock: the proscenium, the shell, a knob's value;
-* `curve(v, n, x, y, w, h, fg, bg)` — a line through values: the sequencer's
-  pitches and each effect's own shape.
+That matters because the panel has no framebuffer: every `fm1_screen_fill` is a
+window command plus a transfer over the display bus, and the cost of a page is
+the number of calls, not the number of pixels. `orch_ui_path.inc` is the whole
+geometry layer:
 
-`isqrt()` is a bit-by-bit square root, because the board has no maths library.
+* `vp_move`, `vp_line`, `vp_quad`, `vp_arc`, `vp_arc_rev`, `vp_circle` — build
+  the path; a curve is flattened with as many steps as it bends;
+* `vp_fill`, `vp_fill_shaded`, `vp_stroke` — rasterize it: even-odd crossings per
+  row, sorted, filled as spans, with the end pixels of each span mixed towards
+  the colour the shape sits on, which is where the round edge comes from.
+
+`orch_ui_draw.inc` sits on top: `mix565`, `grad`, `disc`, `pen`, `arc_soft`,
+`curve`. Changing a page is now changing its geometry — a knob is a circle, a
+stadium and an arc, and a bigger knob is a bigger number — instead of rewriting
+a loop over pixels.
+
+## Only what moves is repainted
+
+The control task compares two signatures per scan: the page's own settings (a
+mode, a mix, the open step) and the values that change on their own (the running
+sequencer step, the arp's held keys, a part starting or stopping). A setting
+redraws the page; a live value repaints only the pixels it moves — two step
+cells, the row of key dots, the players on the stage.
+
+## What drawing costs
+
+Measured on the host with `tests/run_panel_bench.sh`, which drives the same five
+pages through the same controls as the preview and counts the calls:
+
+| page | fills before | fills now |
+| --- | --- | --- |
+| STAGE | 63 106 | 13 473 |
+| ARP | 9 370 | 1 007 |
+| SEQUENCE | 61 723 | 6 635 |
+| FX | 87 262 | 10 757 |
+| CONSOLE | 4 366 | 889 |
+| **five pages** | **225 827** | **32 761** |
+
+The pixels are the same (949 k before, 886 k now — the desks and step bars are
+flat bands instead of gradients), so this is the same screen for 15% of the
+fills. The remaining count is dominated by the repaints a knob turn causes, not
+by the shapes. These are host numbers for the number of calls; they are not a
+measurement of the FM-1's own frame time, which needs the board.
 
 ## One palette, the page's own
 
@@ -90,13 +120,14 @@ The panel is one translation unit: `app/orch_ui.c` included from `app/`, so
 | --- | --- |
 | `app/orch_ui.c` | the palette, the panel's state, the names the engine gives, the include list |
 | `app/orch_ui_font.inc` | the 5x7 font and `text()` |
-| `app/orch_ui_draw.inc` | `mix565`, gradients, discs, pens, arcs, curves |
+| `app/orch_ui_path.inc` | paths, the span rasterizer, strokes |
+| `app/orch_ui_draw.inc` | `mix565`, `isqrt`, gradients, discs, pens, arcs, curves |
 | `app/orch_ui_view.inc` | the string helpers, `kv`, `card`, `bar`, `text_center` |
 | `app/orch_ui_strip.inc` | the four knobs, their value arcs and the strip |
 | `app/orch_ui_stage.inc` | the STAGE page and the hall |
 | `app/orch_ui_pages.inc` | ARP and SEQUENCE |
 | `app/orch_ui_fx.inc` | CONSOLE and FX |
-| `app/orch_ui_frame.inc` | the title bar, the page switch, the repaint signature |
+| `app/orch_ui_frame.inc` | the title bar, the page switch, the two repaint signatures, the live repaint |
 | `app/orch_ui_state.inc` | the edits, the save record, the note map, the LEDs, the knob speed |
 | `app/orch_ui_api.inc` | the entry points the app calls |
 
@@ -119,6 +150,13 @@ It writes the STAGE page with an orchestra in the hall and a four-part chord
 sounding, the ARP page with three held keys, the SEQUENCE page with three
 recorded steps and the playing step marked, the FX page with all four effects
 on and the delay row selected, and the CONSOLE page.
+
+`tests/run_panel_bench.sh` runs the same five pages with the fill and text-blit
+calls counted, and prints them per page:
+
+```sh
+FM1_CORE=../fm1-core sh tests/run_panel_bench.sh /tmp/bench
+```
 
 The PNGs are not committed: they are output of that command and go stale the
 moment the screen changes.
