@@ -1,69 +1,116 @@
 /* --- the console and the FX page --- */
 
+/* The console as a console: three faders, their numbers under them, and the
+ * note map as seven degrees, lit for the ones the map keeps. */
 static void page_global(void)
 {
-    char number[8];
-    put_signed(number, 0, sizeof number, ui.transpose);
+    const char *label[3] = { "TEMPO", "TRANSP", "VOLUME" };
+    char value[3][6];
+    unsigned pct[3];
 
-    card(4U, BODY_Y + 4U, SW - 8U, 74U, C_CARD);
-    kv_num(BODY_Y + 10U, "TEMPO", ui.tempo, 3U, C_TEXT, C_CARD);
-    kv(BODY_Y + 24U, "TRANSPOSE", number, C_TEXT, C_CARD);
-    kv(BODY_Y + 38U, "SCALE", scale_name(ui.scale), C_AMBER, C_CARD);
-    kv_num(BODY_Y + 52U, "VOLUME", (unsigned)((ui.knob * 100U) / 1023U), 2U,
-           C_TEXT, C_CARD);
-    kv(BODY_Y + 66U, "SAVE", ui.saved ? "DONE" : "SAVE TO WRITE",
-       ui.saved ? C_METER : C_DIM, C_CARD);
+    put_num(value[0], 0, sizeof value[0], ui.tempo, 3U);
+    put_signed(value[1], 0, sizeof value[1], ui.transpose);
+    put_num(value[2], 0, sizeof value[2], (unsigned)((ui.knob * 100U) / 1023U), 2U);
+    pct[0] = (unsigned)((ui.tempo - 30U) * 100U / 270U);
+    pct[1] = (unsigned)((ui.transpose + 24) * 100 / 48);
+    pct[2] = (unsigned)((ui.knob * 100U) / 1023U);
 
-    text(10U, BODY_Y + 86U, "FX: DIVISI 1<->4   SCL: SCALE", C_DIM, C_BG, SW - 20U);
-    text(10U, BODY_Y + 98U, "OCT-/+: TRANSPOSE   ART: ENV/LFO", C_DIM, C_BG, SW - 20U);
-    text(10U, BODY_Y + 110U, "K4: PANIC (ALL NOTES OFF)", C_DIM, C_BG, SW - 20U);
+    for (unsigned i = 0; i < 3U; ++i) {
+        const unsigned x = 34U + i * 58U;
+        fm1_screen_fill(x - 5U, BODY_Y + 6U, 11U, 80U, C_CARD);
+        fm1_screen_fill(x, BODY_Y + 12U, 1U, 68U, C_LINE);
+        const unsigned y = BODY_Y + 80U - pct[i] * 68U / 100U;
+        fm1_screen_fill(x, y, 1U, BODY_Y + 80U - y, C_AMBER);
+        fm1_screen_fill(x - 5U, y - 4U, 11U, 8U, C_ROW);
+        fm1_screen_fill(x - 5U, y - 4U, 11U, 1U, C_TEXT);
+        text_center(x, BODY_Y + 92U, label[i], C_DIM, C_BG);
+        text_center(x, BODY_Y + 104U, value[i], C_TEXT, C_BG);
+    }
+
+    /* the note map, as the degrees it keeps */
+    {
+        const unsigned x0 = 200U;
+        for (unsigned d = 0; d < 7U; ++d) {
+            const unsigned y = BODY_Y + 12U + d * 12U;
+            disc(x0, y, 4U, ui.scale != SCALE_OFF ? C_AMBER : C_CARD, C_AMBER,
+                 C_BG);
+        }
+        text(x0 - 14U, BODY_Y + 100U, scale_name(ui.scale), C_DIM, C_BG, 60U);
+    }
+
+    /* save, once, as a word rather than a line of instructions */
+    kv(BODY_Y + 118U, "SAVE", ui.saved ? "DONE" : "TO WRITE",
+       ui.saved ? C_METER : C_DIM, C_BG);
+}
+
+/* What each effect does to a note, drawn from its own two parameters: a
+ * wobble for the chorus and the ensemble, echoes for the delay, a tail that
+ * keeps ringing for the shimmer. */
+static void fx_shape(unsigned sel, unsigned x, unsigned y, unsigned w,
+                     unsigned h, uint16_t fg, uint16_t bg)
+{
+    unsigned char v[32];
+    const unsigned a = orch_fx_param_a(sel), b = orch_fx_param_b(sel);
+
+    for (unsigned i = 0; i < 32U; ++i) {
+        unsigned val;
+        if (sel <= 1U) {                    /* chorus, ensemble: a wobble */
+            const unsigned period = 6U + (100U - a) / 6U;
+            const unsigned ph = (i + period * 32U) % (2U * period);
+            const int tri = ph < period ? (int)ph : 2 * (int)period - (int)ph;
+            const unsigned amp = 8U + b * 26U / 100U;
+            val = 44U + (unsigned)(((int)(tri * 32U / (int)period) - 16) *
+                                   (int)amp / 32);
+        } else if (sel == 2U) {             /* delay: echo, echo, echo */
+            const unsigned gap = 3U + a * 7U / 100U;
+            const unsigned k = i / gap;
+            const unsigned amp = k < 4U ? 70U / (1U + k * (1U + b / 40U)) : 0U;
+            val = (i % gap) == 0U ? 6U + amp : 6U;
+        } else {                            /* shimmer: a long tail */
+            const unsigned fall = 40U + b * 40U / 100U;
+            const unsigned ring = (i * (1U + a / 20U)) & 3U;
+            val = 84U - i * fall / 32U + (ring ? 4U : 0U);
+        }
+        v[i] = (unsigned char)(val > 96U ? 96U : val);
+    }
+    curve(v, 32U, x, y, w, h, fg, bg);
 }
 
 static void page_fx(void)
 {
-    text(10U, BODY_Y + 2U, "MASTER FX AFTER THE MIX", C_DIM, C_BG, SW - 20U);
+    const unsigned y0 = BODY_Y + 10U;
 
-    /* one line per effect: its name, whether it is on, and its mix. The two
-     * parameters belong to the effect that is selected, so they get the card
-     * under the list instead of a column that would not fit. */
-    const unsigned y0 = BODY_Y + 14U;
     for (unsigned s = 0; s < ORCH_FX_SLOT_COUNT; ++s) {
-        const unsigned y = y0 + s * 13U;
+        const unsigned y = y0 + s * 17U;
         const int on = (int)orch_fx_enabled(s);
-        const uint16_t bg = (s == ui.fx_sel) ? C_ROW : C_BG;
-        char line[12];
-        unsigned n = put(line, 0, sizeof line, "MIX ");
-        put_num(line, n, sizeof line, orch_fx_mix(s), 2U);
-
-        fm1_screen_fill(4U, y - 1U, SW - 8U, 12U, bg);
-        if (s == ui.fx_sel) fm1_screen_fill(4U, y - 1U, 3U, 12U, C_AMBER);
-        text(12U, y, orch_fx_name(s), on ? C_AMBER2 : C_DIM, bg, 96U);
-        text(112U, y, on ? "ON" : "OFF", on ? C_METER : C_DIM, bg, 24U);
-        text(SW - 10U - span(line), y, line, C_TEXT, bg, span(line));
+        const uint16_t bg = (s == ui.fx_sel) ? C_ROW : C_CARD;
+        fm1_screen_fill(6U, y, SW - 12U, 14U, bg);
+        if (s == ui.fx_sel) fm1_screen_fill(6U, y, 3U, 14U, C_AMBER);
+        text(13U, y + 4U, orch_fx_name(s), on ? C_AMBER2 : C_DIM, bg, 50U);
+        bar(66U, y + 6U, 44U, 3U, orch_fx_mix(s), on ? C_AMBER : C_LINE,
+            mix565(bg, C_BG, 150U));
+        /* a lamp for on, and its own curve for the one that is open */
+        disc(SW - 16U, y + 7U, 3U, on ? C_METER : C_LINE,
+             mix565(bg, C_METER, 90U), bg);
     }
 
     const unsigned sel = ui.fx_sel < ORCH_FX_SLOT_COUNT ? ui.fx_sel : 0U;
     const int on = (int)orch_fx_enabled(sel);
-    const unsigned base = y0 + ORCH_FX_SLOT_COUNT * 13U + 4U;
-    card(4U, base, SW - 8U, 42U, C_CARD);
-    text(12U, base + 5U, orch_fx_name(sel), on ? C_AMBER : C_DIM, C_CARD, 130U);
-    text(SW - 10U - span(on ? "ON" : "OFF"), base + 5U, on ? "ON" : "OFF",
-         on ? C_METER : C_DIM, C_CARD, span(on ? "ON" : "OFF"));
+    const unsigned top = y0 + ORCH_FX_SLOT_COUNT * 17U + 4U;
+    card(6U, top, SW - 12U, 58U, C_CARD);
+    fx_shape(sel, 12U, top + 8U, SW - 24U, 26U,
+             on ? mix565(C_METER, C_TEXT, 60U) : C_DIM, C_CARD);
 
-    char line[40];
-    unsigned n = put(line, 0, sizeof line, orch_fx_param_a_name(sel));
-    n = put(line, n, sizeof line, " ");
-    put_num(line, n, sizeof line, orch_fx_param_a(sel), 2U);
-    text(12U, base + 18U, line, C_TEXT, C_CARD, 96U);
-
-    n = put(line, 0, sizeof line, orch_fx_param_b_name(sel));
-    n = put(line, n, sizeof line, " ");
-    put_num(line, n, sizeof line, orch_fx_param_b(sel), 2U);
-    text(120U, base + 18U, line, C_TEXT, C_CARD, 108U);
-
-    text(12U, base + 30U, "ALGORITHM SELECTS THE EFFECT", C_DIM, C_CARD, 200U);
-
-    text(10U, base + 50U, "FX AGAIN: TEST CHORD", C_DIM, C_BG, SW - 20U);
-    text(10U, base + 62U, "SAVE KEEPS THE FX SETTINGS", C_DIM, C_BG, SW - 20U);
-    text(10U, base + 74U, "SHARED BY ALL PARTS", C_AMBER, C_BG, SW - 20U);
+    /* the two parameters of the open effect, one line */
+    {
+        char line[32];
+        unsigned n = put(line, 0, sizeof line, orch_fx_param_a_name(sel));
+        n = put(line, n, sizeof line, " ");
+        n = put_num(line, n, sizeof line, orch_fx_param_a(sel), 2U);
+        n = put(line, n, sizeof line, "   ");
+        n = put(line, n, sizeof line, orch_fx_param_b_name(sel));
+        n = put(line, n, sizeof line, " ");
+        put_num(line, n, sizeof line, orch_fx_param_b(sel), 2U);
+        text_center(SW / 2U, top + 44U, line, C_TEXT, C_CARD);
+    }
 }
