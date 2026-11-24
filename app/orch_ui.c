@@ -1013,6 +1013,17 @@ static int32_t enc_accel(unsigned role, int32_t detents)
     return detents * (int32_t)factor;
 }
 
+/* The percentages keep the 5 % a detent the panel has always had, so turning
+ * slowly is exactly as fine as it was; a fast turn may double that step, never
+ * more. A range that jumped 40 % a detent would skip the values the fine step
+ * exists for. The tempo and the transpose do take the full count. */
+static int pct_delta(int delta)
+{
+    if (delta > 2) return 2;
+    if (delta < -2) return -2;
+    return delta;
+}
+
 /* --- entry points --------------------------------------------------------- */
 
 void orch_ui_init(void)
@@ -1113,7 +1124,8 @@ void orch_ui_handle(const struct fm1_controls *controls)
         if (!part || !delta) continue;
         delta = enc_accel(e, delta);
         /* A menu entry is one detent a step: a quick turn must never skip an
-         * entry, so only the ranges below take the accelerated count. */
+         * entry, so only the ranges below take the accelerated count, and the
+         * percentages only half of it (pct_delta). */
         const int step = delta > 0 ? 1 : -1;
         if (e >= E_KNOB1 && e <= E_KNOB4) {
             ui.hot_cell = (uint8_t)(e - E_KNOB1);
@@ -1175,14 +1187,14 @@ void orch_ui_handle(const struct fm1_controls *controls)
         case E_KNOB1:
             if (ui.page == PAGE_FX) {
                 orch_fx_set_mix(ui.fx_sel,
-                    (unsigned)clamp_percent((int)orch_fx_mix(ui.fx_sel) + delta * 2));
+                    (unsigned)clamp_percent((int)orch_fx_mix(ui.fx_sel) + pct_delta(delta) * 5));
             } else if (ui.page == PAGE_ARP) {
                 int d = (int)orch_arp_div_of(ui.part) + step;
                 if (d < 0) d = 0;
                 if (d > 4) d = 4;
                 orch_arp_set_division(ui.part, (unsigned)d);
             } else if (ui.page == PAGE_SEQ) {
-                seq_touch_slot(0U, 0, delta * 2, 0);
+                seq_touch_slot(0U, 0, pct_delta(delta) * 5, 0);
             } else {
                 int cap = (int)part->player_cap + step;
                 if (cap < 1) cap = 1;
@@ -1194,14 +1206,14 @@ void orch_ui_handle(const struct fm1_controls *controls)
         case E_KNOB2:
             if (ui.page == PAGE_FX) {
                 orch_fx_set_param_a(ui.fx_sel,
-                    (unsigned)clamp_percent((int)orch_fx_param_a(ui.fx_sel) + delta * 2));
+                    (unsigned)clamp_percent((int)orch_fx_param_a(ui.fx_sel) + pct_delta(delta) * 5));
             } else if (ui.page == PAGE_ARP) {
                 int o = (int)orch_arp_octaves_of(ui.part) + step;
                 if (o < 1) o = 1;
                 if (o > 3) o = 3;
                 orch_arp_set_octaves(ui.part, (unsigned)o);
             } else if (ui.page == PAGE_SEQ) {
-                seq_touch_slot(0U, 0, 0, delta * 2);
+                seq_touch_slot(0U, 0, 0, pct_delta(delta) * 5);
             } else if (ui.page == PAGE_GLO) {
                 int t = (int)ui.transpose + delta;
                 if (t < -24) t = -24;
@@ -1218,9 +1230,9 @@ void orch_ui_handle(const struct fm1_controls *controls)
         case E_KNOB3:
             if (ui.page == PAGE_FX) {
                 orch_fx_set_param_b(ui.fx_sel,
-                    (unsigned)clamp_percent((int)orch_fx_param_b(ui.fx_sel) + delta * 2));
+                    (unsigned)clamp_percent((int)orch_fx_param_b(ui.fx_sel) + pct_delta(delta) * 5));
             } else if (ui.page == PAGE_ARP) {
-                int g = (int)orch_arp_gate_of(ui.part) + delta * 2;
+                int g = (int)orch_arp_gate_of(ui.part) + pct_delta(delta) * 5;
                 orch_arp_set_gate(ui.part, (unsigned)g);
             } else {
                 int bpm = (int)ui.tempo + delta * 2;
