@@ -22,6 +22,7 @@
 #include "orch_engine.h"
 #include "orch_fx.h"
 #include "orch_part.h"
+#include "orch_stage.h"
 #include "orch_ui.h"
 
 #define SW 240U
@@ -69,6 +70,11 @@ struct save_record {
     uint8_t fx_on[ORCH_FX_SLOT_COUNT], fx_mix[ORCH_FX_SLOT_COUNT];
     uint8_t fx_a[ORCH_FX_SLOT_COUNT], fx_b[ORCH_FX_SLOT_COUNT];
     uint32_t fx_check;
+    /* Same again for the stage: a record written before the listener existed
+     * keeps its parts and its FX, and only the seat is taken from the panel. */
+    int8_t listener_x;
+    uint8_t listener_depth;
+    uint32_t stage_check;
 };
 
 volatile uint32_t orch_ui_master_q23 = UNITY_Q23;
@@ -385,8 +391,8 @@ static void page_knobs(void)
         if (!part) break;
         cell_number(0, "PLAYERS", (int)part->player_cap, 1, 4);
         cell_number(1, "VOICES", (int)part->voice_ceiling, 1, ORCH_PART_VOICE_CEIL);
-        cell_number(2, "TEMPO", (int)ui.tempo, 30, 300);
-        cell_number(3, "TRANSP", ui.transpose, -24, 24);
+        cell_number(2, "LISTENER", orch_stage_listener_x(), -100, 100);
+        cell_number(3, "DEPTH", (int)orch_stage_listener_depth(), 0, 100);
         break;
     }
 }
@@ -487,14 +493,36 @@ static void draw_part_row(unsigned p, uint16_t bg)
     draw_meter(p);
 }
 
+/* The stage under the four rows, as the listener hears it: the yellow bar is
+ * the listener's seat, the four squares are the parts on their section's place
+ * (the selected part in green). Moving the listener redraws it, so the picture
+ * follows KNOB3 and KNOB4 without a new page. */
+static void draw_stage(void)
+{
+    const unsigned y = BODY_Y + 4U * 30U + 4U;
+    const unsigned left = 8U;
+    const unsigned span = SW - 16U;
+    fm1_screen_fill(left, y + 6U, span, 1U, C_ROW);
+    const unsigned lx = left +
+        (unsigned)((orch_stage_listener_x() + 100) * (int)span / 200);
+    fm1_screen_fill(lx - 3U, y, 7U, 4U, C_ART);
+    for (unsigned p = 0; p < ORCH_PARTS; ++p) {
+        const struct orch_part *part = orch_part_get(p);
+        const unsigned pan = orch_stage_place(part->instrument, 128U);
+        const unsigned x = left + pan * span / 255U;
+        fm1_screen_fill(x - 2U, y + 2U, 5U, 5U, p == ui.part ? C_NOW : C_TEXT);
+    }
+}
+
 static void page_parts(void)
 {
     for (unsigned p = 0; p < ORCH_PARTS; ++p)
         draw_part_row(p, p == ui.part ? C_SEL : C_ROW);
-    text(8U, BODY_Y + 4U * 30U + 6U,
-         "B1 OCT-  B2 OCT+  B3 FX  B4 SCL", C_DIM, C_BG, SW - 16U);
-    text(8U, BODY_Y + 4U * 30U + 18U,
-         "B8 EDIT  B9 GLOBAL  B11 SAVE", C_DIM, C_BG, SW - 16U);
+    draw_stage();
+    text(8U, BODY_Y + 4U * 30U + 14U,
+         "K3 K4 MOVE THE LISTENER  SEL PART", C_DIM, C_BG, SW - 16U);
+    text(8U, BODY_Y + 4U * 30U + 26U,
+         "B1/B2 OCT  B3 FX  B4 SCL  B11 SAVE", C_DIM, C_BG, SW - 16U);
 }
 
 static void page_arp(void)
@@ -690,7 +718,10 @@ static uint32_t page_signature(void)
                 + 11U * orch_fx_param_b(s);
         sig = sig * 31U + ui.fx_sel;
         break;
+    case PAGE_HOME:
     default:
+        sig = sig * 31U + (uint32_t)(orch_stage_listener_x() + 128);
+        sig = sig * 31U + orch_stage_listener_depth();
         break;
     }
     return sig;
@@ -849,6 +880,17 @@ static uint32_t fx_record_check(const struct save_record *r)
     return sum;
 }
 
+static uint32_t stage_record_check(const struct save_record *r)
+{
+    const uint8_t *b = (const uint8_t *)&r->listener_x;
+    uint32_t sum = 2166136261UL;
+    for (unsigned i = 0; i < 2U; ++i) {
+        sum ^= b[i];
+        sum *= 16777619UL;
+    }
+    return sum;
+}
+
 static void save_state(void)
 {
     struct save_record r;
@@ -879,6 +921,9 @@ static void save_state(void)
         r.fx_b[s] = (uint8_t)orch_fx_param_b(s);
     }
     r.fx_check = fx_record_check(&r);
+    r.listener_x = (int8_t)orch_stage_listener_x();
+    r.listener_depth = (uint8_t)orch_stage_listener_depth();
+    r.stage_check = stage_record_check(&r);
     r.check = record_check(&r);
 
     if (fm1_flash_size() < sizeof r) return;
@@ -927,6 +972,8 @@ static void load_state(void)
             orch_fx_set_param_b(s, r.fx_b[s]);
         }
     }
+    if (r.stage_check == stage_record_check(&r))
+        orch_stage_set_listener((int)r.listener_x, (int)r.listener_depth);
     ui.saved = 1U;
 }
 
@@ -1049,6 +1096,7 @@ void orch_ui_init(void)
     memset(enc_way, 0, sizeof enc_way);
     memset(enc_speed, 0, sizeof enc_speed);
     orch_ui_master_q23 = 0U;   /* silent until the knob says otherwise */
+    orch_stage_reset();
     next_scan = 0U;
     memset(shown_voices, 0xFF, sizeof shown_voices);
     memset(seq_notes, 0, sizeof seq_notes);
@@ -1234,12 +1282,18 @@ void orch_ui_handle(const struct fm1_controls *controls)
             } else if (ui.page == PAGE_ARP) {
                 int g = (int)orch_arp_gate_of(ui.part) + pct_delta(delta) * 5;
                 orch_arp_set_gate(ui.part, (unsigned)g);
-            } else {
+            } else if (ui.page == PAGE_GLO || ui.page == PAGE_SEQ) {
                 int bpm = (int)ui.tempo + delta * 2;
                 if (bpm < 30) bpm = 30;
                 if (bpm > 300) bpm = 300;
                 ui.tempo = (uint16_t)bpm;
                 orch_seq_set_tempo(ui.tempo);
+            } else {
+                /* the parts page is where the listener sits: KNOB3 moves it
+                 * across the stage, 5 a detent and at most 10 when flicked */
+                orch_stage_set_listener(
+                    orch_stage_listener_x() + pct_delta(delta) * 5,
+                    (int)orch_stage_listener_depth());
             }
             dirty = 1;
             break;
@@ -1254,10 +1308,10 @@ void orch_ui_handle(const struct fm1_controls *controls)
                 while (m >= (int)ORCH_ARP_MODE_COUNT) m -= (int)ORCH_ARP_MODE_COUNT;
                 orch_arp_set_mode(ui.part, (unsigned)m);
             } else {
-                int t = (int)ui.transpose + delta;
-                if (t < -24) t = -24;
-                if (t > 24) t = 24;
-                ui.transpose = (int8_t)t;
+                /* KNOB4 is how far back the listener sits: back narrows the
+                 * stage, front opens it up again */
+                orch_stage_set_listener(orch_stage_listener_x(),
+                    (int)orch_stage_listener_depth() + pct_delta(delta) * 5);
             }
             dirty = 1;
             break;
