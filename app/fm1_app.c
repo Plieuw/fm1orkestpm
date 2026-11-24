@@ -280,36 +280,77 @@ void groove_screen_control(void)
     for (unsigned p=0;p<PANEL_PARTS;++p)
         if (edges & (1UL<<p)) panel_part_select(p);
     if (edges & (1UL<<4)) orch_panic();
-    if (edges & (1UL<<5)) panel_apply_articulation(selected_part,selected_art[selected_part]+1U);
-    if (edges & (1UL<<6)) panel_apply_cap(selected_part,(selected_cap[selected_part]%4U)+1U);
-
-    const int instrument_delta=controls.encoders[0];
-    if (instrument_delta) {
-        int next=(int)selected_instrument[selected_part]+instrument_delta;
-        while (next<0) next+=(int)ORCH_INST_COUNT;
-        while (next>=(int)ORCH_INST_COUNT) next-=(int)ORCH_INST_COUNT;
-        panel_apply_instrument(selected_part,(unsigned)next);
+    if (edges & (1UL<<13)) { panel_perf_page=(uint8_t)!panel_perf_page; panel_dirty=1U; }
+    if (!panel_perf_page) {
+        if (edges & (1UL<<5)) panel_apply_articulation(selected_part,selected_art[selected_part]+1U);
+        if (edges & (1UL<<6)) panel_apply_cap(selected_part,(selected_cap[selected_part]%4U)+1U);
+        const int instrument_delta=controls.encoders[0];
+        if (instrument_delta) {
+            int next=(int)selected_instrument[selected_part]+instrument_delta;
+            while(next<0)next+=(int)ORCH_INST_COUNT;
+            while(next>=(int)ORCH_INST_COUNT)next-=(int)ORCH_INST_COUNT;
+            panel_apply_instrument(selected_part,(unsigned)next);
+        }
+        if (controls.encoders[1]) {
+            int next=(int)selected_cap[selected_part]+controls.encoders[1];
+            if(next<1)next=1; if(next>4)next=4;
+            panel_apply_cap(selected_part,(unsigned)next);
+        }
+        if (controls.encoders[2]) {
+            int next=(int)selected_art[selected_part]+controls.encoders[2];
+            const int count=(int)(sizeof articulation_values/sizeof articulation_values[0]);
+            while(next<0)next+=count; while(next>=count)next-=count;
+            panel_apply_articulation(selected_part,(unsigned)next);
+        }
+        if (controls.encoders[3]) {
+            int next=(int)selected_part+controls.encoders[3];
+            while(next<0)next+=(int)PANEL_PARTS;
+            while(next>=(int)PANEL_PARTS)next-=(int)PANEL_PARTS;
+            panel_part_select((unsigned)next);
+        }
+    } else {
+        struct orch_perf_config *pc=&perf_config[selected_part];
+        if (edges & (1UL<<5)) pc->velocity_groove=(uint8_t)((pc->velocity_groove+1U)&7U);
+        if (edges & (1UL<<6)) pc->gate_groove=(uint8_t)((pc->gate_groove+1U)&7U);
+        if (edges & (1UL<<7)) pc->arp_enabled=(uint8_t)!pc->arp_enabled;
+        if (edges & (1UL<<8)) pc->phrase_enabled=(uint8_t)!pc->phrase_enabled;
+        if (edges & (1UL<<9)) pc->latch=(uint8_t)!pc->latch;
+        if (edges & (1UL<<10)) pc->logic=(uint8_t)((pc->logic+1U)%ORCH_PERF_LOGIC_COUNT);
+        if (edges & (1UL<<11)) pc->external_clock=(uint8_t)!pc->external_clock;
+        if (edges & (1UL<<12)) pc->quantize=(uint8_t)((pc->quantize+1U)%18U);
+        if (controls.encoders[0]) {
+            if (pc->arp_enabled) {
+                int next=(int)pc->arp_type+controls.encoders[0];
+                while(next<0)next+=(int)ORCH_PERF_ARP_TYPES;
+                while(next>=(int)ORCH_PERF_ARP_TYPES)next-=(int)ORCH_PERF_ARP_TYPES;
+                pc->arp_type=(uint8_t)next;
+            } else {
+                int next=(int)pc->phrase_ge+controls.encoders[0];
+                while(next<0)next+=(int)ORCH_PERF_GE_COUNT;
+                while(next>=(int)ORCH_PERF_GE_COUNT)next-=(int)ORCH_PERF_GE_COUNT;
+                pc->phrase_ge=(uint8_t)next;
+            }
+        }
+        if (controls.encoders[1]) {
+            int next=(int)pc->bpm+controls.encoders[1];
+            if(next<40)next=40; if(next>250)next=250;
+            pc->bpm=(uint16_t)next;
+        }
+        if (controls.encoders[2]) {
+            int next=(int)pc->division+controls.encoders[2];
+            while(next<0)next+=(int)ORCH_PERF_DIVISIONS;
+            while(next>=(int)ORCH_PERF_DIVISIONS)next-=(int)ORCH_PERF_DIVISIONS;
+            pc->division=(uint8_t)next;
+        }
+        if (controls.encoders[3]) {
+            int next=(int)pc->swing+controls.encoders[3]*4;
+            if(next<0)next=0; if(next>127)next=127;
+            pc->swing=(uint8_t)next;
+        }
+        unsigned knob=controls.knob; if(knob>1023U)knob=1023U;
+        pc->gate=(uint8_t)(5U+knob*95U/1023U);
+        panel_apply_performance(selected_part);
     }
-    if (controls.encoders[1]) {
-        int next=(int)selected_cap[selected_part]+controls.encoders[1];
-        if (next<1) next=1;
-        if (next>4) next=4;
-        panel_apply_cap(selected_part,(unsigned)next);
-    }
-    if (controls.encoders[2]) {
-        int next=(int)selected_art[selected_part]+controls.encoders[2];
-        const int count=(int)(sizeof articulation_values/sizeof articulation_values[0]);
-        while (next<0) next+=count;
-        while (next>=count) next-=count;
-        panel_apply_articulation(selected_part,(unsigned)next);
-    }
-    if (controls.encoders[3]) {
-        int next=(int)selected_part+controls.encoders[3];
-        while (next<0) next+=(int)PANEL_PARTS;
-        while (next>=(int)PANEL_PARTS) next-=(int)PANEL_PARTS;
-        panel_part_select((unsigned)next);
-    }
-
     for (unsigned b=0;b<14U;++b)
         fm1_led_set(b,(buttons>>b)&1U);
     for (unsigned k=0;k<PANEL_KEY_COUNT;++k)
