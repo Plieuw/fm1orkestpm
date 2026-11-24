@@ -264,7 +264,10 @@ python3 tools/panel_png.py /tmp/p-parts.ppm /tmp/p-parts.png
 It writes the STAGE page with an orchestra in the hall and a four-part chord
 sounding, the ARP page with three held keys, the SEQUENCE page with three
 recorded steps and the playing step marked, the FX page with all four effects
-on and the delay row selected, and the CONSOLE page.
+on and the delay row selected, the CONSOLE page, and last the STAGE page again
+with a full orchestra of eight voices, taken at the moment the level is 24 of
+24 — that frame is what the light looks like when it is as wide as it goes
+(`/tmp/p-orchestra.ppm`).
 
 `tests/run_panel_bench.sh` runs the same five pages with the fill and text-blit
 calls counted, and prints them per page, plus what one knob turn and its fade
