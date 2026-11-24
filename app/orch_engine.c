@@ -43,7 +43,7 @@ typedef struct {
     uint32_t len_q16, len_target_q16, len_step;
     uint32_t glide_left;
     uint32_t age, note_id;
-    uint32_t legato_transition_left;
+    uint32_t legato_transition_left, legato_transition_total;
     uint32_t loop_gain_q23; /* per-sample gain derived from per-round-trip loss */
     int32_t lp;      /* previous loop sample (the damping filter's state) */
     int32_t dc;      /* output DC blocker state */
@@ -512,8 +512,10 @@ static void voice_start(unsigned part, unsigned note, unsigned velocity,
                                  family == ORCH_FAM_BRASS ? 18U : 22U;
         if (in->down_bow) transition_ms += 5U;
         v->legato_transition_left = transition_ms * ORCH_SAMPLE_RATE / 1000U;
+        v->legato_transition_total = v->legato_transition_left;
     } else {
         v->legato_transition_left = 0U;
+        v->legato_transition_total = 0U;
     }
     v->strike_left = 0U;
 
@@ -1433,7 +1435,7 @@ static void voice_tick(voice_t *v)
     int32_t excitation_gain_q15 =
         (env_excitation_q15 * (expression_gain_q15 >> 1)) >> 14;
     if (v->legato_transition_left) {
-        const uint32_t total = (ORCH_SAMPLE_RATE * 33U) / 1000U;
+        const uint32_t total = v->legato_transition_total ? v->legato_transition_total : 1U;
         const uint32_t left = v->legato_transition_left;
         const uint32_t elapsed = total > left ? total - left : 0U;
         /* 72% -> 100% smooth excitation handover; no silence dip. */
