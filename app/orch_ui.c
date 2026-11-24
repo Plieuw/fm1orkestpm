@@ -236,4 +236,3 @@ static const char *page_name(unsigned p)
     };
     return p < PAGE_COUNT ? names[p] : "?";
 }
-
