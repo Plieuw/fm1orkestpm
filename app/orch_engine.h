@@ -7,7 +7,7 @@
 #include "orch_part.h"
 #include "orch_performance.h"
 
-#define ORCH_MAX_VOICES 12U
+#define ORCH_MAX_VOICES 8U
 #define ORCH_MIDI_CHANNELS 16U
 #define ORCH_SEQ_STEPS 16U
 #define ORCH_STEP_NOTES 4U
