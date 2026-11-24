@@ -22,9 +22,10 @@ def main():
     root = Path(sys.argv[1]).resolve()
     core = root / "firmware" / "loader" / "ldr_core.c"
     loader = root / "firmware" / "loader" / "loader.c"
-    if not core.is_file() or not loader.is_file():
-        raise SystemExit("boot-safety check: pinned HAWK loader sources are missing")
-    core_text, loader_text = core.read_text(), loader.read_text()
+    flash = root / "firmware" / "hal" / "fm1_flash.h"
+    if not core.is_file() or not loader.is_file() or not flash.is_file():
+        raise SystemExit("boot-safety check: pinned HAWK loader/flash sources are missing")
+    core_text, loader_text, flash_text = core.read_text(), loader.read_text(), flash.read_text()
     checks = (
         (core_text, EXPECTED["LDR_APP_LO"], "application lower boundary"),
         (core_text, EXPECTED["LDR_APP_HI"], "application upper boundary"),
@@ -39,8 +40,17 @@ def main():
         raise SystemExit("boot-safety check: loader no longer declares app-only writes")
     if "never the head" not in loader_text:
         raise SystemExit("boot-safety check: loader no longer documents boot-head protection")
+    for chip_id in ("0x856014u", "0xB36014u"):
+        if chip_id not in flash_text:
+            raise SystemExit(f"boot-safety check: supported FM1 flash ID {chip_id} is missing")
+    if "static inline int fl_id_ok(uint32_t id) { return id == 0x856014u || id == 0xB36014u; }" not in flash_text:
+        raise SystemExit("boot-safety check: FM1 flash-ID allow-list changed or is ambiguous")
+    guard = "if (!fl_emulated() && !fl_id_ok(fl_jedec_ram())) return -5;"
+    if flash_text.count(guard) != 2:
+        raise SystemExit("boot-safety check: erase and program must both reject unknown physical flash IDs")
     print("Boot-safety check passed: application updates exclude flash head [0x0000, 0x4000).")
     print("User-data gap [0x97000, 0xE0000) remains excluded from update writes.")
+    print("Both FM1 JEDEC IDs (0x856014 and 0xB36014) are allowed; unknown physical IDs cannot be erased/programmed.")
     print("This validates the pinned OTA source contract, not a physical device.")
 
 if __name__ == "__main__":
