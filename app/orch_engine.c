@@ -541,7 +541,13 @@ static void voice_start(unsigned part, unsigned note, unsigned velocity,
          * down-bows/new peaks speak more firmly; phrase endings taper. */
         {
             uint32_t decay_scale = 65536U;
-                    }
+            if (in->phrase_start) decay_scale += 6554U; /* +10% */
+            if (in->connected) decay_scale += 11796U;   /* +18% */
+            if (in->new_high) decay_scale += 6554U;     /* +10% */
+            if (in->down_bow) decay_scale -= 5243U;     /* -8% */
+            if (in->phrase_end) decay_scale -= 6554U;   /* -10% */
+            dec_ms = (dec_ms * decay_scale) >> 16;
+        }
         if (atk_ms < 2U) atk_ms = 2U;
         if (atk_ms > 400U) atk_ms = 400U;
         if (dec_ms < 20U) dec_ms = 20U;
