@@ -12,6 +12,33 @@ static unsigned instrument_family(unsigned instrument)
     return ORCH_FAM_CHOIR;
 }
 
+static void instrument_adsr(unsigned instrument, struct orch_adsr *a)
+{
+    /* Instrument defaults in milliseconds and percent; scenes may override. */
+    a->attack_ms = 32U; a->decay_ms = 180U;
+    a->sustain_percent = 82U; a->release_ms = 420U;
+    switch (instrument) {
+    case ORCH_INST_VIOLA: a->attack_ms=42U; a->decay_ms=210U; a->release_ms=480U; break;
+    case ORCH_INST_CELLO: a->attack_ms=58U; a->decay_ms=240U; a->sustain_percent=86U; a->release_ms=560U; break;
+    case ORCH_INST_DOUBLE_BASS: a->attack_ms=72U; a->decay_ms=280U; a->sustain_percent=88U; a->release_ms=680U; break;
+    case ORCH_INST_HARP: a->attack_ms=5U; a->decay_ms=110U; a->sustain_percent=62U; a->release_ms=900U; break;
+    case ORCH_INST_FLUTE: a->attack_ms=38U; a->decay_ms=170U; a->sustain_percent=84U; a->release_ms=360U; break;
+    case ORCH_INST_PICCOLO: a->attack_ms=18U; a->decay_ms=130U; a->sustain_percent=82U; a->release_ms=300U; break;
+    case ORCH_INST_CLARINET: a->attack_ms=28U; a->decay_ms=190U; a->sustain_percent=86U; a->release_ms=420U; break;
+    case ORCH_INST_OBOE: a->attack_ms=32U; a->decay_ms=210U; a->sustain_percent=84U; a->release_ms=440U; break;
+    case ORCH_INST_BASSOON: a->attack_ms=62U; a->decay_ms=250U; a->sustain_percent=86U; a->release_ms=580U; break;
+    case ORCH_INST_TRUMPET: a->attack_ms=12U; a->decay_ms=120U; a->sustain_percent=80U; a->release_ms=260U; break;
+    case ORCH_INST_FRENCH_HORN: a->attack_ms=42U; a->decay_ms=200U; a->sustain_percent=86U; a->release_ms=460U; break;
+    case ORCH_INST_TROMBONE: a->attack_ms=24U; a->decay_ms=160U; a->sustain_percent=84U; a->release_ms=360U; break;
+    case ORCH_INST_TUBA: a->attack_ms=55U; a->decay_ms=230U; a->sustain_percent=88U; a->release_ms=520U; break;
+    case ORCH_INST_MARIMBA: a->attack_ms=3U; a->decay_ms=90U; a->sustain_percent=48U; a->release_ms=720U; break;
+    case ORCH_INST_XYLOPHONE: a->attack_ms=2U; a->decay_ms=70U; a->sustain_percent=42U; a->release_ms=520U; break;
+    case ORCH_INST_TIMPANI: a->attack_ms=4U; a->decay_ms=240U; a->sustain_percent=58U; a->release_ms=1100U; break;
+    case ORCH_INST_CHOIR: a->attack_ms=115U; a->decay_ms=280U; a->sustain_percent=90U; a->release_ms=760U; break;
+    default: break;
+    }
+}
+
 static unsigned default_instrument(unsigned family)
 {
     switch (family) {
@@ -22,6 +49,18 @@ static unsigned default_instrument(unsigned family)
     case ORCH_FAM_CHOIR: return ORCH_INST_CHOIR;
     default: return ORCH_INST_VIOLIN;
     }
+}
+
+int orch_part_set_adsr(unsigned part, unsigned attack_ms, unsigned decay_ms,
+                       unsigned sustain_percent, unsigned release_ms)
+{
+    if (part >= ORCH_PARTS || attack_ms > 4000U || decay_ms > 4000U ||
+        sustain_percent > 100U || release_ms > 6000U) return -1;
+    parts[part].adsr.attack_ms = (uint16_t)attack_ms;
+    parts[part].adsr.decay_ms = (uint16_t)decay_ms;
+    parts[part].adsr.sustain_percent = (uint8_t)sustain_percent;
+    parts[part].adsr.release_ms = (uint16_t)release_ms;
+    return 0;
 }
 
 const char *orch_family_name(unsigned family)
@@ -52,6 +91,7 @@ void orch_parts_init(void)
         part->articulation = ORCH_ART_AUTO;
         part->player_cap = 2U;
         part->voice_ceiling = ORCH_PART_VOICE_CEIL;
+        instrument_adsr(part->instrument, &part->adsr);
     }
 }
 
@@ -81,6 +121,7 @@ int orch_part_configure(unsigned part, unsigned family, uint16_t channels)
     if (part >= ORCH_PARTS || family >= ORCH_FAM_COUNT) return -1;
     parts[part].family = (uint8_t)family;
     parts[part].instrument = (uint8_t)default_instrument(family);
+    instrument_adsr(parts[part].instrument, &parts[part].adsr);
     parts[part].channels = channels;
     parts[part].enabled = channels ? 1U : 0U;
     orch_adaptive_reset_phrase(&parts[part].adaptive);
@@ -93,6 +134,7 @@ int orch_part_set_instrument(unsigned part, unsigned instrument)
     if (part >= ORCH_PARTS || instrument >= ORCH_INST_COUNT) return -1;
     parts[part].instrument = (uint8_t)instrument;
     parts[part].family = (uint8_t)instrument_family(instrument);
+    instrument_adsr(instrument, &parts[part].adsr);
     orch_adaptive_reset_phrase(&parts[part].adaptive);
     orch_divisi_init(&parts[part].divisi);
     return 0;
