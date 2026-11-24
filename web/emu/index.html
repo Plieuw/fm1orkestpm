@@ -1,277 +1,72 @@
 <!doctype html>
 <!-- SPDX-License-Identifier: GPL-3.0-or-later -->
-<!-- The FM-1 orchestral engine in a browser: build/emu/orch.wasm (see
-     web/emu/build.sh) in a 240x240 panel behind glass on a machined front
-     panel. The panel itself is the firmware's, not a mock-up: every pixel and
-     every legend comes from app/orch_ui.c. Photographs: assets/CREDITS.md. -->
+<!-- The FM-1 orchestral engine in a browser, laid out like HAWK CHUA's browser
+     emulator (Plieuw/hawk-chua, web/emu): the firmware's 240x240 panel, the
+     seven encoders, the fourteen buttons and a keyboard, plus four desks for
+     the sections of the orchestra. Every pixel is drawn by app/orch_ui.c; the
+     wiring is in ui.js, the look in hardware.css. -->
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>FM-1 orchestral engine</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FM-1 ORKEST — play in the browser</title>
+<meta name="description" content="The FM-1 orchestral engine in the browser: the firmware's own panel and sound, compiled to WebAssembly.">
 <link rel="stylesheet" href="hardware.css">
 </head>
 <body>
-<div class="room"></div>
 
-<div class="stage">
-  <div class="device">
-    <div class="cheek"></div>
+<header>
+  <h1>FM-1 ORKEST</h1>
+  <p>The orchestral FM-1 engine in your browser — the same code, compiled to WebAssembly.</p>
+  <nav>
+    <a href="https://github.com/Plieuw/fm1orkestpm/blob/beta/0.3.1-build-and-host-checks/docs/PANEL.md">Panel</a>
+    <a href="https://github.com/Plieuw/fm1orkestpm">Source</a>
+  </nav>
+</header>
 
-    <div class="front">
-      <div class="bezel">
-        <canvas id="lcd" width="240" height="240"></canvas>
-        <div class="glass"></div>
-        <span class="screw a"></span><span class="screw b"></span>
-        <span class="screw c"></span><span class="screw d"></span>
-      </div>
-
-      <div class="controls">
-        <div class="plate">
-          <div class="brand">FM-1 <span>orchestra</span></div>
-          <div class="power" id="powerled"><i></i><span id="powertext">audio off</span></div>
-        </div>
-
-        <div class="btnrow" id="row1"></div>
-        <div class="btnrow" id="row2"></div>
-        <div class="knobs" id="knobs"></div>
-
-        <div class="readout">
-          <div class="line"><span id="status">loading build/emu/orch.wasm …</span></div>
-          <div class="line dim">
-            <span>voices <b id="voices">0+0+0+0</b></span>
-            <span>· keys a w s e d f t g y h u j k · drag or scroll a knob</span>
-          </div>
-        </div>
-
-        <div class="grille" aria-hidden="true"></div>
-      </div>
+<div class="dev" id="dev">
+  <div class="top">
+    <div class="screen"><canvas id="lcd" width="240" height="240"></canvas></div>
+    <div class="encs">
+      <div id="enc3"></div>
+      <div id="enc4"></div>
     </div>
-
-    <div class="cheek r"></div>
   </div>
+
+  <div class="btns" id="btns"></div>
+  <div class="kb" id="kb"></div>
+  <div class="desks" id="desks"></div>
 </div>
 
-<script>
-const PANEL = ["OCT-", "OCT+", "FX", "SCL", "ENV", "LFO", "EDIT",
-               "GLO", "HOME", "SAVE", "ARP", "SEQ", "PLAY", "REC"];
-const KEYMAP = { a: 0, w: 1, s: 2, e: 3, d: 4, f: 5, t: 6, g: 7, y: 8, h: 9,
-                 u: 10, j: 11, k: 12, o: 13, l: 14, p: 15, ";": 16, "'": 17 };
-const noteOf = (i) => 53 + i;                 // F3 = MIDI 53, as the board's keys
-const KNOBS = [{ k: 0, label: "SELECT" }, { k: 1, label: "ALGORITHM" },
-               { k: 2, label: "KNOB 1" }, { k: 3, label: "KNOB 2" },
-               { k: 4, label: "KNOB 3" }, { k: 5, label: "KNOB 4" },
-               { k: 6, label: "PRESETS" }, { pot: true, label: "VOLUME" }];
+<div class="bar">
+  <label>Volume <input type="range" id="vol" min="0" max="1023" value="1023"></label>
+  <button id="panic" title="Release every sounding voice">Panic</button>
+  <span id="msg">loading build/emu/orch.wasm …</span>
+</div>
 
-let e, audio, wport, ms = 0, keys = 0, buttons = 0, pot = 1023;
+<div class="help">
+  <p><b>Play</b>: click the keys, or use the computer keyboard — <kbd>A</kbd>
+  <kbd>W</kbd> <kbd>S</kbd> <kbd>E</kbd> <kbd>D</kbd> … <kbd>'</kbd>, from F3
+  upward. A MIDI keyboard does not reach the page; this build has no MIDI in.</p>
 
-const lcd = document.getElementById("lcd");
-const ctx2d = lcd.getContext("2d");
-const img = ctx2d.createImageData(240, 240);
-const statusEl = document.getElementById("status");
-const voicesEl = document.getElementById("voices");
-const led = document.getElementById("powerled");
-const powerText = document.getElementById("powertext");
+  <p><b>Encoders</b>: drag them up or down, scroll on them, or use the
+  <kbd>‹</kbd> <kbd>›</kbd> buttons. <b>Buttons</b>: hold them, as on the
+  instrument — the panel reads a button while it is down, not a click.</p>
 
-const setStatus = (t) => { statusEl.textContent = t; };
+  <p><b>The orchestra</b>: the panel's STAGE page seats four parts in the hall,
+  and the four desks under the keyboard are those parts — each lights with the
+  voices it is sounding. KNOB 3 and KNOB 4 move the listener through the room.</p>
 
-async function start() {
-  const res = await fetch("../../build/emu/orch.wasm");
-  if (!res.ok) throw new Error(`orch.wasm: HTTP ${res.status} (run web/emu/build.sh)`);
-  const { instance } = await WebAssembly.instantiate(await res.arrayBuffer(), { env: {} });
-  e = instance.exports;
-  e.emu_init();
-  draw();
-  frame();
-  setStatus("engine running · press a key");
-}
+  <p>SAVE keeps the settings in this browser. Every pixel on the screen is drawn
+  by <code>app/orch_ui.c</code>, and every sample by the engine: nothing here is
+  a mock-up.</p>
+</div>
 
-/* -------------------------------------------------------------- drawing --- */
-function draw() {
-  const fb = e.emu_fb();
-  const dv = new DataView(e.memory.buffer);
-  const d = img.data;
-  for (let i = 0; i < 240 * 240; i++) {
-    const c = dv.getUint16(fb + 2 * i, true);
-    d[4 * i] = ((c >> 11) & 31) * 8.23;
-    d[4 * i + 1] = ((c >> 5) & 63) * 4.04;
-    d[4 * i + 2] = (c & 31) * 8.23;
-    d[4 * i + 3] = 255;
-  }
-  ctx2d.putImageData(img, 0, 0);
-  voicesEl.textContent = [0, 1, 2, 3].map((p) => e.emu_voices(p)).join("+");
-}
+<div id="start">
+  <button id="go">▶ Start sound</button>
+  <p>Browsers start audio only after a click. The panel already runs.</p>
+</div>
 
-/* -------------------------------------------------------------- engine --- */
-/* The control task, the engine and the screen at about 60 Hz. The engine runs
- * whether or not there is an audio device, so a headless browser still shows
- * live voices; with audio on the same blocks go to the worklet. Six blocks of
- * 128 frames is 768 frames a frame at 60 Hz, about the 800 a 48 kHz device
- * plays. */
-const BLOCKS_PER_FRAME = 6;
-let lastBuffer = null;
-
-function frame() {
-  ms += 16;
-  e.emu_tick(ms);
-  const frames = e.emu_frames();
-  for (let b = 0; b < BLOCKS_PER_FRAME; b++) {
-    e.emu_render();
-    if (audio && wport) wport.postMessage(blockToFloat(frames), [lastBuffer]);
-  }
-  draw();
-  requestAnimationFrame(frame);
-}
-
-function blockToFloat(frames) {
-  const p = e.emu_audio();
-  const dv = new DataView(e.memory.buffer);
-  const f = new Float32Array(2 * frames);
-  for (let s = 0; s < 2 * frames; s++) f[s] = dv.getInt32(p + 4 * s, true) / 8388608;
-  lastBuffer = f.buffer;
-  return f;
-}
-
-/* ----------------------------------------------------------------- audio --- */
-async function audioOn() {
-  if (audio) return;
-  try {
-    audio = new AudioContext({ sampleRate: 48000 });
-    await audio.audioWorklet.addModule("orch-worklet.js");
-    const node = new AudioWorkletNode(audio, "orch-out", { outputChannelCount: [2] });
-    wport = node.port;
-    node.connect(audio.destination);
-    await audio.resume();
-    led.classList.add("on");
-    powerText.textContent = "audio on";
-    setStatus(`audio on · ${audio.sampleRate} Hz · ${audio.state}`);
-  } catch (err) {
-    audio = null; wport = null;
-    led.classList.remove("on");
-    setStatus(`audio failed: ${err && err.message ? err.message : err}`);
-  }
-}
-
-function audioOff() {
-  if (!audio) return;
-  audio.close();
-  audio = null; wport = null;
-  led.classList.remove("on");
-  powerText.textContent = "audio off";
-  setStatus("audio off");
-}
-
-/* ----------------------------------------------------------------- input --- */
-function noteOn(i) { keys |= 1 << i; e.emu_key(keys); e.emu_note(0, noteOf(i), 100); }
-function noteOff(i) { keys &= ~(1 << i); e.emu_key(keys); e.emu_note(0, noteOf(i), 0); }
-
-addEventListener("keydown", (ev) => {
-  if (ev.repeat) return;
-  const i = KEYMAP[ev.key];
-  if (i !== undefined) { noteOn(i); ev.preventDefault(); }
-});
-addEventListener("keyup", (ev) => {
-  const i = KEYMAP[ev.key];
-  if (i !== undefined) { noteOff(i); ev.preventDefault(); }
-});
-
-/* the panel's 14 buttons: real caps, each with its own indicator */
-function makeButton(label, index, extra) {
-  const b = document.createElement("button");
-  b.className = "btn" + (extra || "");
-  b.textContent = label;
-  if (index >= 0) {
-    const press = (on) => {
-      buttons = on ? buttons | (1 << index) : buttons & ~(1 << index);
-      e.emu_button(buttons);
-      b.classList.toggle("down", on);
-    };
-    b.addEventListener("pointerdown", (ev) => { b.setPointerCapture(ev.pointerId); press(true); });
-    b.addEventListener("pointerup", () => press(false));
-    b.addEventListener("pointercancel", () => press(false));
-    b.addEventListener("keydown", (ev) => {
-      if (ev.key === " " || ev.key === "Enter") { press(true); ev.preventDefault(); }
-    });
-    b.addEventListener("keyup", () => press(false));
-  }
-  return b;
-}
-
-const row1 = document.getElementById("row1");
-const row2 = document.getElementById("row2");
-PANEL.forEach((label, i) => (i < 7 ? row1 : row2).append(makeButton(label, i)));
-
-const util = document.createElement("div");
-util.className = "util";
-const powerBtn = makeButton("POWER", -1);
-powerBtn.onclick = () => (audio ? audioOff() : audioOn());
-const panicBtn = makeButton("PANIC", -1, " panic");
-panicBtn.onclick = () => { keys = 0; e.emu_key(0); e.emu_note(0, 0, 0); };
-util.append(powerBtn, panicBtn);
-document.getElementById("knobs").before(util);
-
-/* knurled knobs: drag, wheel or arrows, one detent per 12 px */
-function makeKnob(cfg) {
-  const wrap = document.createElement("div");
-  wrap.className = "knob" + (cfg.pot ? " big" : "");
-  const cap = document.createElement("div");
-  cap.className = "cap";
-  cap.tabIndex = 0;
-  cap.setAttribute("role", "slider");
-  cap.setAttribute("aria-label", cfg.label);
-  const name = document.createElement("div");
-  name.textContent = cfg.label;
-  const read = document.createElement("div");
-  read.className = "read";
-  read.textContent = cfg.pot ? "100%" : "·";
-  wrap.append(cap, name, read);
-
-  let angle = 0, value = cfg.pot ? pot : 0;
-  const turn = (detents) => {
-    if (!detents) return;
-    angle = Math.max(-150, Math.min(150, angle + detents * 13));
-    cap.style.setProperty("--a", angle + "deg");
-    if (cfg.pot) {
-      pot = Math.max(0, Math.min(1023, pot + detents * 32));
-      e.emu_knob(pot);
-      read.textContent = Math.round((pot / 1023) * 100) + "%";
-    } else {
-      e.emu_turn(cfg.k, detents);
-      value += detents;
-      read.textContent = value > 0 ? "+" + value : String(value);
-    }
-  };
-
-  const STEPS = 12;
-  let drag = null;
-  cap.addEventListener("pointerdown", (ev) => {
-    cap.setPointerCapture(ev.pointerId);
-    drag = { y: ev.clientY, sent: 0 };
-    cap.focus();
-  });
-  cap.addEventListener("pointermove", (ev) => {
-    if (!drag) return;
-    const steps = Math.round((drag.y - ev.clientY) / STEPS);
-    if (steps !== drag.sent) { turn(steps - drag.sent); drag.sent = steps; }
-  });
-  const end = () => { drag = null; };
-  cap.addEventListener("pointerup", end);
-  cap.addEventListener("pointercancel", end);
-  cap.addEventListener("wheel", (ev) => {
-    turn(ev.deltaY < 0 ? 1 : -1);
-    ev.preventDefault();
-  }, { passive: false });
-  cap.addEventListener("keydown", (ev) => {
-    if (ev.key === "ArrowUp" || ev.key === "ArrowRight") { turn(1); ev.preventDefault(); }
-    if (ev.key === "ArrowDown" || ev.key === "ArrowLeft") { turn(-1); ev.preventDefault(); }
-  });
-
-  document.getElementById("knobs").append(wrap);
-}
-
-KNOBS.forEach(makeKnob);
-
-start().catch((err) => setStatus(`failed: ${err.message}`));
-</script>
+<script type="module" src="ui.js"></script>
 </body>
 </html>
