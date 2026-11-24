@@ -26,9 +26,14 @@ natural modeled tail. Instrument-specific defaults are stored per part, and
 sustain and release independently. Adaptive intent remains a bounded
 modifier for attack/release timing.
 
-There is already delayed, ramped per-voice vibrato. The FX engine also has
-internal modulation rates for chorus and ensemble. There is not yet a
-general-purpose, assignable modulation LFO.
+A general-purpose per-part LFO is now implemented alongside the existing
+expressive vibrato. It offers sine, triangle, saw, square and sample-and-hold
+shapes; free rates (0.1–20 Hz) or tempo divisions (quarter, eighth, sixteenth,
+dotted eighth); delay and fade-in; and independent pitch, tremolo and
+brightness destinations. Each voice has its own phase. Pitch depth is capped
+at 50 cents, tremolo at a musically bounded attenuation, and brightness is
+limited to a small damping shift. The existing adaptive vibrato remains
+active and has not been replaced.
 
 The amplitude envelope currently multiplies the physical-model output in the
 voice mixer. That is already a VCA-like gain stage, but it is not exposed as
@@ -115,6 +120,7 @@ Scene intent:
 8. Test both known flash variants and preserve boot-area safety checks.
 
 The ADSR voice contour and per-part configuration API are implemented in the
-current feature branch. The eight factory scenes now assign per-section ADSR values during preset
-recall. The general-purpose LFO, separate VCA
-response/velocity curves and FM1 hardware verification remain future work.
+current feature branch. The eight factory scenes assign per-section ADSR and
+LFO values during preset recall. The LFO is additive to the legacy vibrato.
+Separate VCA response/velocity curves, host regression tests for modulation,
+and FM1 hardware verification remain future work.
