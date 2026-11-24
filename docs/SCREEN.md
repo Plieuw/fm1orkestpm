@@ -54,14 +54,14 @@ pages through the same controls as the preview and counts the calls:
 
 | what | fills before | fills now |
 | --- | --- | --- |
-| STAGE, entered | 63 106 | 2 677 |
+| STAGE, entered | 63 106 | 2 683 |
 | ARP | 9 370 | 1 013 |
 | SEQUENCE | 61 723 | 2 150 |
 | FX | 87 262 | 7 152 |
 | CONSOLE | 4 366 | 1 241 |
 | one knob turn | — | 554 |
 | its highlight fading | 819 | 197 |
-| **five pages** | **225 827** | **20 512** |
+| **five pages** | **225 827** | **20 653** |
 
 The STAGE figure is entering the hall: the picture, the title, the marks and
 the strip. The lights are counted apart, because they are the part that runs on
@@ -78,8 +78,17 @@ knob turn costs, for a picture that had not moved. A step now repaints the band
 the lights are in rather than the hall (see below), there are two frames
 instead of three, and the cycle is slower — so the worst second of the
 animation went from 1 970 fills to 503, and the whole five-page visit from
-23 220 to 20 512. These are host numbers for the number of calls; they are not
+23 220 to 20 653. These are host numbers for the number of calls; they are not
 a measurement of the FM-1's own frame time, which needs the board.
+
+The one thing on the screen that follows the sound is counted apart, as
+`sound 0.5s` in the same bench: a note held for half a second, with the panel
+scanned every 25 ms. The light over the boards costs five fills an update and
+updates at most once every 50 ms, so it can never cost more than 100 fills a
+second; the half second in the bench is 124 fills including the lamps' own
+overlays. `level` prints the value it started from, 255 of 255 for one loud
+note, and 0 once the note has been let go and its tail rendered — the level
+follows the samples, not the gate.
 
 ## The hall is a photograph
 
@@ -177,6 +186,16 @@ word on the page. While a part sounds the hall's own lights step, in the band
 above the boards and nowhere else. `KNOB3` moves the listener across, `KNOB4`
 back.
 
+In front of the boards, on the dark floor between the hall and the listener,
+lies a light whose width is what is coming out of the instrument: three bands of
+amber falling away from the stage — a cone narrow at the boards and wider as it
+reaches the floor — with a brighter line where it lands. It follows the output
+and not the gate, so a chord left ringing takes the light down while the keys
+are still down; the lamps above it keep following which parts sound, because
+that is a different question and the panel answers both. The floor it lies on is
+the photograph's own dark colour, kept as `LIP_DARK`: an update is a trough and
+four bars, so nothing behind the light is ever repainted.
+
 *ARP* — the pattern itself: the eight notes of one cycle rising across the
 octaves, joined by a line, each with a bar as long as its gate, the held keys as
 dots under the axis, and the rate and the mode as the only two words.
@@ -209,7 +228,8 @@ The panel is one translation unit: `app/orch_ui.c` included from `app/`, so
 | `app/orch_ui_view.inc` | the string helpers, `kv`, `card`, `bar`, `text_center` |
 | `app/orch_ui_strip.inc` | the four knobs, their value arcs, the strip and its per-cell patch |
 | `app/orch_ui_photo.inc` | the hall as a photograph: the palette, and the runs of each frame |
-| `app/orch_ui_stage.inc` | the STAGE page: the photograph, the lamps, the players |
+| `app/orch_ui_stage.inc` | the STAGE page: the photograph, the lamps, the players, the light over the boards |
+| `app/orch_level.inc` | the output the light follows: peak per block, falling back |
 | `app/orch_ui_pages.inc` | ARP and SEQUENCE |
 | `app/orch_ui_fx.inc` | CONSOLE and FX |
 | `app/orch_ui_frame.inc` | the title bar, the body, the three repaint signatures, the live repaint |
