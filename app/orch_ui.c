@@ -7,18 +7,20 @@
  *   buttons   OCT- OCT+ FX SCL ENV LFO EDIT GLO HOME SAVE ARP SEQ PLAY REC
  *   encoders  SELECT ALGORITHM PRESETS KNOB1 KNOB2 KNOB3 KNOB4
  *
- * and this file gives every one of them a job (see docs/PANEL.md).
+ * and this file gives every one of them a job (§ "Panel map" in docs/PANEL.md).
  * The panel has no text support in the SDK, so the 5x7 font lives here and one
  * text line is drawn into a small buffer and blitted in one transfer.
  *
  * Nothing here runs in the audio interrupt: groove_screen_control() is the
- * control task, and the only word it shares with the renderer is the master
- * gain.
+ * control task. It shares the master gain and one byte per FX setting with the
+ * renderer, and nothing else.
  */
+#include <stddef.h>
 #include <string.h>
 
 #include "fm1.h"
 #include "orch_engine.h"
+#include "orch_fx.h"
 #include "orch_part.h"
 #include "orch_ui.h"
 
@@ -44,7 +46,7 @@ enum {
 /* The encoder roles, in matrix order. */
 enum { E_SELECT = 0, E_ALGO, E_KNOB1, E_KNOB2, E_KNOB3, E_KNOB4, E_PRESET };
 
-enum { PAGE_HOME = 0, PAGE_ARP, PAGE_SEQ, PAGE_GLO, PAGE_COUNT };
+enum { PAGE_HOME = 0, PAGE_ARP, PAGE_SEQ, PAGE_GLO, PAGE_FX, PAGE_COUNT };
 
 enum { SCALE_OFF = 0, SCALE_MAJOR, SCALE_MINOR, SCALE_PENTA, SCALE_COUNT };
 
@@ -60,12 +62,17 @@ struct save_record {
     uint8_t arp_on[ORCH_PARTS], arp_mode[ORCH_PARTS], arp_oct[ORCH_PARTS];
     uint8_t arp_div[ORCH_PARTS], arp_gate[ORCH_PARTS];
     uint32_t check;
+    /* Appended after the original checksum, so a record written by the panel
+     * before the FX existed still validates and loads its first part. */
+    uint8_t fx_on[ORCH_FX_SLOT_COUNT], fx_mix[ORCH_FX_SLOT_COUNT];
+    uint8_t fx_a[ORCH_FX_SLOT_COUNT], fx_b[ORCH_FX_SLOT_COUNT];
+    uint32_t fx_check;
 };
 
 volatile uint32_t orch_ui_master_q23 = UNITY_Q23;
 
 static struct {
-    uint8_t page, part, seq_on, rec, seq_step, scale, saved;
+    uint8_t page, part, seq_on, rec, seq_step, scale, saved, fx_sel;
     int8_t transpose;
     uint16_t tempo;
     uint32_t buttons, keys;
@@ -206,7 +213,9 @@ static const char *scale_name(unsigned s)
 
 static const char *page_name(unsigned p)
 {
-    static const char *const names[PAGE_COUNT] = { "PARTS", "ARP", "SEQUENCER", "GLOBAL" };
+    static const char *const names[PAGE_COUNT] = {
+        "PARTS", "ARP", "SEQUENCER", "GLOBAL", "FX"
+    };
     return p < PAGE_COUNT ? names[p] : "?";
 }
 
@@ -390,6 +399,7 @@ static void page_seq(void)
             fm1_screen_fill(x + 2U, y + 11U, 8U, 3U, C_ART);
         if (i == orch_seq_position())
             fm1_screen_fill(x, y + 13U, 12U, 3U, C_NOW);
+
     }
 
     n = put(line, 0, sizeof line, "STEP ");
@@ -442,6 +452,55 @@ static void page_global(void)
     text(8U, BODY_Y + 108U, "K4: PANIC (ALL NOTES OFF)", C_DIM, C_BG, SW - 16U);
 }
 
+static void page_fx(void)
+{
+    text(8U, BODY_Y + 2U, "MASTER FX AFTER THE MIX", C_DIM, C_BG, SW - 16U);
+
+    char line[40];
+    for (unsigned s = 0; s < ORCH_FX_SLOT_COUNT; ++s) {
+        const unsigned y = BODY_Y + 18U + s * 14U;
+        const uint16_t bg = (s == ui.fx_sel) ? C_SEL : C_BG;
+        const int on = (int)orch_fx_enabled(s);
+        if (s == ui.fx_sel) fm1_screen_fill(4U, y - 2U, SW - 8U, 11U, bg);
+        text(8U, y, orch_fx_name(s), on ? C_METER : C_DIM, bg, 56U);
+        text(66U, y, on ? "ON" : "OFF", on ? C_METER : C_DIM, bg, 20U);
+
+        unsigned n = put(line, 0, sizeof line, "MIX ");
+        put_num(line, n, sizeof line, orch_fx_mix(s), 2U);
+        text(94U, y, line, C_TEXT, bg, 40U);
+
+        n = put(line, 0, sizeof line, orch_fx_param_a_name(s));
+        put(line, n, sizeof line, " ");
+        put_num(line, n, sizeof line, orch_fx_param_a(s), 2U);
+        text(138U, y, line, C_TEXT, bg, 48U);
+
+        n = put(line, 0, sizeof line, orch_fx_param_b_name(s));
+        put(line, n, sizeof line, " ");
+        put_num(line, n, sizeof line, orch_fx_param_b(s), 2U);
+        text(190U, y, line, C_TEXT, bg, 50U);
+    }
+
+    const unsigned sel = ui.fx_sel < ORCH_FX_SLOT_COUNT ? ui.fx_sel : 0U;
+    const unsigned base = BODY_Y + 78U;
+    char number[40];
+    unsigned n = put(number, 0, sizeof number, orch_fx_name(sel));
+    n = put(number, n, sizeof number, "  ");
+    n = put(number, n, sizeof number, orch_fx_enabled(sel) ? "ON" : "OFF");
+    text(8U, base, number, orch_fx_enabled(sel) ? C_ART : C_DIM, C_BG, SW - 16U);
+
+    n = put(number, 0, sizeof number, "K1 MIX  K2 ");
+    n = put(number, n, sizeof number, orch_fx_param_a_name(sel));
+    n = put(number, n, sizeof number, "  K3 ");
+    n = put(number, n, sizeof number, orch_fx_param_b_name(sel));
+    text(8U, base + 16U, number, C_TEXT, C_BG, SW - 16U);
+    text(8U, base + 30U, "K4 TURNS THIS EFFECT ON/OFF", C_TEXT, C_BG, SW - 16U);
+
+    text(8U, base + 50U, "ALGORITHM SELECTS THE EFFECT", C_DIM, C_BG, SW - 16U);
+    text(8U, base + 64U, "FX AGAIN: TEST CHORD", C_DIM, C_BG, SW - 16U);
+    text(8U, base + 78U, "SAVE KEEPS THE FX SETTINGS", C_DIM, C_BG, SW - 16U);
+    text(8U, base + 96U, "SHARED BY ALL PARTS", C_ART, C_BG, SW - 16U);
+}
+
 static void draw_title(void)
 {
     char line[40];
@@ -463,6 +522,7 @@ static void draw_page(void)
     case PAGE_ARP: page_arp(); break;
     case PAGE_SEQ: page_seq(); break;
     case PAGE_GLO: page_global(); break;
+    case PAGE_FX: page_fx(); break;
     case PAGE_HOME:
     default: page_parts(); break;
     }
@@ -487,6 +547,13 @@ static uint32_t page_signature(void)
         sig ^= (uint32_t)ui.seq_on << 9;
         sig ^= (uint32_t)ui.rec << 10;
         sig ^= (uint32_t)ui.seq_step << 12;
+        break;
+    case PAGE_FX:
+        for (unsigned s = 0; s < ORCH_FX_SLOT_COUNT; ++s)
+            sig = sig * 31U + (uint32_t)orch_fx_enabled(s)
+                + 3U * orch_fx_mix(s) + 7U * orch_fx_param_a(s)
+                + 11U * orch_fx_param_b(s);
+        sig = sig * 31U + ui.fx_sel;
         break;
     default:
         break;
@@ -535,6 +602,13 @@ static void step_art(int delta)
     while (art < 0) art += (int)ORCH_ART_COUNT;
     while (art >= (int)ORCH_ART_COUNT) art -= (int)ORCH_ART_COUNT;
     orch_engine_set_articulation(ui.part, (unsigned)art);
+}
+
+static int clamp_percent(int v)
+{
+    if (v < 0) return 0;
+    if (v > 100) return 100;
+    return v;
 }
 
 static void play_chord(void)
@@ -622,7 +696,18 @@ static uint32_t record_check(const struct save_record *r)
 {
     const uint8_t *b = (const uint8_t *)r;
     uint32_t sum = 2166136261UL;
-    for (unsigned i = 0; i < sizeof *r - sizeof r->check; ++i) {
+    for (unsigned i = 0; i < offsetof(struct save_record, check); ++i) {
+        sum ^= b[i];
+        sum *= 16777619UL;
+    }
+    return sum;
+}
+
+static uint32_t fx_record_check(const struct save_record *r)
+{
+    const uint8_t *b = (const uint8_t *)&r->fx_on[0];
+    uint32_t sum = 2166136261UL;
+    for (unsigned i = 0; i < ORCH_FX_SLOT_COUNT * 4U; ++i) {
         sum ^= b[i];
         sum *= 16777619UL;
     }
@@ -652,6 +737,13 @@ static void save_state(void)
         r.arp_div[p] = (uint8_t)orch_arp_div_of(p);
         r.arp_gate[p] = (uint8_t)orch_arp_gate_of(p);
     }
+    for (unsigned s = 0; s < ORCH_FX_SLOT_COUNT; ++s) {
+        r.fx_on[s] = (uint8_t)orch_fx_enabled(s);
+        r.fx_mix[s] = (uint8_t)orch_fx_mix(s);
+        r.fx_a[s] = (uint8_t)orch_fx_param_a(s);
+        r.fx_b[s] = (uint8_t)orch_fx_param_b(s);
+    }
+    r.fx_check = fx_record_check(&r);
     r.check = record_check(&r);
 
     if (fm1_flash_size() < sizeof r) return;
@@ -689,6 +781,16 @@ static void load_state(void)
         orch_arp_set_octaves(p, r.arp_oct[p]);
         orch_arp_set_division(p, r.arp_div[p]);
         orch_arp_set_gate(p, r.arp_gate[p]);
+    }
+    /* Older records have no FX block: their fx_check cannot match, so the FX
+     * keep whatever the panel had instead of loading erased flash bytes. */
+    if (r.fx_check == fx_record_check(&r)) {
+        for (unsigned s = 0; s < ORCH_FX_SLOT_COUNT; ++s) {
+            orch_fx_set_enabled(s, r.fx_on[s]);
+            orch_fx_set_mix(s, r.fx_mix[s]);
+            orch_fx_set_param_a(s, r.fx_a[s]);
+            orch_fx_set_param_b(s, r.fx_b[s]);
+        }
     }
     ui.saved = 1U;
 }
@@ -733,6 +835,7 @@ static void update_leds(void)
     fm1_led_set(B_PLAY, ui.seq_on);
     fm1_led_set(B_REC, ui.rec);
     fm1_led_set(B_SAVE, ui.saved);
+    fm1_led_set(B_FX, orch_fx_any_enabled());
     for (unsigned k = 0; k < 27U; ++k)
         fm1_led_set(14U + k, (ui.keys >> k) & 1U);
 }
@@ -750,6 +853,7 @@ void orch_ui_init(void)
     ui.scale = SCALE_OFF;
     ui.transpose = 0;
     ui.saved = 0U;
+    ui.fx_sel = 0U;
     ui.buttons = 0U;
     ui.keys = 0U;
     ui.knob = 0U;
@@ -794,7 +898,13 @@ void orch_ui_handle(const struct fm1_controls *controls)
         if (ui.transpose < 24) ui.transpose = (int8_t)(ui.transpose + 12);
         dirty = 1;
     }
-    if (pressed & (1UL << B_FX)) { play_chord(); dirty = 1; }
+    if (pressed & (1UL << B_FX)) {
+        /* First press opens the FX page; on that page the button is still the
+         * four-part sound check it was before. */
+        if (ui.page == PAGE_FX) play_chord();
+        else ui.page = PAGE_FX;
+        dirty = 1;
+    }
     if (pressed & (1UL << B_SCL)) {
         ui.scale = (uint8_t)((ui.scale + 1U) % SCALE_COUNT);
         dirty = 1;
@@ -838,6 +948,13 @@ void orch_ui_handle(const struct fm1_controls *controls)
             break;
         case E_ALGO:
             switch (ui.page) {
+            case PAGE_FX: {
+                int s = (int)ui.fx_sel + delta;
+                while (s < 0) s += (int)ORCH_FX_SLOT_COUNT;
+                while (s >= (int)ORCH_FX_SLOT_COUNT) s -= (int)ORCH_FX_SLOT_COUNT;
+                ui.fx_sel = (uint8_t)s;
+                break;
+            }
             case PAGE_ARP: {
                 int m = (int)orch_arp_mode_of(ui.part) + delta;
                 while (m < 0) m += (int)ORCH_ARP_MODE_COUNT;
@@ -870,7 +987,10 @@ void orch_ui_handle(const struct fm1_controls *controls)
             dirty = 1;
             break;
         case E_KNOB1:
-            if (ui.page == PAGE_ARP) {
+            if (ui.page == PAGE_FX) {
+                orch_fx_set_mix(ui.fx_sel,
+                    (unsigned)clamp_percent((int)orch_fx_mix(ui.fx_sel) + delta * 5));
+            } else if (ui.page == PAGE_ARP) {
                 int d = (int)orch_arp_div_of(ui.part) + delta;
                 if (d < 0) d = 0;
                 if (d > 4) d = 4;
@@ -886,7 +1006,10 @@ void orch_ui_handle(const struct fm1_controls *controls)
             dirty = 1;
             break;
         case E_KNOB2:
-            if (ui.page == PAGE_ARP) {
+            if (ui.page == PAGE_FX) {
+                orch_fx_set_param_a(ui.fx_sel,
+                    (unsigned)clamp_percent((int)orch_fx_param_a(ui.fx_sel) + delta * 5));
+            } else if (ui.page == PAGE_ARP) {
                 int o = (int)orch_arp_octaves_of(ui.part) + delta;
                 if (o < 1) o = 1;
                 if (o > 3) o = 3;
@@ -907,7 +1030,10 @@ void orch_ui_handle(const struct fm1_controls *controls)
             dirty = 1;
             break;
         case E_KNOB3:
-            if (ui.page == PAGE_ARP) {
+            if (ui.page == PAGE_FX) {
+                orch_fx_set_param_b(ui.fx_sel,
+                    (unsigned)clamp_percent((int)orch_fx_param_b(ui.fx_sel) + delta * 5));
+            } else if (ui.page == PAGE_ARP) {
                 int g = (int)orch_arp_gate_of(ui.part) + delta * 5;
                 orch_arp_set_gate(ui.part, (unsigned)g);
             } else {
@@ -920,8 +1046,10 @@ void orch_ui_handle(const struct fm1_controls *controls)
             dirty = 1;
             break;
         case E_KNOB4:
-            if (ui.page == PAGE_SEQ) seq_clear_step();
-            else if (ui.page == PAGE_GLO) orch_panic();
+            if (ui.page == PAGE_FX)
+                orch_fx_set_enabled(ui.fx_sel, !orch_fx_enabled(ui.fx_sel));
+            else if (ui.page == PAGE_SEQ) seq_clear_step();
+            else if (ui.page == PAGE_GLO) { orch_panic(); orch_fx_reset(); }
             else if (ui.page == PAGE_ARP) {
                 int m = (int)orch_arp_mode_of(ui.part) + delta;
                 while (m < 0) m += (int)ORCH_ARP_MODE_COUNT;
@@ -983,3 +1111,4 @@ unsigned orch_ui_scale(void) { return ui.scale; }
 unsigned orch_ui_recording(void) { return ui.rec; }
 unsigned orch_ui_seq_step(void) { return ui.seq_step; }
 unsigned orch_ui_saved(void) { return ui.saved; }
+unsigned orch_ui_fx_selection(void) { return ui.fx_sel; }
