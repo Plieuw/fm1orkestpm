@@ -15,7 +15,7 @@
  * The look is the browser page's: coffee, a hairline, amber for a value, green
  * for a section that is sounding — and it is drawn, not printed: the shapes the
  * pages are made of live in orch_ui_draw.inc. Five things on the panel are
- * photographs instead: the hall on the stage page (orch_ui_photo.inc), and the
+ * photographs instead (0.4.0 also had the hall on the stage page; since 0.6.0 that is a vector seating plan), the
  * band under the work of each of the four menus (orch_ui_pictures.inc).
  *
  * Nothing here runs in the audio interrupt: groove_screen_control() is the
@@ -279,7 +279,7 @@ static const char *page_name(unsigned p)
 #include "orch_ui_font.inc"    /* the 5x7 font and text() */
 #include "orch_ui_draw.inc"    /* colour, geometry, gradients, discs, arcs */
 #include "orch_ui_view.inc"    /* strings, rows, cards, meters */
-#include "orch_ui_photo.inc"   /* the hall, as a photograph in runs */
+
 #include "orch_ui_picture.inc" /* drawing any picture the panel holds */
 #include "orch_ui_pictures.inc" /* the four menus' pictures, and which is whose */
 #include "orch_ui_strip.inc"   /* the four knobs' cells along the bottom */

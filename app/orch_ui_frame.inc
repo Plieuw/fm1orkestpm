@@ -153,6 +153,8 @@ static uint32_t page_signature(void)
     return sig;
 }
 
+static void update_meters(void);
+
 static uint32_t page_live_signature(void)
 {
     switch (ui.page) {
@@ -206,9 +208,10 @@ static void page_live(uint32_t was)
             drawn_voices = voices;
             draw_stage_light(1);
         } else if (drawn_voices != voices) {
+            /* only the desks whose part started or stopped (update_meters) */
             drawn_voices = voices;
-            page_parts();
-            draw_stage_light(1);
+            update_meters();
+            draw_stage_light(0);
         } else {
             draw_stage_light(0);
         }
@@ -229,5 +232,5 @@ static void update_meters(void)
         if (voices > ceiling) voices = ceiling;
         if (voices != shown_voices[p]) { draw_desk(p); players = 1; }
     }
-    if (players) draw_players();
+    (void)players;
 }

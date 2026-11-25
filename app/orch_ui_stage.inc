@@ -1,43 +1,38 @@
 /* --- the stage ------------------------------------------------------------ */
 
-/* The stage page is a photograph, not a drawing. A real hall — wall, arch,
- * curtains, boards and the rows of seats — is in app/orch_ui_photo.inc, reduced
- * by tools/panel_photo.py to a palette of sixteen colours and, per row, the runs
- * of one colour; each run is one fill. On top of it the panel draws what moves:
- * the four lamps in the audience for the parts that sound, the players on the
- * boards, the listener's seat, the name of the instrument — and, while something
- * is sounding, the hall's own lights, cycling through the frames the source
- * images gave us: a band of rows, not the whole hall.
+/* The stage page is a seating plan drawn as vectors (0.6.0; a photograph of a
+ * hall before). The conductor's podium is at the bottom; the sections sit in
+ * rings around it as an orchestra does — strings in front, woodwinds behind
+ * them, brass behind those, percussion and choir at the back — and every one
+ * of the eight parts is a curved desk in its ring, at the angle its
+ * instrument's seat gives it (orch_stage.c, the same seat the stereo pan
+ * comes from). A desk fills with amber as its part's voices sound; the
+ * selected part's desk is framed. Around the podium the light shows what
+ * leaves the instrument (orch_level.inc), and in front of the stage the
+ * listener sits where KNOB3 and KNOB4 put them.
  *
- * 240 x 164 at 2 x 2 pixels, kept as the runs a row is made of: one fill per
- * stretch of one colour, about 1 500 for the whole hall. */
+ * Everything is a path through the anti-aliased rasterizer
+ * (orch_ui_path.inc). A desk is redrawn on its own when its part starts or
+ * stops: the desks do not overlap, so nothing around one is touched. */
 
-#define PHOTO_Y TITLE_H
+#define POD_X 120
+#define POD_Y 168                  /* the podium, the centre of the rings */
+#define SEAT_Y0 178U               /* the listener's band, under the stage */
+#define SEAT_Y1 188U
 
-/* the eight parts, as stand lights in the dark row of seats */
-#define LAMP_X0 10U
-#define LAMP_W 5U
-#define LAMP_GAP 6U
-#define LAMP_TOP 122U
-#define LAMP_H 52U
-#define LAMP_DARK 0x18C3             /* a seat back in the dark, not the case */
+/* A ring per family: inner and outer radius. */
+static const uint8_t ring_in[ORCH_FAM_COUNT] = { 24U, 54U, 80U, 106U, 106U };
+static const uint8_t ring_out[ORCH_FAM_COUNT] = { 50U, 76U, 102U, 126U, 126U };
 
-/* where the boards are in the photograph: the players stand on that line */
-#define STAGE_Y 118U
-#define STAGE_X0 62U
-#define STAGE_X1 178U
-#define SEAT_Y 148U
+/* The stage's own colours: the boards, a desk at rest, the frame of the
+ * selected one. Readings stay white/amber on these. */
+#define C_BOARDS 0x18A2
+#define C_DESK   0x3165
 
-/* The animation: the rest frame while the hall is quiet, and the lit frames of
- * the source images in turn while a part is sounding. Only the rows in
- * PHOTO_BAND_LO..PHOTO_BAND_HI differ between them — the stage and its curtains,
- * above the boards — so a step redraws that band, not the hall. A slow cycle:
- * the lights of a hall change with the music, not with the frame rate. */
-#define LIGHT_STEP_MS 2400U
-/* The voices of the eight parts as one word, three bits a part (a part
- * sounds at most the eight voices of the pool; seven and eight read alike,
- * which only costs a repaint that would not have changed a lamp's height by
- * more than a pixel). */
+/* The hall's lights no longer cycle: the page has one frame. */
+static unsigned stage_frame(void) { return 0U; }
+
+/* The voices of the eight parts as one word, three bits a part. */
 static uint32_t drawn_voices;
 static uint32_t stage_voices(void)
 {
@@ -50,182 +45,214 @@ static uint32_t stage_voices(void)
     return v;
 }
 
-static unsigned stage_frame(void)
+/* Where the desks are: each part in its family's ring, at the angle of its
+ * instrument's seat (0 hard left .. 255 hard right, as 256ths of a turn
+ * around twelve o'clock). Desks in one ring are then pushed apart until they
+ * no longer touch, and the ring is re-centred if that pushed it off the
+ * stage. Computed for all eight at once, whenever the layout may have changed. */
+static int8_t desk_mid[ORCH_PARTS];
+static uint8_t desk_fam[ORCH_PARTS], desk_half[ORCH_PARTS];
+static uint32_t desk_layout_sig = 0xFFFFFFFFUL;
+
+static uint32_t stage_layout_signature(void)
 {
-    unsigned playing = 0;
-    for (unsigned p = 0; p < ORCH_PARTS; ++p)
-        if (orch_voices_of_part(p)) playing = 1;
-    if (!playing || PHOTO_FRAMES < 2U) return 0U;
-    return (unsigned)((fm1_millis() / LIGHT_STEP_MS) % PHOTO_FRAMES);
-}
-
-static void draw_players(void);
-static void draw_instrument_name(void);
-
-/* The photograph: per row the runs it is made of, three hex characters each —
- * the palette index, then the run's width in cells. A row of the hall is ten
- * or so fills, not a hundred and twenty. It is drawn through the same
- * picture_rows() every other picture on the panel goes through. */
-static const struct panel_picture hall_picture = {
-    photo_palette, photo_frame_runs, photo_frame_rows,
-    PHOTO_FRAMES, PHOTO_ROWS, PHOTO_BLOCK
-};
-
-static void draw_photo_rows(unsigned f, unsigned first, unsigned last)
-{
-    picture_rows(&hall_picture, f, 0U, PHOTO_Y, first, last);
-}
-
-static void draw_photo(unsigned f)
-{
-    picture(&hall_picture, f, 0U, PHOTO_Y);
-}
-
-/* The lights stepped: only the band where the frames differ is repainted, and
- * the players, who stand in it. The seats, the lamps and the front of the hall
- * are the same picture they were, so they stay as they are. */
-static void draw_photo_band(unsigned f)
-{
-    draw_photo_rows(f, PHOTO_BAND_LO, PHOTO_BAND_HI);
-    draw_players();
-    draw_instrument_name();
-}
-
-/* A part: a narrow lamp in the seats that fills from the bottom up with the
- * voices that part is sounding, amber-capped when it is the selected one. */
-static void draw_desk(unsigned p)
-{
-    /* a lamp is full at four voices, the most a part's divisi asks for */
-    const unsigned ceiling = 4U;
-    const int sel = (p == ui.part);
-    const unsigned x = LAMP_X0 + p * (LAMP_W + LAMP_GAP);
-    unsigned voices = orch_voices_of_part(p);
-    if (voices > ceiling) voices = ceiling;
-    shown_voices[p] = (uint8_t)voices;
-
-    fm1_screen_fill(x, LAMP_TOP, LAMP_W, LAMP_H, LAMP_DARK);
-    if (voices) {
-        const unsigned lit = (LAMP_H - 2U) * voices / ceiling;
-        fm1_screen_fill(x + 1U, LAMP_TOP + LAMP_H - 1U - lit, LAMP_W - 2U, lit,
-                        C_METER);
-        fm1_screen_fill(x + 1U, LAMP_TOP + LAMP_H - 1U - lit, LAMP_W - 2U, 1U,
-                        mix565(C_METER, C_TEXT, 150U));
-    }
-    if (sel) fm1_screen_fill(x, LAMP_TOP - 2U, LAMP_W, 1U, C_AMBER);
-}
-
-/* The players on the boards, one per part, at its section's place: lit when it
- * sounds. They are the part of the hall that moves, so they are drawn on their
- * own whenever a part starts or stops. */
-static void draw_players(void)
-{
-    const unsigned cx = (STAGE_X0 + STAGE_X1) / 2U;
-
+    uint32_t sig = 2166136261UL;
     for (unsigned p = 0; p < ORCH_PARTS; ++p) {
         const struct orch_part *q = orch_part_get(p);
-        const unsigned pan = orch_stage_place(q->instrument, 128U);
-        const int off = ((int)pan - 128) * (int)(STAGE_X1 - STAGE_X0) / 256;
-        const unsigned x = (unsigned)((int)cx + off);
-        const unsigned y = STAGE_Y - 6U - (unsigned)(off < 0 ? -off : off) / 14U;
-        if (orch_voices_of_part(p))
-            disc(x, y, 4U, C_AMBER2, C_AMBER, C_SHELL);
-        else
-            disc(x, y, 3U, mix565(C_SHELL, C_BG, 130U), C_SHELL, C_SHELL);
+        sig = (sig ^ (q ? q->instrument : 0U)) * 16777619UL;
+        sig = (sig ^ (q ? q->family : 0U)) * 16777619UL;
     }
+    return sig;
 }
 
-/* The one word on the page: the instrument of the selected part. It sits at the
- * top of the photograph, inside the band the lights change in, so a step of the
- * lights puts it back. */
+static void stage_layout(void)
+{
+    int mid[ORCH_PARTS];
+    for (unsigned p = 0; p < ORCH_PARTS; ++p) {
+        const struct orch_part *q = orch_part_get(p);
+        const unsigned f = q && q->family < ORCH_FAM_COUNT ? q->family : 0U;
+        desk_fam[p] = (uint8_t)f;
+        desk_half[p] = (uint8_t)(f == ORCH_FAM_STRINGS ? 10U : (f == ORCH_FAM_WOODWINDS ? 8U : 7U));
+        mid[p] = ((int)orch_stage_seat(q ? q->instrument : 0U) - 128) * 52 / 128;
+    }
+    /* mallets and choir share the back ring */
+    for (unsigned ring = 0; ring < 4U; ++ring) {
+        unsigned idx[ORCH_PARTS], n = 0U;
+        for (unsigned p = 0; p < ORCH_PARTS; ++p) {
+            const unsigned r = desk_fam[p] >= 3U ? 3U : desk_fam[p];
+            if (r == ring) idx[n++] = p;
+        }
+        for (unsigned i = 1; i < n; ++i) {                   /* by angle, then part */
+            const unsigned k = idx[i];
+            unsigned j = i;
+            while (j && (mid[idx[j - 1U]] > mid[k] ||
+                         (mid[idx[j - 1U]] == mid[k] && idx[j - 1U] > k))) {
+                idx[j] = idx[j - 1U]; --j;
+            }
+            idx[j] = k;
+        }
+        for (unsigned i = 1; i < n; ++i) {
+            const int gap = (int)desk_half[idx[i - 1U]] + (int)desk_half[idx[i]] + 1;
+            if (mid[idx[i]] < mid[idx[i - 1U]] + gap) mid[idx[i]] = mid[idx[i - 1U]] + gap;
+        }
+        if (n) {
+            const int lo = mid[idx[0]] - (int)desk_half[idx[0]];
+            const int hi = mid[idx[n - 1U]] + (int)desk_half[idx[n - 1U]];
+            int shift = 0;
+            if (hi > 66) shift = 66 - hi;
+            if (lo + shift < -66) shift = -(lo + hi) / 2;   /* too full: centre it */
+            for (unsigned i = 0; i < n; ++i) mid[idx[i]] += shift;
+        }
+    }
+    for (unsigned p = 0; p < ORCH_PARTS; ++p)
+        desk_mid[p] = (int8_t)(mid[p] < -120 ? -120 : (mid[p] > 120 ? 120 : mid[p]));
+    desk_layout_sig = stage_layout_signature();
+}
+
+static void desk_place(unsigned p, unsigned *fam, int *a_mid, int *half)
+{
+    *fam = desk_fam[p];
+    *a_mid = desk_mid[p];
+    *half = desk_half[p];
+}
+
+/* An annular sector: out along the outer arc, back along the inner one. The
+ * angles are offset by a turn so a desk on the left (negative angle) stays a
+ * valid range for vp_arc(). */
+static void sector(int a0, int a1, unsigned r0, unsigned r1, uint16_t fill, uint16_t bg)
+{
+    vp_reset();
+    vp_arc(POD_X, POD_Y, r1, (unsigned)(a0 + 256), (unsigned)(a1 + 256));
+    vp_arc_rev(POD_X, POD_Y, r0, (unsigned)(a1 + 256), (unsigned)(a0 + 256));
+    vp_fill(&vp, fill, bg);
+}
+
 static void draw_instrument_name(void)
 {
     const struct orch_part *part = orch_part_get(ui.part);
+    fm1_screen_fill(8U, TITLE_H + 4U, 120U, 9U, C_BG);
     if (part)
-        text(10U, PHOTO_Y + 6U, inst_short(part->instrument), C_DIM, C_BG,
-             120U);
+        text(8U, TITLE_H + 5U, inst_short(part->instrument), C_DIM, C_BG, 120U);
 }
 
-/* The listener's seat, amber among the seats, under the band and above the
- * strip: it is drawn when the page is entered and when it is moved. */
+/* One desk: lit by the voices of its part (a full desk at four), framed
+ * when it is the selected part, with the part's number on it. */
+static void draw_desk(unsigned p)
+{
+    unsigned fam;
+    int mid, half;
+    desk_place(p, &fam, &mid, &half);
+    unsigned voices = orch_voices_of_part(p);
+    if (voices > 4U) voices = 4U;
+    shown_voices[p] = (uint8_t)voices;
+
+    const unsigned r0 = ring_in[fam], r1 = ring_out[fam];
+    const int sel = (p == ui.part);
+    const uint16_t lit = voices ? mix565(C_DESK, C_AMBER, 90U + voices * 40U) : C_DESK;
+    /* the frame is the desk drawn a pixel larger in amber, the desk inside */
+    sector(mid - half, mid + half, r0, r1, sel ? C_AMBER2 : C_BOARDS, C_BOARDS);
+    sector(mid - half + 1, mid + half - 1, r0 + 2U, r1 - 2U, lit,
+           sel ? C_AMBER2 : C_BOARDS);
+
+    /* the part's number in the middle of the desk */
+    {
+        const unsigned rm = (r0 + r1) / 2U;
+        const int x = POD_X + ((vp_sin14((unsigned)(mid + 256)) * (int)rm) >> 14);
+        const int y = POD_Y - ((vp_cos14((unsigned)(mid + 256)) * (int)rm) >> 14);
+        char n[2] = { (char)('1' + p), 0 };
+        text((unsigned)(x - 2), (unsigned)(y - 3), n, voices ? C_BG : C_DIM, lit, 6U);
+    }
+}
+
+static void draw_players(void)
+{
+    for (unsigned p = 0; p < ORCH_PARTS; ++p) draw_desk(p);
+    if (ui.part < ORCH_PARTS) draw_desk(ui.part);   /* its frame on top */
+}
+
+/* The listener: an amber seat in the band under the stage, left to right by
+ * x and lower (further back) by depth. */
 static void draw_hall_marks(void)
 {
-    const unsigned cx = 120U;
-    const unsigned row = 1U - orch_stage_listener_depth() / 60U;
-    const unsigned half = 30U + row * 10U;
-    const int x = (int)cx + orch_stage_listener_x() * (int)half / 100;
-    disc((unsigned)x, SEAT_Y + row * 9U, 3U, C_AMBER2, C_AMBER, C_SHELL);
+    const unsigned w = SW - 40U;
+    fm1_screen_fill(0U, SEAT_Y0, SW, SEAT_Y1 - SEAT_Y0 + 1U, C_BG);
+    fm1_screen_fill(20U, SEAT_Y0 + 4U, w, 1U, C_LINE);       /* the front row */
+    const int x = (int)SW / 2 + orch_stage_listener_x() * (int)(w / 2U) / 100;
+    const unsigned y = SEAT_Y0 + 2U + orch_stage_listener_depth() * 6U / 100U;
+    disc((unsigned)x, y, 3U, C_AMBER2, C_AMBER, C_BG);
     draw_instrument_name();
 }
 
-/* The light from the podium: what spills off the front of the boards, as wide
- * as the orchestra is big and as bright as the music is loud. It follows
- * orch_output_level(), which is calibrated on this hall's own orchestra — eight
- * voices fill it, 24 of 24 — and which narrows as the sound dies, so a chord
- * left ringing takes the light down while the keys are still down. It is the
- * one part of the page that moves with the music at the panel's own rate.
- *
- * It is drawn in a trough of the hall's own dark colour and rebuilt from four
- * bars, so an update is five fills and nothing under it has to be repainted. */
-#define LIP_X0 68U
-#define LIP_X1 172U
-#define LIP_Y 145U                  /* the dark floor in front of the boards */
-#define LIP_H 7U
-#define LIP_DARK 0x1860             /* that floor's own colour, out of the photo */
-#define LIP_MS 50U                  /* slower than the control task scans */
+/* The light around the podium: a ring whose arc opens with the level, 24 of
+ * 24 a half circle across the front of the strings. Throttled as in 0.4.0,
+ * and incremental: a change paints only the two short arcs between the old
+ * and the new width (lit when it opens, the boards' colour when it closes),
+ * so a moving level costs a few dozen fills, not the ring. */
+#define LIP_MS 50U
+#define LIP_R 15U
+#define LIP_W 4U
+static unsigned lip_span;   /* the half-width on screen, 256ths of a turn */
 static void draw_stage_light(unsigned force)
 {
     static uint32_t drawn_at;
     const uint32_t now = fm1_millis();
     if (!force && (uint32_t)(now - drawn_at) < LIP_MS) return;
     drawn_at = now;
-
-    const unsigned w = LIP_X1 - LIP_X0;
-    fm1_screen_fill(LIP_X0, LIP_Y, w, LIP_H, LIP_DARK);
     const unsigned level = orch_output_level();
-    if (!level) return;
-    /* a cone, not a line: narrow where it leaves the boards, wider as it falls
-     * on the floor in front of them — three bands of the light, and the level
-     * is 0..24, the orchestra's own scale, so eight voices fill the width */
-    const unsigned lit = (w - 8U) * level / ORCH_LEVEL_MAX;
-    const int cx = (int)(LIP_X0 + w / 2U);
-    const int half = (int)lit / 2;
-    const uint16_t dim = mix565(C_AMBER, LIP_DARK, 150U);
-    const uint16_t mid = mix565(C_AMBER, LIP_DARK, 70U);
-    fm1_screen_fill((unsigned)(cx - half / 2), LIP_Y, (unsigned)half, 3U, dim);
-    fm1_screen_fill((unsigned)(cx - half * 3 / 4), LIP_Y + 3U,
-                    (unsigned)(half * 3 / 2), 3U, mid);
-    fm1_screen_fill((unsigned)(cx - half), LIP_Y + 6U, lit, 1U, C_AMBER);
-    fm1_screen_fill((unsigned)(cx - half / 3), LIP_Y + 1U,
-                    (unsigned)(half * 2 / 3), 1U, C_AMBER2);
+    const unsigned span = level * 64U / ORCH_LEVEL_MAX;
+    const uint16_t lit = C_AMBER;
+
+    if (force) {
+        arc_soft((unsigned)POD_X, (unsigned)POD_Y, LIP_R, 256U - 64U, 256U + 64U, LIP_W,
+                 C_BOARDS, C_BOARDS);
+        if (span)
+            arc_soft((unsigned)POD_X, (unsigned)POD_Y, LIP_R, 256U - span, 256U + span,
+                     LIP_W, lit, C_BOARDS);
+        disc((unsigned)POD_X, (unsigned)POD_Y, 6U, C_AMBER,
+             mix565(C_AMBER, C_BOARDS, 120U), C_BOARDS);
+        lip_span = span;
+        return;
+    }
+    if (span == lip_span) return;
+    const unsigned a = span < lip_span ? span : lip_span;
+    const unsigned b = span < lip_span ? lip_span : span;
+    const uint16_t c = span > lip_span ? lit : C_BOARDS;
+    arc_soft((unsigned)POD_X, (unsigned)POD_Y, LIP_R, 256U - b, 256U - a, LIP_W, c, C_BOARDS);
+    arc_soft((unsigned)POD_X, (unsigned)POD_Y, LIP_R, 256U + a, 256U + b, LIP_W, c, C_BOARDS);
+    lip_span = span;
 }
 
-/* Everything the panel puts over the photograph. */
-static void draw_hall_overlays(void)
+/* The page is entered: the boards, the desks, the podium, the listener. */
+static void page_parts_full(void)
 {
-    for (unsigned p = 0; p < ORCH_PARTS; ++p)
-        draw_desk(p);
+    stage_layout();
+    fm1_screen_fill(0U, TITLE_H, SW, SEAT_Y0 - TITLE_H, C_BG);
+    vp_reset();
+    vp_arc(POD_X, POD_Y, 132U, 256U - 70U, 256U + 70U);
+    vp_line(POD_X + 20, POD_Y + 8);
+    vp_line(POD_X - 20, POD_Y + 8);
+    vp_fill(&vp, C_BOARDS, C_BG);
+    draw_players();
+    draw_hall_marks();
+    draw_stage_light(1);
+}
+
+/* A setting changed, or a part started or stopped: the desks and the marks;
+ * if a part changed instrument the desks have moved, and the boards are
+ * painted again under them. */
+static void page_parts(void)
+{
+    if (stage_layout_signature() != desk_layout_sig) {
+        page_parts_full();
+        return;
+    }
     draw_players();
     draw_hall_marks();
 }
 
-/* The page is entered: the photograph, then what stands on it. */
-static void page_parts_full(void)
-{
-    draw_photo(stage_frame());
-    draw_hall_overlays();
-    draw_stage_light(1);
-}
-
-/* A setting changed, or a part started or stopped: the photograph stays, only
- * the lamps, the players and the marks are redrawn. */
-static void page_parts(void)
-{
-    draw_hall_overlays();
-}
-
-/* The hall's lights changed: only the band that differs is repainted, under
- * the marks — a step of the animation costs the band, not the hall. */
+/* (0.4.0's hall changed its lights in a band; the plan has no such band.) */
 static void page_parts_photo(unsigned f)
 {
-    draw_photo_band(f);
+    (void)f;
+    draw_players();
 }

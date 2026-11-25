@@ -53,17 +53,22 @@ static void pen(int x0, int y0, int x1, int y1, unsigned w, uint16_t fg,
                 uint16_t bg)
 {
     const int half = (int)(w ? (w + 1U) / 2U : 1U);
-    int dx = x1 - x0, dy = y1 - y0;
+    const int half16 = (int)(w ? w : 1U) * VP_SUB / 2;
+    const int dx = x1 - x0, dy = y1 - y0;
     const unsigned len = isqrt((unsigned)(dx * dx) + (unsigned)(dy * dy));
     if (!len) { disc((unsigned)x0, (unsigned)y0, (unsigned)half, fg, fg, bg); return; }
 
-    const int nx = -dy * half / (int)len, ny = dx * half / (int)len;
-    const unsigned a = vp_angle(nx, ny);
+    /* the normal in 1/16 px, so the shaft keeps its width at any slope */
+    const int nx = -dy * half16 / (int)len, ny = dx * half16 / (int)len;
+    const unsigned a = vp_angle(-dy, dx);
+    const int ax = x0 * VP_SUB + VP_SUB / 2, ay = y0 * VP_SUB + VP_SUB / 2;
+    const int bx = x1 * VP_SUB + VP_SUB / 2, by = y1 * VP_SUB + VP_SUB / 2;
 
-    vp_move(x0 + nx, y0 + ny);
-    vp_line(x1 + nx, y1 + ny);
+    vp_reset();
+    vp_add16(ax + nx, ay + ny);
+    vp_add16(bx + nx, by + ny);
     vp_arc_rev(x1, y1, (unsigned)half, a, a - 128U);      /* the far cap */
-    vp_line(x0 - nx, y0 - ny);
+    vp_add16(ax - nx, ay - ny);
     vp_arc_rev(x0, y0, (unsigned)half, a - 128U, a - 256U);  /* the near cap */
     vp_fill(&vp, fg, bg);
 }
@@ -78,8 +83,7 @@ static void arc_soft(unsigned cx, unsigned cy, unsigned r, unsigned a0,
     const unsigned outer = r + half;
     const unsigned inner = r > half ? r - half : 0U;
 
-    vp_move((int)cx + vp_cos(a0) * (int)outer / 64,
-            (int)cy + vp_sin(a0) * (int)outer / 64);
+    vp_reset();
     vp_arc((int)cx, (int)cy, outer, a0, a1);
     if (inner) vp_arc_rev((int)cx, (int)cy, inner, a1, a0);
     else vp_line((int)cx, (int)cy);

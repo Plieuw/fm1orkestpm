@@ -51,13 +51,13 @@ tick(4);
 const after = peak();
 const soundOk = after > 1000 && after > before;
 
-// 3. SAVE writes a record with the magic 0x3035524F ("OR50", the 0.5.0 record)
+// 3. SAVE writes a record with the magic 0x3036524F ("OR60", the 0.6.0 record)
 e.emu_button(1 << 9);            // SAVE
 tick(2);
 e.emu_button(0);
 tick(1);
 const magic = u32(e.emu_flash(), 0);
-const saveOk = magic === 0x3035524f;
+const saveOk = magic === 0x3036524f;
 
 console.log(`lit pixels      ${lit} ${litOk ? "ok" : "FAIL"}`);
 console.log(`peak audio      ${after} (before ${before}) ${soundOk ? "ok" : "FAIL"}`);
