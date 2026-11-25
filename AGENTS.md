@@ -7,12 +7,12 @@ the next beta.
 
 ## Where the work is
 
-The FM-1 panel, the orchestra seating and the movable listener live on
-`beta/0.4.0-podium-light`, nowhere else. It was branched from the tip of
-`beta/0.3.1-build-and-host-checks` (which still carries the same work up to the
-photographed hall); 0.4.0 adds the photograph, the light over the boards and the
-panel bench. Other branches in this repository carry an older, independent panel
-inside `app/fm1_app.c`; do not merge that one next to this. Never force-push a
+Everything lives on `beta/0.5.0-orchestra-merge` since 25 November 2026: the
+0.3.x feature line's engine, performance engine, scenes and HAWK overlay, and
+the 0.4.0 panel, stage, level light, FX and browser build, merged
+(`docs/MERGE_0.5.0.md`). Start new work there, not on 0.4.0 or on a
+`feature/0.3.x` branch. There is one panel (`app/orch_ui.c`); do not bring
+back the 3x5-font panel of the 0.3.x `app/fm1_app.c`. Never force-push a
 branch another agent works on, one topic per commit, and leave
 `sh tests/run_tests.sh` green.
 
@@ -24,10 +24,14 @@ cc -std=c11 -O2 -Wall -Wextra -Werror -DFM1_HOST_TEST \
    -I../fm1-core/include -Iapp -c app/<file>.c -o /tmp/x.o
 ```
 
-There is no JieLi PI32v2 toolchain and no board in this environment: no
-firmware package is built, nothing is flashed, and nothing has been heard.
-Never write that the engine or the panel is tested on the FM-1. Everything here
-is a host compile and a host render.
+There is no JieLi PI32v2 toolchain and no board in this environment. The
+firmware package is built by CI (`hawk-target-build`, see
+`docs/BUILD_FIRMWARE.md`); nothing has been flashed or heard. Never write that
+the engine or the panel is tested on the FM-1.
+
+The firmware build is freestanding: no `<string.h>`, no 64-bit divides (the
+PI32v2 has none), no `uint64_t /` anywhere in `app/`. Every `app/orch_*` file
+is copied into the HAWK tree by `tools/prepare_hawk_runtime.py`.
 
 ## The browser build
 
@@ -49,14 +53,12 @@ about audio-block time, so it is not a hardware test either.
 
 ## Publishing
 
-`git push` does not work here (no credentials: `could not read Username for
-'https://github.com'`). Commits are made through the GitHub integration
-(`GITHUB_COMMIT_MULTIPLE_FILES`), which writes real commits on the branch. Each
-upsert carries the **whole file** and a single upload above roughly 330 lines
-gets truncated, which happened twice on this branch (commits `7b4b379` and
-`7f2e5dd` hold half a panel; `9fdcb94` repaired it). Keep source files small
-and split by section rather than growing one long file. After every publish,
-verify with a fresh clone:
+Where `git push` works, push. Where it does not and commits go through the
+GitHub integration (`GITHUB_COMMIT_MULTIPLE_FILES`), each upsert carries the
+**whole file** and a single upload above roughly 330 lines gets truncated,
+which happened twice on 0.4.0 (commits `7b4b379` and `7f2e5dd` hold half a
+panel; `9fdcb94` repaired it). Keep source files small and split by section.
+After every publish, verify with a fresh clone:
 
 ```sh
 git clone --depth 1 -b <branch> https://github.com/Plieuw/fm1orkestpm /tmp/v
@@ -66,14 +68,19 @@ cd /tmp/v && FM1_CORE=<core> sh tests/run_tests.sh
 
 ## The panel
 
-`app/orch_ui.c` is one translation unit: state, 5x7 font and strings, then four
+`app/orch_ui.c` is one translation unit: state, 5x7 font and strings, then
 included parts — `orch_ui_view.inc` (knob cells, strip, stage),
-`orch_ui_pages.inc` (the five pages, title, page signature),
+`orch_ui_pages.inc` (the knobs' jobs, ARP and SEQUENCE), `orch_ui_shape.inc`
+(ENVELOPE and LFO),
 `orch_ui_state.inc` (edits, sequencer, flash record, note map, leds, knob
 speed) and `orch_ui_api.inc` (entry points). Put new code in the part it
 belongs to.
 
-- Pages are **STAGE**, **ARP**, **SEQUENCE**, **CONSOLE**, **FX**.
+- Pages are **STAGE**, **ARP**, **SEQUENCE**, **CONSOLE**, **FX**,
+  **ENVELOPE**, **LFO**; eight parts.
+- Edits that write engine state go inside `fm1_engine_pause()` /
+  `fm1_engine_resume()` (on the firmware: interrupts off); drawing and the
+  flash write stay outside.
 - Each of the four menus has a band of its own above the knobs — the harp, the
   score, the console, the rack — a 240 x 30 photograph in
   `app/orch_ui_pic_*.inc`, drawn once when the page is entered through
@@ -91,5 +98,6 @@ belongs to.
   `tools/panel_png.py` turns them into PNGs; `web/emu/` renders the same panel
   in a browser. Look at them; the theme cannot be checked any other way without
   a board.
-- The listener's seat is appended to the flash record with its own FNV-1a
-  checksum, so older records still load. Keep that pattern for new blocks.
+- The flash record is "OR50" (`struct save_record` in `orch_ui.c`). Append new
+  blocks after `check` with their own FNV-1a checksum, so this record still
+  loads.

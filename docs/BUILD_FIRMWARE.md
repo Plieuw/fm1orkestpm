@@ -82,14 +82,39 @@ Do not call the package firmware-ready until:
 - the first physical install and reboot are confirmed on an FM1 with a known
   recovery route available.
 
-## Current status
+## Current status (0.5.0)
 
-- Orchestral DSP and panel modules: host-compiled and host-tested.
-- HAWK-style target build: not integrated yet.
-- .fwsc package: not produced.
-- Browser installer: not ported yet.
-- Physical FM1 update: not tested.
+- Orchestral DSP and panel modules: host-compiled and host-tested (eight
+  suites).
+- HAWK-style target build: **integrated**. `tools/prepare_hawk_runtime.py`
+  overlays the pinned HAWK checkout; CI's `hawk-target-build` job links it.
+  Measured on the 0.5.0 build: image 171 456 B, RAM .data+.bss 40 756 of
+  73 728 B, pool 329 444 of 368 640 B, `.ram_text` without calls, one core.
+- What runs on the FM-1 in that image: the orchestral engine, its FX and
+  the orchestral panel (`app/orch_ui.c` through `runtime/hawk/`); HAWK's
+  boot, watchdog, boot-loop guard, USB/TRS MIDI, storage, M-UPGRADE update
+  entry and the OCT- + OCT+ UBOOT combination. HAWK's synth, ARP/KARMA and
+  menus are no longer called (the linker drops them).
+- .fwsc package: **produced by CI** (artifact `fm1-orchestral-0.5.0-beta`,
+  and on a push to a `beta/0.5*` branch the pre-release `v0.5.0-beta`).
+  The package identity is still HAWK CHUA's `FM-1_007`, so HAWK's installer
+  accepts it and a HAWK CHUA release can be installed over it again.
+- Browser installer: not ported. Install with HAWK CHUA's command-line
+  installer (below).
+- Physical FM-1 update: **not tested.** Audio-block time on the PI32v2 with
+  eight voices, the FX and the panel drawing is unmeasured.
 
-The next engineering milestone is the runtime integration needed to make the
-HAWK/Felucca build script compile the Orchestral Engine, before publishing the
-web installer.
+## Installing the beta (at your own risk)
+
+1. Have a way back: HAWK CHUA's release or M-VAVE's V15 `FM-1.fwsc`, and know
+   the UBOOT route — hold OCT- and OCT+ for 5 s (the screen counts down), or
+   use FM-1-transporter over UBOOT if an install is cut off.
+2. On a computer with Python 3: `pip3 install mido python-rtmidi`, then from a
+   HAWK CHUA checkout
+   `python3 tools/fm1_install.py fm1-orchestral-0.5.0-beta.fwsc`
+   with the FM-1 on a USB data cable. The same tool installs a HAWK CHUA or
+   the stock V15 file to go back.
+3. First things to check on the device: the splash, then the STAGE page with
+   the hall; a key sounds on part 1 (violin); the MASTER pot sets the level;
+   SAVE, power off and on, and the settings come back; OCT- + OCT+ held shows
+   the countdown and letting go repaints the panel.

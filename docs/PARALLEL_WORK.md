@@ -16,6 +16,7 @@ work mergeable and stop one agent from undoing another's measured fixes.
 | `beta/0.3.4-panel-integration` | FM1 Core app adapter, local key-to-note input, MIDI callback, RGB565 panel UI and safe control-task part edits |
 | `feature/0.3.5-hawk-chua-arp-karma` | New per-part ARP/phrase scheduler based on the stable HAWK CHUA main branch; panel page, MIDI clock handling and host tests |
 | `beta/0.3.1-build-and-host-checks` | 0.3.0 content plus the friction bow, host tests and CI; the panel (`app/orch_ui.c` and the parts it includes), the orchestra seating with the movable listener, the master FX chain and the knob cells. The panel lived here until 0.4.0, below |
+| `beta/0.5.0-orchestra-merge` | **the merge of everything below** (`docs/MERGE_0.5.0.md`): the 0.3.x engine and HAWK overlay with the 0.4.0 panel; the firmware CI builds runs this panel |
 | `beta/0.4.0-podium-light` | 0.3.1 at `9ad7151` plus the photographed hall, the light over the boards that follows the output, the level in the panel's live signature and `tests/run_panel_bench.sh`; the panel lives here now |
 | `beta/0.3.2-roundtrip-loss`, `beta/0.3.2-roundtrip-loss-integration` | per-round-trip waveguide loss and the low/high-register regression test |
 | `beta/0.3.3-dsp-roadmap` | 0.3.2 plus the 32-bit round-trip gain and the shared DSP brainstorm |
@@ -39,6 +40,16 @@ Rules:
   do not write "rebased on X" unless X really is an ancestor. A tree can be
   identical while the history is not, and the next agent will trust the
   history.
+
+## Handover: 0.5.0 (25 November 2026)
+
+`beta/0.5.0-orchestra-merge` = merge commit `71807ad` (first parent
+`feature/shared-eight-voice-allocator` `555196c`, second
+`beta/0.4.0-podium-light` `c305f3c`) plus topic commits: the panel in the
+HAWK firmware, the FX on the FM-1's memory, CI publishing a pre-release.
+Eight suites green; CI's target build links (RAM 40 756 / 73 728 B, pool
+329 444 / 368 640 B, image 171 456 B). Not run on an FM-1. What was decided
+and fixed is in `docs/MERGE_0.5.0.md`; what is open is at its end.
 
 ## Handover: 0.4.0 (24 November 2026)
 

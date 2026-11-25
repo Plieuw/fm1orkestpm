@@ -18,29 +18,41 @@ drawn from — and [`PANEL-REFERENCE.md`](PANEL-REFERENCE.md) is how the panel
 behaves: the knob speed, the stage and the listener, the arpeggiator, the
 sequencer, the effects, the note map, the save record and what is tested.
 
-## What each control does
+## What each control does (0.5.0)
+
+Seven pages: **STAGE**, **ARP**, **SEQUENCE**, **CONSOLE**, **FX**,
+**ENVELOPE** and **LFO**. Eight parts, one MIDI channel each (1..8).
 
 | Control | Job |
 | --- | --- |
-| `SELECT` | choose the part (1..4, wraps); the LED of the part lights |
-| `ALGORITHM` | family on STAGE; mode on ARP; step on SEQUENCE; scale on CONSOLE; effect on FX |
+| `SELECT` | choose the part (1..8, wraps) |
+| `ALGORITHM` | family on STAGE, ENVELOPE and LFO; stream logic (OR, AND, XOR, NOR, ALT, S/R) on ARP; step on SEQUENCE; scale on CONSOLE; effect on FX |
 | `PRESETS` | next/previous instrument inside the current family, wrapping; on FX it turns the strip over to the effect's other two parameters |
-| `KNOB1` | divisi players 1..4 / arp rate / step velocity / FX mix |
-| `KNOB2` | voice ceiling / octaves / step gate / semitone transpose / the effect's first (or third) parameter |
-| `KNOB3` | listener across the stage / arp gate / step tempo / tempo on CONSOLE and SEQUENCE / the effect's second (or fourth) parameter |
-| `KNOB4` | listener depth (how far back) / arp mode / clear step / FX on-off / **panic** on CONSOLE |
-| `OCT-` `OCT+` | transpose the part an octave down or up (clamped to ±24) |
-| `FX` | open the FX page (chorus, ensemble, delay, shimmer reverb). Pressed again on that page it is the old sound check: a four-part chord, released after 900 ms |
+| `KNOB1` | divisi players 1..4 / ARP type (31) / step velocity / scale / FX mix / attack / LFO depth |
+| `KNOB2` | articulation / ARP rate (10 divisions) / step gate / semitone transpose / the effect's first (or third) parameter / decay / LFO rate |
+| `KNOB3` | listener across the stage / ARP gate / tempo on SEQUENCE and CONSOLE / the effect's second (or fourth) parameter / sustain / LFO wave |
+| `KNOB4` | listener depth / phrase (OFF, GE 1..46) / clear step / **factory scene** on CONSOLE (recalled as it is chosen) / FX on-off / release / LFO destination |
+| `OCT-` `OCT+` | transpose an octave down or up (clamped to ±24) |
+| `FX` | open the FX page; pressed again there, a chord across all eight parts, released after 900 ms |
 | `SCL` | cycle the note map: OFF, MAJOR, MINOR, PENTA |
-| `ENV` `LFO` | articulation step down / up |
+| `ENV` | the ENVELOPE page: the part's ADSR, drawn as its shape |
+| `LFO` | the LFO page: depth, rate, wave, destinations (pitch, tremolo, brightness) |
 | `EDIT` `HOME` | back to the STAGE page |
 | `GLO` | CONSOLE page |
-| `SAVE` | write the settings record to flash; the LED shows it was done |
-| `ARP` | open the ARP page and toggle this part's arpeggiator |
+| `SAVE` | write the settings record ("OR50") to flash; the LED shows it was done |
+| `ARP` | open the ARP page; pressed on that page, this part's ARP on/off |
 | `SEQ` | open the SEQUENCE page |
 | `PLAY` | start/stop the sequencer on the selected part |
 | `REC` | arm the keys for step recording (SEQUENCE page only) |
-| panel knob | master level, quadratic, 0..unity; independent of the page |
+| panel knob | master level. On the HAWK firmware build the MASTER pot is applied after the engine and the panel's own level stays at unity |
+
+There is no panic control (the 0.3.x line removed it on purpose). A MIDI
+all-notes-off (CC 120/123) or a scene recall clears the voices.
+
+On the FM-1 firmware, holding OCT- and OCT+ together is still HAWK's update
+combination: after 2 s the countdown takes the screen, at 5 s the FM-1 enters
+UBOOT, and letting go cancels it and repaints the panel. Those two presses also
+transpose (down, then up again), as on every other build.
 
 The master gain (`orch_ui_master_q23`) and one byte per FX setting are the only
 words the control task shares with the audio interrupt. The panel never starts

@@ -132,3 +132,36 @@ jobs:
             hawk-chua/orchestral-target-build.log
           if-no-files-found: error
           retention-days: 14
+
+  # A beta branch push publishes its package as a pre-release, so the .fwsc
+  # can be downloaded without a GitHub login (artifacts need one). Never on a
+  # pull request; never marked as a full release.
+  beta-prerelease:
+    needs: [host-compile, hawk-target-build]
+    if: github.event_name == 'push' && startsWith(github.ref_name, 'beta/0.5')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: fm1-orchestral-0.5.0-beta
+          path: pkg
+      - name: Publish the pre-release v0.5.0-beta
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -e
+          cd pkg
+          ls -R
+          # upload-artifact kept the paths under hawk-chua/: build/..., the log
+          mv build/hawk-chua.fwsc fm1-orchestral-0.5.0-beta.fwsc
+          mv build/felucca.bin felucca.bin
+          sha256sum fm1-orchestral-0.5.0-beta.fwsc felucca.bin > SHA256SUMS
+          gh release delete v0.5.0-beta --repo "$REPO" --yes --cleanup-tag || true
+          gh release create v0.5.0-beta --repo "$REPO" --prerelease \
+            --target "$GITHUB_SHA" \
+            --title "FM1 Orchestral Engine 0.5.0-beta (untested on hardware)" \
+            --notes "Built by CI from ${GITHUB_SHA} on ${GITHUB_REF_NAME}. Host tests pass and the PI32v2 build links; it has NOT been run on an FM-1. Install with HAWK CHUA's tools/fm1_install.py; recovery: OCT- + OCT+ held 5 s enters UBOOT. See docs/BUILD_FIRMWARE.md." \
+            fm1-orchestral-0.5.0-beta.fwsc felucca.bin SHA256SUMS orchestral-target-build.log
