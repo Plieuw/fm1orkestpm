@@ -90,6 +90,7 @@ void orch_perf_default_config(struct orch_perf_config *c)
     c->inverse=0U; c->quantize=0U; c->root=0U; c->density=100U;
     c->range=2U; c->accent=48U; c->cluster=1U; c->repeat=0U;
     c->velocity_groove=0U; c->gate_groove=0U;
+    c->arp_order=0U; c->arp_adaptive=0U; c->ratchet=1U; c->strum=0U;
 }
 
 static void push_event(unsigned part, unsigned note, unsigned velocity, unsigned on)
@@ -165,6 +166,15 @@ static unsigned held_sorted(const perf_part_t *p, uint8_t *notes, uint8_t *vel)
             --j;
         }
     }
+    return n;
+}
+
+/* The ARP's own order: by pitch, or as the keys were played (0.6.0). */
+static unsigned held_for_arp(const perf_part_t *p, uint8_t *notes, uint8_t *vel)
+{
+    if (!p->cfg.arp_order) return held_sorted(p,notes,vel);
+    const unsigned n=p->held_count;
+    for (unsigned i=0;i<n;++i) { notes[i]=p->held[i].note; vel[i]=p->held[i].velocity; }
     return n;
 }
 
@@ -275,9 +285,13 @@ static unsigned arp_pick(perf_part_t *p, const uint8_t *notes, const uint8_t *ve
 {
     const unsigned type=p->cfg.arp_type%ORCH_PERF_ARP_TYPES;
     unsigned octaves=(type%3U==0U)?1U:(type%3U==1U)?2U:4U;
-    /* Register follows the player's recent range/energy, but remains bounded. */
-    if (p->input_activity < 72U && octaves > 1U) --octaves;
-    else if (p->input_activity > 150U && octaves < 4U) ++octaves;
+    /* Adaptive span (optional since 0.6.0): the register follows the
+     * player's recent activity. Off, the type's span is the span, so the
+     * same type always sounds the same. */
+    if (p->cfg.arp_adaptive) {
+        if (p->input_activity < 72U && octaves > 1U) --octaves;
+        else if (p->input_activity > 150U && octaves < 4U) ++octaves;
+    }
     const unsigned total=n*octaves;
     unsigned idx=0U;
     if (type<15U) {
@@ -410,8 +424,11 @@ static void perform_step(unsigned part, perf_part_t *p, uint32_t now,
 
     unsigned arp_note=0U, arp_vel=0U, arp_hit=0U;
     unsigned seq_notes[4], seq_vel[4], seq_n=0U;
-    if (p->cfg.arp_enabled)
-        arp_hit=arp_pick(p,held,held_vel,n,&arp_note,&arp_vel);
+    if (p->cfg.arp_enabled) {
+        uint8_t order[PERF_HELD], order_vel[PERF_HELD];
+        const unsigned an=held_for_arp(p,order,order_vel);
+        arp_hit=arp_pick(p,order,order_vel,an,&arp_note,&arp_vel);
+    }
     if (p->cfg.phrase_enabled)
         seq_n=phrase_pick(p,held,held_vel,n,seq_notes,seq_vel);
     const unsigned seq_hit=seq_n?1U:0U;
@@ -467,9 +484,32 @@ static void perform_step(unsigned part, perf_part_t *p, uint32_t now,
 
     const unsigned gate_base=p->cfg.gate>100U?100U:p->cfg.gate;
     const unsigned gate_pct=arc_gate(groove_gate(p,p->step,gate_base),p->phrase_step);
-    const uint32_t gate_samples=(step_len*gate_pct)/100U;
-    for (unsigned i=0;i<count;++i)
-        generated_on(part,p,out[i],outv[i],now,gate_samples);
+    /* Ratchet (0.6.0): the step is hit 1..4 times, each hit its share of the
+     * step with the same gate; strum: the notes of a chord step one after
+     * the other, 0..40 ms apart, low to high. Both go through the pending
+     * table the phrase echoes already use. */
+    const unsigned ratchet=p->cfg.ratchet<1U?1U:(p->cfg.ratchet>4U?4U:p->cfg.ratchet);
+    const uint32_t hit_len=step_len/ratchet;
+    const uint32_t gate_samples=(hit_len*gate_pct)/100U;
+    const uint32_t strum=(uint32_t)(p->cfg.strum>40U?40U:p->cfg.strum)*(ORCH_PERF_SAMPLE_RATE/1000U);
+    for (unsigned hit=0;hit<ratchet;++hit) {
+        for (unsigned i=0;i<count;++i) {
+            const uint32_t at=now+hit*hit_len+i*strum;
+            const unsigned vel=hit?(outv[i]*(8U-hit)/8U):outv[i];
+            if (at==now) { generated_on(part,p,out[i],vel,now,gate_samples); continue; }
+            for (unsigned a=0;a<PERF_ACTIVE*3U;++a) {
+                pending_note_t *pn=&p->pending[a];
+                if (pn->used) continue;
+                pn->used=1U;
+                pn->note=(uint8_t)out[i];
+                pn->velocity=(uint8_t)(vel?vel:1U);
+                pn->on_at=at;
+                pn->gate_samples=gate_samples;
+                ++p->pending_count;
+                break;
+            }
+        }
+    }
 
     /* Repeat is a light echo inside the step. The active-note table handles
      * repeated pitches safely by ending the previous instance first. */
@@ -559,6 +599,11 @@ int orch_perf_set_config(unsigned part, const struct orch_perf_config *c)
     if(p->cfg.cluster<1U) p->cfg.cluster=1U;
     if(p->cfg.cluster>4U) p->cfg.cluster=4U;
     p->cfg.velocity_groove&=7U; p->cfg.gate_groove&=7U;
+    if(p->cfg.ratchet<1U)p->cfg.ratchet=1U;
+    if(p->cfg.ratchet>4U)p->cfg.ratchet=4U;
+    if(p->cfg.strum>40U)p->cfg.strum=40U;
+    p->cfg.arp_order=p->cfg.arp_order?1U:0U;
+    p->cfg.arp_adaptive=p->cfg.arp_adaptive?1U:0U;
     if(was && !(p->cfg.arp_enabled||p->cfg.phrase_enabled)) {
         release_all(part,p); p->held_count=p->keys_down=p->running=0U;
     }

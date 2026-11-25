@@ -14,6 +14,7 @@ void orch_ui_init(void)
     ui.fx_sel = 0U;
     ui.fx_bank = 0U;
     ui.scene = 0U;
+    ui.arp_bank = 0U;
     ui.buttons = 0U;
     ui.keys = 0U;
     ui.knob = 0U;
@@ -133,6 +134,8 @@ void orch_ui_handle(const struct fm1_controls *controls)
             /* on FX this encoder turns the strip over to the effect's other two
              * parameters; everywhere else it steps the instrument */
             if (ui.page == PAGE_FX) ui.fx_bank = (uint8_t)!ui.fx_bank;
+            else if (ui.page == PAGE_ARP)    /* the ARP page's five banks */
+                ui.arp_bank = (uint8_t)step_wrap((int)ui.arp_bank, step, (int)ARP_BANKS);
             else step_instrument(step);
             break;
         case E_ALGO:
@@ -160,9 +163,7 @@ void orch_ui_handle(const struct fm1_controls *controls)
                 orch_fx_set_mix(ui.fx_sel,
                     (unsigned)clamp_percent((int)orch_fx_mix(ui.fx_sel) + pct_delta(delta) * 5));
                 break;
-            case PAGE_ARP:
-                pc.arp_type = (uint8_t)step_wrap((int)pc.arp_type, step, (int)ORCH_PERF_ARP_TYPES);
-                break;
+            case PAGE_ARP: arp_knob(&pc, 0U, delta, step); break;
             case PAGE_SEQ: seq_touch_slot(0U, 0, pct_delta(delta) * 5, 0); break;
             case PAGE_GLO:
                 ui.scale = (uint8_t)step_wrap((int)ui.scale, step, SCALE_COUNT);
@@ -183,10 +184,7 @@ void orch_ui_handle(const struct fm1_controls *controls)
                     (unsigned)clamp_percent((int)orch_fx_param(ui.fx_sel, i) + pct_delta(delta) * 5));
                 break;
             }
-            case PAGE_ARP:
-                pc.division = (uint8_t)step_range((int)pc.division, step, 0,
-                                                  (int)ORCH_PERF_DIVISIONS - 1);
-                break;
+            case PAGE_ARP: arp_knob(&pc, 1U, delta, step); break;
             case PAGE_SEQ: seq_touch_slot(0U, 0, 0, pct_delta(delta) * 5); break;
             case PAGE_GLO:
                 ui.transpose = (int8_t)step_range((int)ui.transpose, delta, -24, 24);
@@ -204,9 +202,7 @@ void orch_ui_handle(const struct fm1_controls *controls)
                     (unsigned)clamp_percent((int)orch_fx_param(ui.fx_sel, i) + pct_delta(delta) * 5));
                 break;
             }
-            case PAGE_ARP:
-                pc.gate = (uint8_t)step_range((int)pc.gate, pct_delta(delta) * 5, 5, 100);
-                break;
+            case PAGE_ARP: arp_knob(&pc, 2U, delta, step); break;
             case PAGE_GLO:
             case PAGE_SEQ:
                 apply_tempo((unsigned)step_range((int)ui.tempo, delta * 2, 40, 250));
@@ -233,17 +229,7 @@ void orch_ui_handle(const struct fm1_controls *controls)
                  * encoder did on the 0.3.14 panel; SAVE keeps the result */
                 recall_scene((unsigned)step_wrap((int)ui.scene, step, (int)ORCH_SCENE_COUNT));
                 break;
-            case PAGE_ARP:
-                /* the phrase: off, then the 46 generated phrases */
-                if (!pc.phrase_enabled) {
-                    if (step > 0) { pc.phrase_enabled = 1U; pc.phrase_ge = 0U; }
-                } else {
-                    const int ge = (int)pc.phrase_ge + step;
-                    if (ge < 0) pc.phrase_enabled = 0U;
-                    else pc.phrase_ge = (uint8_t)(ge >= (int)ORCH_PERF_GE_COUNT
-                                                  ? (int)ORCH_PERF_GE_COUNT - 1 : ge);
-                }
-                break;
+            case PAGE_ARP: arp_knob(&pc, 3U, delta, step); break;
             case PAGE_ENV: adsr_edit(0, 0, 0, delta); break;
             case PAGE_LFO: lfo_edit(0, 0, 0, step); break;
             default:
@@ -256,11 +242,7 @@ void orch_ui_handle(const struct fm1_controls *controls)
             break;
         default: break;
         }
-        if (pc.arp_type != pc_was.arp_type || pc.division != pc_was.division ||
-            pc.gate != pc_was.gate || pc.logic != pc_was.logic ||
-            pc.phrase_enabled != pc_was.phrase_enabled ||
-            pc.phrase_ge != pc_was.phrase_ge)
-            perf_put(ui.part, &pc);
+        if (perf_differs(&pc, &pc_was)) perf_put(ui.part, &pc);
         dirty = 1;
     }
     fm1_engine_resume();

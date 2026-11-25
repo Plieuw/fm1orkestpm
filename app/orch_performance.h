@@ -43,6 +43,11 @@ struct orch_perf_config {
     uint8_t repeat;     /* phrase echoes, 0..3 */
     uint8_t velocity_groove; /* 0..7 */
     uint8_t gate_groove;     /* 0..7 */
+    /* 0.6.0 */
+    uint8_t arp_order;       /* 0 by pitch, 1 as played */
+    uint8_t arp_adaptive;    /* 1: the octave span follows how busily the player plays */
+    uint8_t ratchet;         /* 1..4 hits a step */
+    uint8_t strum;           /* ms between the notes of a chord step, 0..40 */
 };
 
 struct orch_perf_event {

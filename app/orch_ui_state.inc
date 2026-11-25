@@ -109,6 +109,53 @@ static void recall_scene(unsigned index)
     apply_tempo(orch_scene_bpm(index));
 }
 
+/* --- the ARP page's five banks ------------------------------------------ */
+
+static int perf_differs(const struct orch_perf_config *a, const struct orch_perf_config *b)
+{
+    const uint8_t *x = (const uint8_t *)a, *y = (const uint8_t *)b;
+    for (unsigned i = 0; i < sizeof *a; ++i) if (x[i] != y[i]) return 1;
+    return 0;
+}
+
+static int pct_delta(int delta);
+
+/* One knob (0..3) of the ARP page, by bank. */
+static void arp_knob(struct orch_perf_config *pc, unsigned knob, int delta, int step)
+{
+    switch (ui.arp_bank * 4U + knob) {
+    case 0: pc->arp_type = (uint8_t)step_wrap((int)pc->arp_type, step, (int)ORCH_PERF_ARP_TYPES); break;
+    case 1: pc->division = (uint8_t)step_range((int)pc->division, step, 0, (int)ORCH_PERF_DIVISIONS - 1); break;
+    case 2: pc->gate = (uint8_t)step_range((int)pc->gate, pct_delta(delta) * 5, 5, 100); break;
+    case 3:   /* the phrase: off, then the 46 generated phrases */
+        if (!pc->phrase_enabled) {
+            if (step > 0) { pc->phrase_enabled = 1U; pc->phrase_ge = 0U; }
+        } else {
+            const int ge = (int)pc->phrase_ge + step;
+            if (ge < 0) pc->phrase_enabled = 0U;
+            else pc->phrase_ge = (uint8_t)(ge >= (int)ORCH_PERF_GE_COUNT ? (int)ORCH_PERF_GE_COUNT - 1 : ge);
+        }
+        break;
+    case 4: pc->swing = (uint8_t)step_range((int)pc->swing, pct_delta(delta) * 6, 0, 127); break;
+    case 5: pc->ratchet = (uint8_t)step_range((int)pc->ratchet, step, 1, 4); break;
+    case 6: pc->strum = (uint8_t)step_range((int)pc->strum, pct_delta(delta) * 2, 0, 40); break;
+    case 7: pc->latch = (uint8_t)(step > 0); break;
+    case 8: pc->density = (uint8_t)step_range((int)pc->density, pct_delta(delta) * 6, 0, 127); break;
+    case 9: pc->range = (uint8_t)step_range((int)pc->range, step, 1, 4); break;
+    case 10: pc->cluster = (uint8_t)step_range((int)pc->cluster, step, 1, 4); break;
+    case 11: pc->accent = (uint8_t)step_range((int)pc->accent, pct_delta(delta) * 6, 0, 127); break;
+    case 12: pc->arp_order = (uint8_t)(step > 0); break;
+    case 13: pc->arp_adaptive = (uint8_t)(step > 0); break;
+    case 14: pc->external_clock = (uint8_t)(step > 0); break;
+    case 15: pc->repeat = (uint8_t)step_range((int)pc->repeat, step, 0, 3); break;
+    case 16: pc->velocity_groove = (uint8_t)step_wrap((int)pc->velocity_groove, step, 8); break;
+    case 17: pc->gate_groove = (uint8_t)step_wrap((int)pc->gate_groove, step, 8); break;
+    case 18: pc->quantize = (uint8_t)step_wrap((int)pc->quantize, step, 18); break;
+    case 19: pc->root = (uint8_t)step_wrap((int)pc->root, step, 13); break;
+    default: break;
+    }
+}
+
 static int clamp_percent(int v)
 {
     if (v < 0) return 0;

@@ -104,6 +104,11 @@ static uint32_t page_signature(void)
         sig = sig * 31U + pc.gate;
         sig = sig * 31U + pc.logic;
         sig = sig * 31U + pc.phrase_ge;
+        sig = sig * 31U + ui.arp_bank;
+        {
+            const uint8_t *b = (const uint8_t *)&pc;
+            for (unsigned i = 0; i < sizeof pc; ++i) sig = sig * 31U + b[i];
+        }
         break;
     }
     case PAGE_ENV:

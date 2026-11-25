@@ -142,7 +142,80 @@ static void test_contour_anchor_arp_starts_near_player(void)
     CHECK(first==67U);
 }
 
+/* Run an internal-clock ARP for `samples` and collect its note-ons. */
+static unsigned run_ons(unsigned part, uint32_t samples, unsigned *notes, unsigned cap)
+{
+    struct orch_perf_event e;
+    unsigned n=0U;
+    for (uint32_t t=0U;t<samples;++t) {
+        orch_perf_advance_sample(t);
+        while (orch_perf_pop_event(&e))
+            if (e.note_on && e.part==part) { if (n<cap) notes[n]=e.note; ++n; }
+    }
+    return n;
+}
+
+/* As played: the order of the keys, not of the pitches. */
+static void test_arp_as_played(void)
+{
+    struct orch_perf_config c;
+    unsigned got[8];
+    orch_perf_init(); orch_perf_default_config(&c);
+    c.arp_enabled=1U; c.arp_order=1U; c.arp_type=0U; c.division=7U; c.bpm=120U;
+    orch_perf_set_config(0U,&c);
+    orch_perf_note_event(0U,67U,100U);
+    orch_perf_note_event(0U,60U,100U);
+    orch_perf_note_event(0U,64U,100U);
+    const unsigned n=run_ons(0U,22050U,got,8U);
+    CHECK(n>=3U);
+    CHECK(got[0]==67U && got[1]==60U && got[2]==64U);
+    orch_perf_init(); c.arp_order=0U; orch_perf_set_config(0U,&c);
+    orch_perf_note_event(0U,67U,100U);
+    orch_perf_note_event(0U,60U,100U);
+    orch_perf_note_event(0U,64U,100U);
+    run_ons(0U,22050U,got,8U);
+    CHECK(got[0]==60U && got[1]==64U && got[2]==67U);
+}
+
+/* Ratchet: twice as many hits in the same time. */
+static void test_arp_ratchet(void)
+{
+    struct orch_perf_config c;
+    unsigned got[64];
+    orch_perf_init(); orch_perf_default_config(&c);
+    c.arp_enabled=1U; c.division=4U; c.bpm=120U;
+    orch_perf_set_config(0U,&c);
+    orch_perf_note_event(0U,60U,100U);
+    const unsigned one=run_ons(0U,44100U,got,64U);
+    orch_perf_init(); c.ratchet=2U; orch_perf_set_config(0U,&c);
+    orch_perf_note_event(0U,60U,100U);
+    const unsigned two=run_ons(0U,44100U,got,64U);
+    CHECK(one>=3U);
+    CHECK(two>=2U*one-1U && two<=2U*one+1U);
+}
+
+/* Without the adaptive span a two-octave type stays within two octaves,
+ * however busy the player is. */
+static void test_arp_fixed_span(void)
+{
+    struct orch_perf_config c;
+    unsigned got[64];
+    orch_perf_init(); orch_perf_default_config(&c);
+    c.arp_enabled=1U; c.arp_type=1U; c.division=9U; c.bpm=200U;
+    orch_perf_set_config(0U,&c);
+    for (unsigned k=0;k<6U;++k) { orch_perf_note_event(0U,60U+k,127U); orch_perf_note_event(0U,60U+k,0U); }
+    orch_perf_note_event(0U,60U,127U);
+    orch_perf_note_event(0U,64U,127U);
+    const unsigned n=run_ons(0U,44100U,got,64U);
+    unsigned top=0U;
+    for (unsigned i=0;i<n&&i<64U;++i) if (got[i]>top) top=got[i];
+    CHECK(n>0U && top<=64U+12U);
+}
+
 int main(void) {
+    test_arp_as_played();
+    test_arp_ratchet();
+    test_arp_fixed_span();
     test_arp_capture_and_release(); test_phrase_generator(); test_latch_and_clock_stop();
     test_all_pattern_slots(); test_adaptive_contour_changes_arp_direction(); test_contour_anchor_arp_starts_near_player(); test_phrase_arc_has_peak_and_cadence();
     if(failures){printf("%u performance test(s) failed\n",failures);return 1;}

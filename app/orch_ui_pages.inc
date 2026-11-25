@@ -10,27 +10,80 @@ static const char *fx_sync_name(unsigned percent)
     return "1/16";
 }
 
-static void page_knobs(void)
+/* The ARP page's knob cells, by bank (PRESETS turns the bank over). */
+static void arp_cells(unsigned part)
 {
-    const struct orch_part *part = orch_part_get(ui.part);
-    switch (ui.page) {
-    case PAGE_ARP: {
-        const struct orch_perf_config pc = perf_of(ui.part);
+    const struct orch_perf_config pc = perf_of(part);
+    char num[4][8];
+    switch (ui.arp_bank) {
+    case 1:   /* FEEL */
+        {
+            unsigned n = 0;
+            n = put_num(num[0], 0, 8, (unsigned)pc.swing * 33U / 127U, 1U);
+            put(num[0], n, 8, "%");
+        }
+        cell_text(0, "SWING", num[0], pc.swing * 100U / 127U, pc.swing != 0U);
+        cell_number(1, "RATCH", (int)pc.ratchet, 1, 4);
+        {
+            unsigned n = put_num(num[2], 0, 8, pc.strum, 1U);
+            put(num[2], n, 8, "MS");
+        }
+        cell_text(2, "STRUM", num[2], pc.strum * 100U / 40U, pc.strum != 0U);
+        cell_text(3, "LATCH", pc.latch ? "ON" : "OFF", pc.latch ? 100U : 0U, pc.latch);
+        break;
+    case 2:   /* PHRASE */
+        cell_number(0, "DENSITY", (int)pc.density, 0, 127);
+        cell_number(1, "RANGE", (int)pc.range, 1, 4);
+        cell_number(2, "CLUSTER", (int)pc.cluster, 1, 4);
+        cell_number(3, "ACCENT", (int)pc.accent, 0, 127);
+        break;
+    case 3:   /* ORDER */
+        cell_text(0, "ORDER", pc.arp_order ? "PLAYED" : "PITCH", pc.arp_order ? 100U : 0U, 1);
+        cell_text(1, "SPAN", pc.arp_adaptive ? "ADAPT" : "FIXED", pc.arp_adaptive ? 100U : 0U, 1);
+        cell_text(2, "CLOCK", pc.external_clock ? "MIDI" : "INT", pc.external_clock ? 100U : 0U, 1);
+        cell_number(3, "REPEAT", (int)pc.repeat, 0, 3);
+        break;
+    case 4: { /* GROOVE */
+        static const char *const roots[13] = {
+            "AUTO", "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"
+        };
+        cell_number(0, "V.GROOVE", (int)pc.velocity_groove, 0, 7);
+        cell_number(1, "G.GROOVE", (int)pc.gate_groove, 0, 7);
+        if (pc.quantize == 0U) cell_text(2, "QUANT", "OFF", 0U, 0);
+        else if (pc.quantize == 1U) cell_text(2, "QUANT", "CHORD", 6U, 1);
+        else if (pc.quantize == 2U) cell_text(2, "QUANT", "AUTO", 12U, 1);
+        else {
+            unsigned n = put(num[2], 0, 8, "SCL ");
+            put_num(num[2], n, 8, pc.quantize - 2U, 1U);
+            cell_text(2, "QUANT", num[2], pc.quantize * 100U / 17U, 1);
+        }
+        cell_text(3, "ROOT", roots[pc.root % 13U], pc.root * 100U / 12U, pc.root != 0U);
+        break;
+    }
+    default:  /* PLAY */
         cell_text(0, "TYPE", arp_type_name(pc.arp_type),
                   pc.arp_type * 100U / (ORCH_PERF_ARP_TYPES - 1U), pc.arp_enabled);
         cell_text(1, "RATE", div_name(pc.division),
                   pc.division * 100U / (ORCH_PERF_DIVISIONS - 1U), 1);
         cell_number(2, "GATE", (int)pc.gate, 5, 100);
         if (pc.phrase_enabled) {
-            char ge[8];
-            unsigned n = put(ge, 0, sizeof ge, "GE ");
-            put_num(ge, n, sizeof ge, pc.phrase_ge + 1U, 1U);
-            cell_text(3, "PHRASE", ge, pc.phrase_ge * 100U / (ORCH_PERF_GE_COUNT - 1U), 1);
+            unsigned n = put(num[3], 0, 8, "GE ");
+            put_num(num[3], n, 8, pc.phrase_ge + 1U, 1U);
+            cell_text(3, "PHRASE", num[3], pc.phrase_ge * 100U / (ORCH_PERF_GE_COUNT - 1U), 1);
         } else {
             cell_text(3, "PHRASE", "OFF", 0U, 0);
         }
         break;
     }
+}
+
+static void page_knobs(void)
+{
+    const struct orch_part *part = orch_part_get(ui.part);
+    switch (ui.page) {
+    case PAGE_ARP:
+        arp_cells(ui.part);
+        break;
     case PAGE_SEQ: {
         const struct orch_step_note *note = &seq_notes[ui.seq_step][0];
         cell_number(0, "VEL", (int)note->velocity, 1, 127);
@@ -189,6 +242,9 @@ static void page_arp(void)
                          : pc.phrase_enabled ? logic[pc.logic % ORCH_PERF_LOGIC_COUNT]
                          : arp_type_name(type);
         text(SW - 12U - span(word) - 6U, BODY_Y + 6U, word, C_DIM, C_CARD, 60U);
+        /* which bank the knobs hold, in the middle: PRESETS turns it over */
+        text(SW / 2U - span(arp_bank_name(ui.arp_bank)) / 2U, BODY_Y + 6U,
+             arp_bank_name(ui.arp_bank), C_AMBER, C_CARD, 60U);
     }
 }
 

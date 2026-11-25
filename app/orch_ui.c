@@ -80,12 +80,13 @@ enum { PAGE_HOME = 0, PAGE_ARP, PAGE_SEQ, PAGE_GLO, PAGE_FX, PAGE_ENV, PAGE_LFO,
 
 enum { SCALE_OFF = 0, SCALE_MAJOR, SCALE_MINOR, SCALE_PENTA, SCALE_COUNT };
 
-/* "OR50": the 0.5.0 record. The 0.4.0 one ("ORCH") held four parts and the
+/* "OR60": the 0.6.0 record (0.5.0's "OR50" had a shorter ARP block and is
+ * not read). "OR50" was the 0.5.0 record. The 0.4.0 one ("ORCH") held four parts and the
  * 0.4.0 arpeggiator's settings, so it is not read: a 0.4.0 record was never
  * written on an FM-1 (that line ran in the browser only). New blocks are
  * appended after `check` with their own FNV-1a, as the FX and the listener
  * were in 0.4.0, so a later panel can still load this one. */
-#define SAVE_MAGIC 0x3035524FUL /* "OR50" */
+#define SAVE_MAGIC 0x3036524FUL /* "OR60" */
 
 struct save_part {
     uint8_t family, instrument, articulation, players;
@@ -118,6 +119,7 @@ static struct {
     uint8_t page, part, seq_on, rec, seq_step, scale, saved, fx_sel, fx_bank;
     uint8_t scene;                    /* the factory scene last recalled */
     uint8_t save_req;                 /* SAVE pressed: written after the edits */
+    uint8_t arp_bank;                 /* which four ARP settings the knobs hold */
     int8_t transpose;
     uint16_t tempo;
     uint32_t buttons, keys;
@@ -247,6 +249,13 @@ static struct orch_perf_config perf_of(unsigned part)
 static void perf_put(unsigned part, const struct orch_perf_config *pc)
 {
     (void)orch_perf_set_config(part, pc);
+}
+
+#define ARP_BANKS 5U
+static const char *arp_bank_name(unsigned b)
+{
+    static const char *const names[ARP_BANKS] = { "PLAY", "FEEL", "PHRASE", "ORDER", "GROOVE" };
+    return b < ARP_BANKS ? names[b] : "?";
 }
 
 static const char *page_name(unsigned p)

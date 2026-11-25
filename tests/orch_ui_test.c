@@ -235,6 +235,22 @@ int main(void)
         CHECK(pc.gate == 90U);
         CHECK(pc.phrase_enabled == 1U && pc.phrase_ge == 0U);
         CHECK(pc.logic == ORCH_PERF_AND);
+        /* PRESETS turns the knobs over to the other banks: FEEL, PHRASE,
+         * ORDER, GROOVE, and back to PLAY */
+        turn(E_PRESET, 1);                /* FEEL */
+        turn(E_KNOB2, 1);                 /* ratchet 1 -> 2 */
+        turn(E_KNOB4, 1);                 /* latch on */
+        turn(E_PRESET, 1); turn(E_PRESET, 1);   /* ORDER */
+        turn(E_KNOB1, 1);                 /* as played */
+        turn(E_KNOB3, 1);                 /* MIDI clock */
+        turn(E_KNOB3, -1);                /* and back to the internal one */
+        orch_perf_get_config(2U, &pc);
+        CHECK(pc.ratchet == 2U);
+        CHECK(pc.latch == 1U);
+        CHECK(pc.arp_order == 1U);
+        CHECK(pc.external_clock == 0U);
+        CHECK(orch_part_get(2)->instrument == ORCH_INST_PICCOLO);  /* not stepped */
+        turn(E_PRESET, 1); turn(E_PRESET, 1);   /* GROOVE, then PLAY */
         turn(E_KNOB4, -1);                /* and goes off again */
         press(B_ARP);
         orch_perf_get_config(2U, &pc);
