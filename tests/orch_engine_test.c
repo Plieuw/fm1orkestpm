@@ -131,6 +131,53 @@ static void test_string_pitch_autocorrelation(void)
     orch_init();
 }
 
+/* The period of a held note, refined between lags (parabolic), in samples. */
+static double held_period(unsigned family, unsigned note, unsigned lo, unsigned hi)
+{
+    static int32_t cap[12288];
+    solo_part(family);
+    midi(0x90U, note, 100U);
+    for (unsigned b = 0; b < 96U; ++b) {
+        memset(block, 0, sizeof block);
+        orch_render_q23(block, 128U);
+        for (unsigned i = 0; i < 128U; ++i) cap[b * 128U + i] = block[i * 2U] >> 8;
+    }
+    double best = -1e300, sc[3] = { 0, 0, 0 };
+    unsigned bl = lo;
+    for (unsigned lag = lo; lag <= hi; ++lag) {
+        double score = 0;
+        for (unsigned n = 4096U; n < 12288U - hi - 1U; ++n)
+            score += (double)cap[n] * cap[n + lag];
+        if (score > best) { best = score; bl = lag; }
+    }
+    for (int k = -1; k <= 1; ++k) {
+        double score = 0;
+        for (unsigned n = 4096U; n < 12288U - hi - 1U; ++n)
+            score += (double)cap[n] * cap[n + (unsigned)((int)bl + k)];
+        sc[k + 1] = score;
+    }
+    const double den = sc[0] - 2.0 * sc[1] + sc[2];
+    orch_init();
+    return (double)bl + (den != 0.0 ? 0.5 * (sc[0] - sc[2]) / den : 0.0);
+}
+
+/* E5 is 66.89 samples a period. 0.5.0 played every note at SR / whole
+ * (66.0, +23 c) because the fractional read went the wrong way and the
+ * wind/brass/voice oscillators divided by whole samples. 0.3 % is 5 cents. */
+static void test_high_register_tuning(void)
+{
+    static const unsigned fam[4] = {
+        ORCH_FAM_STRINGS, ORCH_FAM_WOODWINDS, ORCH_FAM_BRASS, ORCH_FAM_CHOIR
+    };
+    for (unsigned f = 0; f < 4U; ++f) {
+        const double p = held_period(fam[f], 76U, 62U, 72U);
+        CHECK(p > 66.89 * 0.997 && p < 66.89 * 1.003);
+    }
+    /* and the middle of the range, C4 = 168.56 samples */
+    const double c4 = held_period(ORCH_FAM_WOODWINDS, 60U, 160U, 176U);
+    CHECK(c4 > 168.56 * 0.997 && c4 < 168.56 * 1.003);
+}
+
 static void test_routing(void)
 {
     orch_init();
@@ -588,6 +635,7 @@ int main(void)
     test_instrument_level_compensation_bounds();
     test_round_trip_loss();
     test_string_pitch_autocorrelation();
+    test_high_register_tuning();
     test_routing();
     test_eight_part_routing();
     test_repeated_same_pitch_note_off_fifo();

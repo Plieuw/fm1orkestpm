@@ -833,8 +833,14 @@ static void voice_start(unsigned part, unsigned note, unsigned velocity,
         if (g > 2048U) g = 2048U;
         v->bow_gain = (uint16_t)g;
     }
-    v->excite_inc = ip->half_period ? (uint32_t)(0x7fffffffU / (uint32_t)(target >> 16))
-                                    : (uint32_t)(0xffffffffU / (uint32_t)(target >> 16));
+    /* The excitation oscillator (jet, lip, voice) runs one cycle a period:
+     * 2^32 / period, the period in Q16 samples (twice the loop for the
+     * half-period bores). 0.5.0 divided by the whole samples only, which
+     * pulled every wind, brass and choir note to SR/whole: +23 c at E5,
+     * measured. Note-on only, so the 64-bit divide is not in the sample loop. */
+    v->excite_inc = ip->half_period
+        ? (uint32_t)((1ULL << 47) / (target ? target : 1U))
+        : (uint32_t)((1ULL << 48) / (target ? target : 1U));
 
     /* a stroke ends by itself; a pluck rings with the gate already closed */
     v->stroke_left = prof.stroke_ms
@@ -1549,15 +1555,6 @@ static unsigned voice_tick(voice_t *v)
         if (modulated > 16) len = (uint32_t)modulated;
     }
 
-    uint32_t whole = len >> 16;
-    if (whole < 4U) whole = 4U;
-    if (whole > DELAY_SIZE - 4U) whole = DELAY_SIZE - 4U;
-    const uint32_t frac = (len >> 8) & 0xFFU;
-    const uint32_t i0 = (v->write + DELAY_SIZE - whole) & DELAY_MASK;
-    const uint32_t i1 = (i0 + 1U) & DELAY_MASK;
-    const int32_t s0 = v->delay[i0], s1 = v->delay[i1];
-    int32_t delayed = (s0 * (int32_t)(256U - frac) + s1 * (int32_t)frac) >> 8;
-
     /* Loop damping. A one-pole lowpass applied every sample would eat the
      * fundamental over a round trip (0.994^200 is 0.28), so the loop uses a
      * two-tap smoother instead: highs die within a round trip, the
@@ -1589,22 +1586,47 @@ static unsigned voice_tick(voice_t *v)
         excitation_gain_q15 = (excitation_gain_q15 * blend) >> 15;
         --v->legato_transition_left;
     }
-    int damp_value = v->damp ? v->damp : 2U;
-    damp_value += (transient_q15 >> 13) + (v->excite_follow >> 14);
-    if (damp_value > 6) damp_value = 6;
-    {
-        if (lfo_destinations & ORCH_LFO_BRIGHTNESS) {
-            const int bounded_depth = v->lfo_depth > 24U ? 24 : (int)v->lfo_depth;
-            const int shift = ((int)v->lfo_value * bounded_depth) / (32768 * 12);
-            damp_value += shift;
-            if (damp_value < 1) damp_value = 1;
-            if (damp_value > 6) damp_value = 6;
-        }
+    /* Loop damping as a first-order FIR, y = x - b (x - x[-1]): DC passes
+     * whole, Nyquist at 1 - 2b, and its delay at low frequencies is b
+     * samples. b moves continuously with the profile's damping, the attack
+     * transient, the energy follower and the LFO, where 0.5.0 had six fixed
+     * steps (0, 0.5 or 0.75) that changed the timbre in jumps. (A one-pole
+     * IIR would eat the fundamental over a round trip: measured fact 1 in
+     * docs/PARALLEL_WORK.md; this FIR keeps DC at unity.)
+     *
+     * damp_q8 is 1.0 dark .. 6.0 bright, in 1/256 steps. */
+    int32_t damp_q8 = (int32_t)(v->damp ? v->damp : 2U) << 8;
+    damp_q8 += (transient_q15 >> 5) + (v->excite_follow >> 6);
+    if (lfo_destinations & ORCH_LFO_BRIGHTNESS) {
+        const int bounded_depth = v->lfo_depth > 24U ? 24 : (int)v->lfo_depth;
+        damp_q8 += ((int32_t)v->lfo_value * bounded_depth) / (12 * 128);
     }
-    const unsigned damp = (unsigned)damp_value; /* 1 dark .. 6 bright */
-    int32_t smoothed = delayed;
-    if (damp <= 3U) smoothed = (delayed + v->lp) >> 1;
-    if (damp <= 2U) smoothed = (smoothed + v->lp) >> 1;
+    if (damp_q8 < 256) damp_q8 = 256;
+    if (damp_q8 > 1536) damp_q8 = 1536;
+    /* b in Q15: 0.75 at 1.0, 0.5 at 2.0, 0.25 at 3.0, none from 4.0 up */
+    int32_t b_q15 = damp_q8 >= 1024 ? 0 : ((1024 - damp_q8) * 32) ;
+    if (b_q15 > 24576) b_q15 = 24576;
+
+    /* The read: the loop's length is the note's period (per pass), less the
+     * filter's own delay b, so the pitch stays put while the filter moves.
+     * Linear interpolation between the sample `whole` back and the one before
+     * it. 0.5.0 read the newer neighbour, so the fraction shortened the loop
+     * instead of lengthening it: every note sounded at SR/whole, up to +26 c
+     * at E5 (measured, tests/run_measure.sh). */
+    {
+        const uint32_t comp = (uint32_t)b_q15 << 1;          /* Q16 samples */
+        len = len > comp + (4U << 16) ? len - comp : (4U << 16);
+    }
+    uint32_t whole = len >> 16;
+    if (whole < 4U) whole = 4U;
+    if (whole > DELAY_SIZE - 4U) whole = DELAY_SIZE - 4U;
+    const uint32_t frac = (len >> 8) & 0xFFU;
+    const uint32_t i0 = (v->write + DELAY_SIZE - whole) & DELAY_MASK;
+    const uint32_t i1 = (i0 + DELAY_SIZE - 1U) & DELAY_MASK;   /* one older */
+    const int32_t s0 = v->delay[i0], s1 = v->delay[i1];
+    int32_t delayed = (s0 * (int32_t)(256U - frac) + s1 * (int32_t)frac) >> 8;
+
+    int32_t smoothed = delayed - (((delayed - v->lp) * b_q15) >> 15);
     v->lp = delayed;
     v->out = smoothed;
     /* loop loss is calibrated per round trip at note start, not per sample:
