@@ -79,6 +79,8 @@ struct orch_adaptive {
     uint8_t vel_n;
     uint8_t density;
     uint8_t held_notes;       /* overlapping gates allow true legato connection */
+    uint8_t chord_tone;       /* the last note joined a chord (velocity: no reaction) */
+    struct orch_intent last;  /* the intent of the last note that was not a chord tone */
 };
 
 void orch_adaptive_init(struct orch_adaptive *a);
@@ -95,7 +97,14 @@ void orch_adaptive_note(struct orch_adaptive *a, struct orch_intent *out,
 void orch_adaptive_velocity(struct orch_adaptive *a, struct orch_intent *io,
                             unsigned velocity);
 
-void orch_adaptive_off(struct orch_adaptive *a, uint32_t now);
+/* A note-off. Returns the release multiplier (Q16) for that note: a long
+ * note let go at the end of a line rings out longer, a short one is damped
+ * sooner, 1.0 otherwise. */
+uint32_t orch_adaptive_off(struct orch_adaptive *a, uint32_t now);
+
+/* Notes that start within this many samples of the previous one while it is
+ * held are one chord: they share its intent and do not glide. */
+#define ORCH_CHORD_WINDOW ((uint32_t)(ORCH_ADAPTIVE_SR * 35U / 1000U))
 
 /* Resolve AUTO from the length class. */
 unsigned orch_adaptive_resolve(unsigned articulation, unsigned length_class);

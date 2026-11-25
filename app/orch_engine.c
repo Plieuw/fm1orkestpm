@@ -1016,11 +1016,17 @@ static void engine_note_off_part(unsigned part, unsigned note, unsigned sustain_
     uint32_t id = 0U;
     if (!part_note_pop_oldest(part, note, &id)) return;
     struct orch_part *cfg = orch_part_get(part);
-    if (cfg) orch_adaptive_off(&cfg->adaptive, sample_counter);
+    const uint32_t rel = cfg ? orch_adaptive_off(&cfg->adaptive, sample_counter)
+                             : (uint32_t)ORCH_Q16;
 
     for (unsigned i = 0; i < ORCH_MAX_VOICES; ++i) {
         voice_t *v = &voices[i];
         if (!v->active || v->part != part || v->note_id != id) continue;
+        if (rel != (uint32_t)ORCH_Q16 && v->gate) {
+            /* the phrase decides how this note ends (orch_adaptive_off) */
+            uint32_t f = (uint32_t)(((uint64_t)v->release_frames * rel) >> 16);
+            v->release_frames = f ? f : 1U;
+        }
         v->gate = 0U;
         if (!sustain_on) v->releasing = 1U;
     }

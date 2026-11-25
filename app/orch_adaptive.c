@@ -48,6 +48,8 @@ void orch_adaptive_init(struct orch_adaptive *a)
     a->vel_n = 0U;
     a->density = 2U;
     a->held_notes = 0U;
+    a->chord_tone = 0U;
+    a->last.energy = ORCH_Q16;
 }
 
 void orch_adaptive_reset_phrase(struct orch_adaptive *a)
@@ -90,6 +92,27 @@ void orch_adaptive_note(struct orch_adaptive *a, struct orch_intent *out,
 
     const uint32_t gap = a->have_off ? (now - a->off_now) : DEFAULT_GAP;
     const uint32_t ioi = a->have_prev ? (now - a->last_on) : a->ioi_avg;
+
+    /* --- a chord ------------------------------------------------------------
+     * Keys pressed together arrive a few milliseconds apart. 0.5.0 took each
+     * as the next note of a legato line: the upper tones glided in from the
+     * root (30 ms), the divisi jumped to four, the energy rose with the
+     * interval, and the near-zero interval dragged the tempo estimate down
+     * until every phrase read as fast spiccato (measured: one chord a second
+     * gave an average of 227 ms). A chord tone now takes the chord's intent
+     * and leaves the phrase history alone. */
+    if (a->have_prev && a->held_notes > 0U && ioi < ORCH_CHORD_WINDOW) {
+        *out = a->last;
+        out->connected = 0U;
+        out->glide_ms = 0U;
+        out->phrase_start = 0U;
+        out->new_high = 0U;
+        if (a->held_notes < 255U) ++a->held_notes;
+        a->chord_tone = 1U;
+        (void)velocity;
+        return;
+    }
+    a->chord_tone = 0U;
 
     /* --- phrase continuity ------------------------------------------------ */
     const int rest = gap > SEC(0.25) && gap > (a->ioi_avg * 3U) / 5U &&
@@ -217,15 +240,32 @@ void orch_adaptive_note(struct orch_adaptive *a, struct orch_intent *out,
         att = (int32_t)mul_q16((uint32_t)att, SQRT[i < 8U ? i : 7U]);
     }
 
+    /* how hard the note is played, not only how much harder than the last
+     * (orch_adaptive_velocity): x0.85 at pianissimo .. x1.15 at fortissimo.
+     * Without it a soft line read as heavily as a loud one once its
+     * velocity stopped changing. */
+    if (velocity <= 127U)
+        e = (int32_t)(((int64_t)e * (55705 + (int32_t)velocity * 155)) >> 16);
+
     e = clamp_i32(e, 39322, 95027);     /* 0.60 .. 1.45 */
     att = clamp_i32(att, 39322, 104858); /* 0.6 .. 1.6 */
     vib = clamp_i32(vib, 9830, 104858);  /* 0.15 .. 1.6 */
     acc = clamp_i32(acc, 32768, 163840); /* 0.5 .. 2.5 */
 
-    /* divisi density follows the phrase, as an arranger writes it */
+    /* Divisi density follows the line's weight, as an arranger writes it:
+     * one desk for a quiet line, all four at a climax, at most one desk more
+     * or less a note. 0.5.0 added a desk every note, so every phrase sat at
+     * four after its third note whatever it did. Fast notes stay leaner
+     * (a section cannot articulate them as one), and the register thins out
+     * at the top, where four desks crowd the pool for little sound. */
     {
-        int d = new_phrase ? 2 : (int)a->density + 1;
-        if (new_high && interval >= 3) ++d;
+        int target = e < 52429 ? 1 : (e < 62259 ? 2 : (e < 72090 ? 3 : 4));
+        if (new_high && interval >= 3) ++target;
+        if (length_class == ORCH_LEN_FAST && target > 2) target = 2;
+        if (note >= 84U && target > 2) target = 2;
+        int d = new_phrase ? target
+              : (target > (int)a->density ? (int)a->density + 1
+                 : (target < (int)a->density ? (int)a->density - 1 : (int)a->density));
         if (d < 1) d = 1;
         if (d > (int)ORCH_DIVISI_MAX) d = (int)ORCH_DIVISI_MAX;
         a->density = (uint8_t)d;
@@ -264,14 +304,14 @@ void orch_adaptive_note(struct orch_adaptive *a, struct orch_intent *out,
     if (a->idx < 255U) ++a->idx;
     a->last_on = now;
     if (a->held_notes < 255U) ++a->held_notes;
-
-    (void)velocity;
+    a->last = *out;
 }
 
 void orch_adaptive_velocity(struct orch_adaptive *a, struct orch_intent *io,
                             unsigned velocity)
 {
     if (!a || !io || velocity > 127U) return;
+    if (a->chord_tone) return;   /* it carries the chord's reaction already */
     const int32_t vel = (int32_t)(velocity * 2U); /* Q8, 0..254 */
     const int32_t dv = a->vel_n ? vel - (int32_t)a->vel_avg : 0;
     if (a->vel_n) a->vel_avg = (uint16_t)(((int32_t)a->vel_avg * 3 + vel) / 4);
@@ -291,12 +331,25 @@ void orch_adaptive_velocity(struct orch_adaptive *a, struct orch_intent *io,
     /* a clearly harder note opens the divisi one part, a softer one closes it */
     if (dv > 38 && io->density < ORCH_DIVISI_MAX) ++io->density;
     else if (dv < -38 && io->density > 1U) --io->density;
+    a->last = *io;
 }
 
-void orch_adaptive_off(struct orch_adaptive *a, uint32_t now)
+uint32_t orch_adaptive_off(struct orch_adaptive *a, uint32_t now)
 {
-    if (!a) return;
+    if (!a) return ORCH_Q16;
     a->off_now = now;
     a->have_off = 1U;
     if (a->held_notes) --a->held_notes;
+
+    /* How the note ends: the last note of a line held well past the beat is
+     * the end of a phrase, and a player lets it ring (x1.5); a note let go
+     * early in its beat is detached, and is stopped sooner (x0.75). Only once
+     * nothing else of the part is held: inside a legato line the release
+     * belongs to the next note. */
+    if (a->held_notes || !a->have_prev) return ORCH_Q16;
+    const uint32_t gate = now - a->last_on;
+    const uint32_t beat = a->ioi_avg ? a->ioi_avg : DEFAULT_IOI;
+    if (gate > (beat * 3U) / 2U && gate > SEC(0.4)) return (ORCH_Q16 * 3U) / 2U;
+    if (gate < (beat * 2U) / 5U && a->n_hist >= 2U) return (ORCH_Q16 * 3U) / 4U;
+    return ORCH_Q16;
 }

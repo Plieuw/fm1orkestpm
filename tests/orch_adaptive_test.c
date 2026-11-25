@@ -144,6 +144,78 @@ static void test_pinned_articulation(void)
     CHECK(in.articulation == ORCH_ART_PONTICELLO);
 }
 
+/* Three keys of a chord, 10 ms apart: one intent, no glide, and the tempo
+ * estimate is the chords' (1 s), not the keys' spacing. */
+static void test_chord(void)
+{
+    struct orch_adaptive a;
+    struct orch_intent in, root;
+    orch_adaptive_init(&a);
+    for (unsigned c = 0; c < 4U; ++c) {
+        const uint32_t at = c * SR;
+        static const unsigned tones[3] = { 60U, 64U, 67U };
+        for (unsigned k = 0; k < 3U; ++k) {
+            play(&a, &in, tones[k] + c, 90U, at + k * (SR / 100U), ORCH_ART_AUTO);
+            if (k == 0U) root = in;
+            else {
+                CHECK(in.connected == 0U);
+                CHECK(in.glide_ms == 0U);
+                CHECK(in.energy == root.energy);
+                CHECK(in.density == root.density);
+                CHECK(in.articulation == root.articulation);
+            }
+        }
+        for (unsigned k = 0; k < 3U; ++k) orch_adaptive_off(&a, at + SR - SR / 20U);
+    }
+    CHECK(a.ioi_avg > SR / 2U);
+}
+
+/* The divisi follows the weight of the line: a soft, even line stays lean,
+ * a climbing forte line opens up, and it never jumps by more than a desk. */
+static void test_density_follows_weight(void)
+{
+    struct orch_adaptive a;
+    struct orch_intent in;
+    unsigned prev = 0U, top = 0U;
+    orch_adaptive_init(&a);
+    for (unsigned i = 0; i < 12U; ++i) {
+        play(&a, &in, 60U, 30U, i * (SR / 2U), ORCH_ART_AUTO);
+        orch_adaptive_off(&a, i * (SR / 2U) + SR / 3U);
+        if (prev) CHECK(in.density + 1U >= prev && in.density <= prev + 1U);
+        prev = in.density;
+    }
+    CHECK(in.density <= 2U);                 /* soft and flat: no tutti */
+    orch_adaptive_init(&a);
+    for (unsigned i = 0; i < 8U; ++i) {
+        play(&a, &in, 55U + 3U * i, 120U, i * (SR / 2U), ORCH_ART_AUTO);
+        orch_adaptive_off(&a, i * (SR / 2U) + SR / 3U);
+        if (in.density > top) top = in.density;
+    }
+    CHECK(top >= 3U);                        /* a climbing forte line opens up */
+}
+
+/* A held last note rings out; a short detached one is stopped sooner. */
+static void test_release_follows_ending(void)
+{
+    struct orch_adaptive a;
+    struct orch_intent in;
+    orch_adaptive_init(&a);
+    for (unsigned i = 0; i < 4U; ++i) {
+        play(&a, &in, 60U + i, 80U, i * (SR / 2U), ORCH_ART_AUTO);
+        if (i < 3U)
+            CHECK(orch_adaptive_off(&a, i * (SR / 2U) + SR / 4U) == (uint32_t)ORCH_Q16);
+    }
+    CHECK(orch_adaptive_off(&a, 3U * (SR / 2U) + SR * 2U) > (uint32_t)ORCH_Q16);
+
+    orch_adaptive_init(&a);
+    uint32_t last = ORCH_Q16;
+    for (unsigned i = 0; i < 6U; ++i) {
+        play(&a, &in, 60U, 80U, i * (SR / 2U), ORCH_ART_AUTO);
+        last = orch_adaptive_off(&a, i * (SR / 2U) + SR / 20U);
+    }
+    CHECK(last < (uint32_t)ORCH_Q16);
+}
+
 int main(void)
 {
     test_first_note();
@@ -153,6 +225,9 @@ int main(void)
     test_velocity_reaction();
     test_density();
     test_pinned_articulation();
+    test_chord();
+    test_density_follows_weight();
+    test_release_follows_ending();
     if (failures) { printf("%u adaptive test(s) failed\n", failures); return 1; }
     printf("orch_adaptive: all checks passed\n");
     return 0;
