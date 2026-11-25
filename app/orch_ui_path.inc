@@ -17,8 +17,8 @@ struct vpath {
     int16_t x[VP_MAX], y[VP_MAX];
 };
 
-static struct vpath vp;        /* the path being built */
-static struct vpath vp_out;    /* the outline of a stroke, built from vp */
+static struct vpath vp ORCH_UI_DATA;      /* the path being built */
+static struct vpath vp_out ORCH_UI_DATA;  /* the outline of a stroke, built from vp */
 
 /* 256ths of a turn from twelve o'clock, in 1/64ths of the radius. */
 static const int8_t dir_x[32] = {

@@ -303,7 +303,11 @@ void orch_ui_control(void)
     fm1_controls_read(&controls);
     orch_ui_handle(&controls);
 
-    if (ui.chord_left && (int32_t)(now - ui.chord_off_at) >= 0) release_chord();
+    if (ui.chord_left && (int32_t)(now - ui.chord_off_at) >= 0) {
+        fm1_engine_pause();
+        release_chord();
+        fm1_engine_resume();
+    }
     update_meters();
 
     /* Three things can change: the page's settings, the values that move on
@@ -326,6 +330,22 @@ void orch_ui_control(void)
         patch_strip();
         drawn_strip = strip;
     }
+}
+
+/* Someone else had the screen (the firmware's update countdown): paint the
+ * whole panel again, the hall and the pictures included. */
+void orch_ui_repaint(void)
+{
+    hall_static = 0;
+    page_pic_page = 0xFFU;
+    page_pic_static = 0;
+    fm1_screen_fill(0, 0, SW, SW, C_BG);
+    draw_title();
+    draw_page();
+    drawn_signature = page_signature();
+    drawn_live = page_live_signature();
+    drawn_strip = strip_signature();
+    update_leds();
 }
 
 unsigned orch_ui_part(void) { return ui.part; }

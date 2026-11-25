@@ -14,6 +14,8 @@
 #include "orch_engine.h"
 #include "orch_fx.h"
 #include "orch_hawk_bridge.h"
+#include "orch_level.h"
+#include "orch_ui.h"
 
 #define ORCH_HAWK_CHUNK_FRAMES 32U
 static int32_t q23_scratch[ORCH_HAWK_CHUNK_FRAMES * 2U];
@@ -32,11 +34,16 @@ void orch_hawk_init(void)
     orch_fx_init();
 }
 
-/* HAWK synth_render() replacement: output is interleaved L/R signed Q15. */
-void orch_hawk_render_q15(int32_t *output, uint32_t frames)
+/* HAWK synth_render() replacement: output is interleaved L/R signed Q15.
+ * master_q12 is HAWK's MASTER pot (0..4096, its square law, main.c), which
+ * HAWK's own synth applied in synth_render(); the panel's level light reads
+ * what leaves after it, as on the FM1 Core build. No 64-bit divide: the gain
+ * is a multiply and a shift. */
+void orch_hawk_render_q15(int32_t *output, uint32_t frames, uint32_t master_q12)
 {
     uint32_t offset = 0U;
     if (!output) return;
+    if (master_q12 > 4096U) master_q12 = 4096U;
 
     while (offset < frames) {
         uint32_t count = frames - offset;
@@ -45,8 +52,12 @@ void orch_hawk_render_q15(int32_t *output, uint32_t frames)
 
         orch_render_q23(q23_scratch, count);
         orch_fx_process(q23_scratch, count);
-        for (uint32_t i = 0U; i < count * 2U; ++i)
+        for (uint32_t i = 0U; i < count * 2U; ++i) {
+            /* Q23 x Q12 in 64 bits, then back to Q23: a multiply, no divide */
+            q23_scratch[i] = (int32_t)(((int64_t)q23_scratch[i] * (int32_t)master_q12) >> 12);
             output[offset * 2U + i] = q23_to_q15(q23_scratch[i]);
+        }
+        orch_level_take(q23_scratch, count * 2U);
         offset += count;
     }
 }
@@ -60,6 +71,18 @@ void orch_hawk_note_event(uint8_t channel, uint8_t note, uint8_t velocity)
         (uint8_t)(velocity & 127U)
     };
     orch_midi_short_message(message, 3U);
+}
+
+/* Any MIDI 1.0 channel or realtime message HAWK's rings hand over. */
+void orch_hawk_midi_message(uint8_t status, uint8_t d1, uint8_t d2)
+{
+    if (status >= 0xF8U) {
+        orch_midi_realtime((unsigned)status);
+        return;
+    }
+    const uint8_t message[3] = { status, (uint8_t)(d1 & 127U), (uint8_t)(d2 & 127U) };
+    const unsigned kind = status & 0xF0U;
+    orch_midi_short_message(message, (kind == 0xC0U || kind == 0xD0U) ? 2U : 3U);
 }
 
 void orch_hawk_control_change(uint8_t channel, uint8_t controller, uint8_t value)

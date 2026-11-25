@@ -18,6 +18,7 @@ extern volatile uint32_t orch_ui_master_q23;
 void orch_ui_init(void);       /* engine must already be initialised */
 void orch_ui_control(void);    /* call from groove_screen_control() */
 void orch_ui_handle(const struct fm1_controls *controls);
+void orch_ui_repaint(void);    /* after another owner had the screen */
 
 /* Octave transpose and scale quantisation, applied by the note paths in
  * fm1_app.c. Returns -1 when the result leaves the MIDI range. */

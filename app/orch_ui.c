@@ -132,7 +132,12 @@ static struct {
  * screen shows this mirror. */
 static struct orch_step_note seq_notes[ORCH_SEQ_STEPS][SEQ_SLOTS];
 
-static uint16_t text_buf[SW * 8U];
+/* Platforms with a tight RAM section can place the panel's two big buffers
+ * elsewhere (the HAWK firmware build puts them in its .pool). */
+#ifndef ORCH_UI_DATA
+#define ORCH_UI_DATA
+#endif
+static uint16_t text_buf[SW * 8U] ORCH_UI_DATA;
 static uint8_t shown_voices[ORCH_PARTS];
 static uint32_t next_scan;
 static uint32_t drawn_signature;   /* the page's own settings, as last drawn */

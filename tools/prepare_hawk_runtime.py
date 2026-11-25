@@ -2,7 +2,10 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Prepare a pinned HAWK CHUA/Felucca checkout for the FM1 Orchestral Engine.
 
-This is a source overlay, not a firmware builder. Run from the orchestral repo:
+This is a source overlay, not a firmware builder. Since 0.5.0 it replaces
+HAWK's synth, keyboard path and screen with the orchestral engine and the
+orchestral panel (app/orch_ui.c), and keeps HAWK's boot, watchdog, USB/TRS
+MIDI, storage, OTA update entry and UBOOT combination. Run from the orchestral repo:
   python3 tools/prepare_hawk_runtime.py /path/to/hawk-chua
 
 The HAWK checkout must be clean and at the reviewed stable commit. The script
@@ -14,13 +17,13 @@ import subprocess
 import sys
 
 EXPECTED = "e750df6a2e13490a4f01b84d3f9c553f4612163f"
-FILES = (
-    "orch_adaptive.c", "orch_adaptive.h",
-    "orch_divisi.c", "orch_divisi.h",
-    "orch_engine.c", "orch_engine.h",
-    "orch_part.c", "orch_part.h",
-    "orch_performance.c", "orch_performance.h",
-    "orch_fx.c", "orch_fx.h",
+# Compiled as their own units (tools/build.py patch below), not amalgamated into
+# felucca.c: the panel and the engine have static names of their own (ui, text,
+# card, B_FX, ...) that would collide with HAWK's in one translation unit.
+RUNTIME = (
+    "fm1.h", "fm1_engine_control.h", "orch_hawk_hw.h",
+    "orch_hawk_bridge.c", "orch_hawk_bridge.h", "orch_hawk_panel.c",
+    "orch_hawk_glue.c",          # the one file that is included into felucca.c
 )
 
 def replace_once(path: Path, old: str, new: str) -> None:
@@ -63,120 +66,70 @@ def main() -> None:
         "    if (!fl_emulated() && !fl_id_ok(FL_FAR(fl_jedec_ram)())) return -5; /* refuse unsupported physical flash */\n"
         "    while (n) {\n")
 
-    app = Path(__file__).resolve().parents[1] / "app"
+    repo = Path(__file__).resolve().parents[1]
+    app = repo / "app"
+    runtime = repo / "runtime" / "hawk"
     dst = fw / "orchestra"
     dst.mkdir(exist_ok=True)
-    for name in FILES:
-        src = app / name
+    sources = sorted(p for p in app.glob("orch_*") if p.suffix in (".c", ".h", ".inc"))
+    if not any(p.name == "orch_ui.c" for p in sources):
+        raise SystemExit(f"missing orchestral sources in {app}")
+    for src in sources:
+        shutil.copy2(src, dst / src.name)
+    for name in RUNTIME:
+        src = runtime / name
         if not src.is_file():
-            raise SystemExit(f"missing orchestral source: {src}")
+            raise SystemExit(f"missing runtime source: {src}")
         shutil.copy2(src, dst / name)
 
-    (dst / "fm1.h").write_text(
-        "/* SPDX-License-Identifier: GPL-3.0-or-later */\n"
-        "#ifndef ORCH_HAWK_FM1_COMPAT_H\n"
-        "#define ORCH_HAWK_FM1_COMPAT_H\n"
-        "/* The engine only uses this placement macro in its HAWK port. */\n"
-        "#define FM1_AUDIO_CODE\n"
-        "#define FM1_AUDIO_DATA __attribute__((section(\".pool\")))\n"
-        "#endif\n"
-    )
-    shutil.copy2(Path(__file__).resolve().parents[1] /
-                 "runtime" / "hawk" / "orch_hawk_bridge.c", dst / "orch_hawk_bridge.c")
-    shutil.copy2(Path(__file__).resolve().parents[1] /
-                 "runtime" / "hawk" / "orch_hawk_bridge.h", dst / "orch_hawk_bridge.h")
+    # Build: every orchestra/*.c except the glue is its own object, linked
+    # beside felucca.o. They take HAWK's own flags (-Os, -fno-builtin; memset
+    # and memcpy come from felucca's libc.c at link time).
+    build = root / "tools" / "build.py"
+    replace_once(build,
+        '    (OUT / "fm1_cpu1.o").unlink(missing_ok=True)\n',
+        '    orch_src = sorted(p for p in (FW / "src" / "orchestra").glob("*.c") if p.name != "orch_hawk_glue.c")\n'
+        '    orch_obj = [OUT / ("orch_" + p.stem + ".o") for p in orch_src]\n'
+        '    orch_cc = [("cc", *flags, "-Ifirmware/src/orchestra", "-c", p, "-o", o) for p, o in zip(orch_src, orch_obj)]\n'
+        '    (OUT / "fm1_cpu1.o").unlink(missing_ok=True)\n')
+    replace_once(build, "           cmain)\n", "           *orch_cc, cmain)\n")
+    replace_once(build, 'OUT / "felucca.o", "-o", elf)', 'OUT / "felucca.o", *orch_obj, "-o", elf)')
 
     felucca = fw / "felucca.c"
     replace_once(felucca,
-        '#include "synth.c"\n#include "keys.c"\n#include "audio.c"\n',
-        '#include "synth.c"\n'
-        '#include "orchestra/orch_adaptive.c"\n'
-        '#include "orchestra/orch_divisi.c"\n'
-        '#include "orchestra/orch_part.c"\n'
-        '/* Felucca is an amalgamated translation unit. Isolate private names. */\n'
-        '#define parts orch_perf_parts\n'
-        '#include "orchestra/orch_performance.c"\n'
-        '#undef parts\n'
-        '#define voice_t orch_voice_t\n'
-        '#define rng orch_rng_state\n'
-        '#include "orchestra/orch_engine.c"\n'
-        '#undef rng\n'
-        '#undef voice_t\n'
-        '#include "orchestra/orch_fx.c"\n'
-        '#include "orchestra/orch_hawk_bridge.c"\n'
-        '#include "keys.c"\n#include "audio.c"\n')
+        '#include "keys.c"\n#include "audio.c"\n',
+        '#include "keys.c"\n'
+        '/* FM1 Orchestral Engine: the audio block runs the orchestra (orchestra/orch_hawk_glue.c) */\n'
+        '#include "orchestra/orch_hawk_bridge.h"\n'
+        'static void orch_hawk_keys_block(void);\n'
+        '#include "audio.c"\n')
+    replace_once(felucca,
+        '#include "ui.c"\n',
+        '#include "orchestra/orch_hawk_glue.c"   /* the orchestra\'s keys, MIDI, panel services */\n'
+        '#include "ui.c"\n')
 
     audio = fw / "audio.c"
-    replace_once(audio, "    synth_render(out, n);\n",
-                        "    orch_hawk_render_q15(out, n);\n")
+    replace_once(audio, "    keys_block();\n    synth_render(out, n);\n",
+                        "    orch_hawk_keys_block();\n"
+                        "    orch_hawk_render_q15(out, n, sys.master_q12);\n")
 
     main_c = fw / "main.c"
     replace_once(main_c, "    keys_init();\n", "    keys_init();\n    orch_hawk_init();\n")
+    replace_once(main_c, "    kb_boot_hold = 0;\n    ui_force = 1;\n",
+                         "    kb_boot_hold = 0;\n    ui_force = 1;\n    orch_hawk_panel_start();\n")
+    replace_once(main_c,
+        "        ui_input();\n"
+        "        felucca_dbg.stage = 2;\n"
+        "        ui_leds();\n"
+        "        if (!(fm1_in.buttons & btn_bit(B_OCTDN) && fm1_in.buttons & btn_bit(B_OCTUP)))\n"
+        "            ui_draw();                                  /* (the countdown has the screen while both are held) */\n",
+        "        orch_hawk_main_frame();                         /* the orchestral panel (orch_hawk_glue.c) */\n"
+        "        felucca_dbg.stage = 2;\n")
+    replace_once(main_c, 'draw_text_box(0, 72, 240, &AF_M, "HAWK CHUA FIRMWARE", T_TEXT, 1);',
+                         'draw_text_box(0, 72, 240, &AF_M, "FM1 ORCHESTRA FIRMWARE", T_TEXT, 1);')
 
-    keys = fw / "keys.c"
-    replace_once(keys, "#define KB_SILENT 0xFFu\n",
-                        '#include "orchestra/orch_hawk_bridge.h"\n'
-                        "#define KB_SILENT 0xFFu\n")
-    replace_once(keys, "    synth_all_off();\n    arp_reset();\n    karma_reset();\n",
-                        "    synth_all_off();\n    orch_hawk_reset_notes();\n"
-                        "    arp_reset();\n    karma_reset();\n")
-    replace_once(keys,
-        "            kb_note[k] = (uint8_t)n;\n"
-        "            note_start((uint32_t)n, KEY_VEL);\n"
-        "            kb_ch[k] = (uint8_t)(sys.midi_tx & 15u);\n",
-        "            kb_note[k] = (uint8_t)n;\n"
-        "            kb_ch[k] = (uint8_t)(sys.midi_tx & 15u);\n"
-        "            orch_hawk_note_event(kb_ch[k], (uint8_t)n, KEY_VEL);\n"
-        "            note_start((uint32_t)n, KEY_VEL);\n")
-    replace_once(keys,
-        "            note_end(kb_note[k]);\n"
-        "            midi_out_event(0x08u | (0x80u | kb_ch[k]) << 8 | (uint32_t)kb_note[k] << 16);\n",
-        "            note_end(kb_note[k]);\n"
-        "            orch_hawk_note_event(kb_ch[k], kb_note[k], 0u);\n"
-        "            midi_out_event(0x08u | (0x80u | kb_ch[k]) << 8 | (uint32_t)kb_note[k] << 16);\n")
-
-    replace_once(keys,
-        "            if (st == 0x90u && d2)\n"
-        "                synth_note_on_b(d1, d2);\n"
-        "            else if (st == 0x80u || st == 0x90u)\n"
-        "                synth_note_off_b(d1);\n",
-        "            if (st == 0x90u && d2)\n"
-        "                orch_hawk_note_event((uint8_t)((pkt >> 8) & 15u), (uint8_t)d1, (uint8_t)d2);\n"
-        "            else if (st == 0x80u || st == 0x90u)\n"
-        "                orch_hawk_note_event((uint8_t)((pkt >> 8) & 15u), (uint8_t)d1, 0u);\n")
-    replace_once(keys,
-        "            else if (st == 0xB0u && (d1 == 123u || d1 == 120u))\n"
-        "                for (uint32_t k2 = 0; k2 < 128u; k2++)\n"
-        "                    synth_note_off_b(k2);\n",
-        "            else if (st == 0xB0u && d1 == 64u)\n"
-        "                orch_hawk_control_change((uint8_t)((pkt >> 8) & 15u), (uint8_t)d1, (uint8_t)d2);\n"
-        "            else if (st == 0xB0u && (d1 == 123u || d1 == 120u)) {\n"
-        "                orch_hawk_control_change((uint8_t)((pkt >> 8) & 15u), (uint8_t)d1, (uint8_t)d2);\n"
-        "                for (uint32_t k2 = 0; k2 < 128u; k2++) synth_note_off_b(k2);\n"
-        "            }\n")
-    replace_once(keys,
-        "        if (st == 0x90u && d2)\n"
-        "            note_start(d1, d2);\n"
-        "        else if (st == 0x80u || st == 0x90u)     /* (note on with velocity 0 is a note off) */\n"
-        "            note_end(d1);\n"
-        "        else if (st == 0xB0u)\n"
-        "            midi_cc(d1, d2);\n",
-        "        if (st == 0x90u && d2)\n"
-        "            orch_hawk_note_event((uint8_t)((pkt >> 8) & 15u), (uint8_t)d1, (uint8_t)d2);\n"
-        "        else if (st == 0x80u || st == 0x90u)\n"
-        "            orch_hawk_note_event((uint8_t)((pkt >> 8) & 15u), (uint8_t)d1, 0u);\n"
-        "        else if (st == 0xB0u) {\n"
-        "            if (d1 == 64u || d1 == 120u || d1 == 123u)\n"
-        "                orch_hawk_control_change((uint8_t)((pkt >> 8) & 15u), (uint8_t)d1, (uint8_t)d2);\n"
-        "            midi_cc(d1, d2);\n"
-        "        }\n")
-    replace_once(keys,
-        "            arp_midi_rt(rt);\n",
-        "            orch_hawk_midi_realtime((uint8_t)rt);\n"
-        "            arp_midi_rt(rt);\n")
-
-    print("Prepared HAWK runtime overlay.")
-    print("Next: run the pinned JieLi PI32v2 build and inspect link/RAM/audio timing.")
+    print("Prepared HAWK runtime overlay: orchestral engine, panel and glue.")
+    print("Next: ./build.sh in that checkout (JieLi PI32v2 toolchain + AC79 SDK).")
     print("This script does not build, package, flash, or claim device validation.")
 
 if __name__ == "__main__":

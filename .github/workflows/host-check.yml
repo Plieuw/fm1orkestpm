@@ -29,10 +29,13 @@ jobs:
             cc -std=c11 -O2 -Wall -Wextra -Werror -DFM1_HOST_TEST \
                -Ifm1-core/include -Iapp -c "$f" -o "/tmp/$(basename "$f" .c).o"
           done
-      - name: Compile native HAWK bridge
+      - name: Compile the HAWK runtime units (freestanding)
         run: |
-          cc -std=c11 -O2 -Wall -Wextra -Werror -Iapp \
-             -c runtime/hawk/orch_hawk_bridge.c -o /tmp/orch_hawk_bridge.o
+          set -e
+          for f in runtime/hawk/orch_hawk_bridge.c runtime/hawk/orch_hawk_panel.c; do
+            cc -std=c11 -O2 -Wall -Wextra -Werror -Iruntime/hawk -Iapp \
+               -c "$f" -o "/tmp/$(basename "$f" .c).o"
+          done
       - name: Validate HAWK overlay script
         run: python3 -m py_compile tools/prepare_hawk_runtime.py
       - name: Checkout pinned stable HAWK runtime
@@ -45,7 +48,9 @@ jobs:
         run: |
           python3 tools/prepare_hawk_runtime.py "$PWD/hawk-chua"
           grep -q 'orch_hawk_render_q15' hawk-chua/firmware/src/audio.c
-          grep -q 'orchestra/orch_engine.c' hawk-chua/firmware/src/felucca.c
+          grep -q 'orchestra/orch_hawk_glue.c' hawk-chua/firmware/src/felucca.c
+          grep -q 'orch_hawk_main_frame' hawk-chua/firmware/src/main.c
+          grep -q 'orch_obj' hawk-chua/tools/build.py
           grep -q 'orch_hawk_init' hawk-chua/firmware/src/main.c
       - name: Run host tests
         run: FM1_CORE="$PWD/fm1-core" sh tests/run_tests.sh
@@ -62,7 +67,7 @@ jobs:
     env:
       JIELI_TOOLCHAIN: /opt/jieli/toolchain
       AC79_SDK: /opt/ac79-sdk
-      FELUCCA_VERSION: orch-0.3.11-beta
+      FELUCCA_VERSION: orch-0.5.0-beta
       FELUCCA_CPU2: "0"
     steps:
       - name: Install build prerequisites
@@ -118,11 +123,12 @@ jobs:
       - name: Upload FM1 firmware package
         uses: actions/upload-artifact@v4
         with:
-          name: fm1-orchestral-0.3.11-beta
+          name: fm1-orchestral-0.5.0-beta
           path: |
             hawk-chua/build/felucca.bin
             hawk-chua/build/hawk-chua.fwsc
             hawk-chua/build/loader/ota.bin
             hawk-chua/build/SHA256SUMS
+            hawk-chua/orchestral-target-build.log
           if-no-files-found: error
           retention-days: 14
