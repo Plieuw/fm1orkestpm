@@ -148,6 +148,8 @@ static uint32_t page_signature(void)
     default:
         sig = sig * 31U + (uint32_t)(orch_stage_listener_x() + 128);
         sig = sig * 31U + orch_stage_listener_depth();
+        sig = sig * 31U + stage_layout_signature();   /* a part changed instrument */
+        sig = sig * 31U + ui.part;
         break;
     }
     return sig;

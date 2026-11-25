@@ -7,7 +7,8 @@ the next beta.
 
 ## Where the work is
 
-Everything lives on `beta/0.5.0-orchestra-merge` since 25 November 2026: the
+The newest work is on `beta/0.6.0-refine` (`docs/CHANGES_0.6.0.md`), which
+continues `beta/0.5.0-orchestra-merge`. Everything lives there since 25 November 2026: the
 0.3.x feature line's engine, performance engine, scenes and HAWK overlay, and
 the 0.4.0 panel, stage, level light, FX and browser build, merged
 (`docs/MERGE_0.5.0.md`). Start new work there, not on 0.4.0 or on a
@@ -81,6 +82,9 @@ belongs to.
 - Edits that write engine state go inside `fm1_engine_pause()` /
   `fm1_engine_resume()` (on the firmware: interrupts off); drawing and the
   flash write stay outside.
+- The STAGE page is a vector seating plan (`orch_ui_stage.inc`), drawn by the
+  anti-aliased rasterizer in `orch_ui_path.inc` (1/16 px, four sub-rows a row).
+  Count fill calls with `tests/run_panel_bench.sh` when you change it.
 - Each of the four menus has a band of its own above the knobs — the harp, the
   score, the console, the rack — a 240 x 30 photograph in
   `app/orch_ui_pic_*.inc`, drawn once when the page is entered through
@@ -98,6 +102,7 @@ belongs to.
   `tools/panel_png.py` turns them into PNGs; `web/emu/` renders the same panel
   in a browser. Look at them; the theme cannot be checked any other way without
   a board.
-- The flash record is "OR50" (`struct save_record` in `orch_ui.c`). Append new
+- The flash record is "OR60" (`struct save_record` in `orch_ui.c`; a
+  compile-time check keeps it within the firmware's 3 840-byte object). Append new
   blocks after `check` with their own FNV-1a checksum, so this record still
   loads.

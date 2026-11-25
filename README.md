@@ -2,7 +2,15 @@
 
 Polyphonic physical-modeling firmware for the M-VAVE FM1 (JieLi WL82 / AC791N, PI32v2).
 
-## Status: 0.5.0-beta — the two lines merged
+## Status: 0.6.0-beta
+
+0.6.0 tunes the waveguides (up to +26 cents off in the high register before),
+reworks the mix, the adaptive playing, the ARP and the sequencer (a lane per
+part), and draws the panel with anti-aliased vectors, the stage as a seating
+plan. See [docs/CHANGES_0.6.0.md](docs/CHANGES_0.6.0.md). Below: how 0.5.0
+brought the two lines together.
+
+### 0.5.0 — the two lines merged
 
 `beta/0.5.0-orchestra-merge` is the first branch that carries all the work of
 this repository at once:
@@ -18,7 +26,7 @@ this repository at once:
   boards, the four-parameter FX chain and the browser build;
 - the **Helmholtz friction bow** of 0.3.1/0.4.0, ported into the 0.3.x engine.
 
-The panel now has seven pages: **STAGE**, **ARP**, **SEQUENCE**, **CONSOLE**,
+The panel has seven pages: **STAGE**, **ARP**, **SEQUENCE**, **CONSOLE**,
 **FX**, **ENVELOPE** and **LFO**. See [docs/PANEL.md](docs/PANEL.md) and
 [docs/MERGE_0.5.0.md](docs/MERGE_0.5.0.md).
 

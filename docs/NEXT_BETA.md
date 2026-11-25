@@ -1,5 +1,11 @@
 # Next beta: the light over the boards
 
+> **0.6.0:** the light is now a ring around the podium of the vector stage
+> (`draw_stage_light()` in `app/orch_ui_stage.inc`), updated by painting only
+> the arcs between the old and the new width. `ORCH_LEVEL_MAX` is still 24 at
+> eight voices; `LEVEL_TOP` is 2.4 M after the 0.6.0 mix gain. The photograph
+> and the trough described below are history.
+
 Written 24 November 2026, at the end of the 0.4.0 work, for the agent who picks
 up the next beta. Read it together with `AGENTS.md` and
 `docs/PARALLEL_WORK.md`; this file is only about the podium light and the level

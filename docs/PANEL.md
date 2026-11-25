@@ -18,20 +18,26 @@ drawn from — and [`PANEL-REFERENCE.md`](PANEL-REFERENCE.md) is how the panel
 behaves: the knob speed, the stage and the listener, the arpeggiator, the
 sequencer, the effects, the note map, the save record and what is tested.
 
-## What each control does (0.5.0)
+## What each control does (0.6.0)
 
 Seven pages: **STAGE**, **ARP**, **SEQUENCE**, **CONSOLE**, **FX**,
-**ENVELOPE** and **LFO**. Eight parts, one MIDI channel each (1..8).
+**ENVELOPE** and **LFO**. Eight parts, one MIDI channel each (1..8), and each
+part has its own sequencer lane: the SEQUENCE page shows the selected part's.
+The STAGE page is a seating plan: each part is a desk in its section's ring,
+lit by its voices; the selected part's desk is framed.
 
 | Control | Job |
 | --- | --- |
 | `SELECT` | choose the part (1..8, wraps) |
 | `ALGORITHM` | family on STAGE, ENVELOPE and LFO; stream logic (OR, AND, XOR, NOR, ALT, S/R) on ARP; step on SEQUENCE; scale on CONSOLE; effect on FX |
-| `PRESETS` | next/previous instrument inside the current family, wrapping; on FX it turns the strip over to the effect's other two parameters |
-| `KNOB1` | divisi players 1..4 / ARP type (31) / step velocity / scale / FX mix / attack / LFO depth |
-| `KNOB2` | articulation / ARP rate (10 divisions) / step gate / semitone transpose / the effect's first (or third) parameter / decay / LFO rate |
-| `KNOB3` | listener across the stage / ARP gate / tempo on SEQUENCE and CONSOLE / the effect's second (or fourth) parameter / sustain / LFO wave |
-| `KNOB4` | listener depth / phrase (OFF, GE 1..46) / clear step / **factory scene** on CONSOLE (recalled as it is chosen) / FX on-off / release / LFO destination |
+| `PRESETS` | next/previous instrument inside the current family, wrapping; on FX it turns the strip over to the effect's other two parameters; on ARP it turns the knobs over five banks (PLAY, FEEL, PHRASE, ORDER, GROOVE); on SEQUENCE between the step and the pattern |
+| `KNOB1..4` on STAGE | players, articulation, listener across, listener depth |
+| on ARP | PLAY: type (31), rate (10 divisions), gate, phrase (OFF, GE 1..46) · FEEL: swing, ratchet 1..4, strum 0..40 ms, latch · PHRASE: density, range, cluster, accent · ORDER: by pitch / as played, span fixed / adaptive, clock internal / MIDI, repeat · GROOVE: velocity groove, gate groove, quantise, root |
+| on SEQUENCE | STEP: note, velocity, gate, chance · PATTERN: length 1..16, tempo, this part's lane plays / muted, clear the step |
+| on CONSOLE | scale, transpose, tempo, **factory scene** (recalled as it is chosen) |
+| on FX | mix, the effect's parameters two at a time, on/off |
+| on ENVELOPE | attack, decay, sustain, release |
+| on LFO | depth, rate, wave, destination |
 | `OCT-` `OCT+` | transpose an octave down or up (clamped to ±24) |
 | `FX` | open the FX page; pressed again there, a chord across all eight parts, released after 900 ms |
 | `SCL` | cycle the note map: OFF, MAJOR, MINOR, PENTA |
