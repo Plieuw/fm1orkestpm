@@ -7,6 +7,24 @@ static int32_t clamp15(int32_t x)
     return x;
 }
 
+/* A shift that rounds towards zero. The reverb's loops use it: an arithmetic
+ * shift rounds negative values down, and with the damping below that bias
+ * kept a decayed reverb on a constant offset (measured 8..16 LSB of Q15 at
+ * the output, for ever) instead of reaching silence. */
+static int32_t shr0(int32_t x, unsigned bits)
+{
+    return x < 0 ? -((-x) >> bits) : x >> bits;
+}
+
+/* The combs' damping low-pass moves by at least one step towards its input,
+ * so it reaches the input exactly: with a plain shift it stopped short by up
+ * to 255/DAMP steps, and the comb fed that remainder back for ever. */
+static int32_t step_to(int32_t x, unsigned bits)
+{
+    const int32_t round = (1 << bits) - 1;
+    return x < 0 ? -((-x + round) >> bits) : (x + round) >> bits;
+}
+
 static int32_t tri_q14(uint32_t phase)
 {
     const uint32_t p = phase >> 16;                       /* one cycle */
@@ -94,7 +112,7 @@ static int32_t sync_samples(unsigned percent)
     else if (percent > 33U) div = 3U;                    /* eighth triplet */
     unsigned samples = quarter / div;
     /* a line shorter than the division halves it until it fits: still on the
-     * grid, only a finer one (the compact FM-1 line is 93 ms) */
+     * grid, only a finer one (the FM-1 line is 186 ms) */
     while (samples > DLY_SIZE - 2U) samples /= 2U;
     if (samples < 64U) samples = 64U;
     return (int32_t)samples;
@@ -135,7 +153,7 @@ void orch_fx_process(int32_t *stereo, unsigned frames)
     const unsigned ensemble_taps = 1U + (unsigned)fx_p[ORCH_FX_ENSEMBLE][3] * 2U / 100U;
     const unsigned ensemble_width = 60U + (unsigned)fx_p[ORCH_FX_ENSEMBLE][2] * 80U / 100U;
 
-    /* Echo: free time (14..79 ms on the FM-1's line, 60..259 roomy), or — with SYNC — the same line snapped to the
+    /* Echo: free time (14..145 ms on the FM-1's line, 60..259 roomy), or — with SYNC — the same line snapped to the
      * beat; feedback up to 90 %, and DAMP takes the top off every repeat. */
     const int32_t delay_sync = sync_samples(fx_p[ORCH_FX_DELAY][2]);
     const int32_t delay_target = delay_sync ? delay_sync
@@ -241,16 +259,16 @@ void orch_fx_process(int32_t *stereo, unsigned frames)
                 int32_t x = rin, sum = 0;
                 for (unsigned c = 0; c < COMB_COUNT; ++c) {
                     const int32_t y = comb_buf[ch][c][comb_w[ch][c]];
-                    comb_lp[ch][c] += ((y - comb_lp[ch][c]) * comb_damp) >> 8;
-                    const int32_t fb = (comb_lp[ch][c] * rev_fb) >> 15;
+                    comb_lp[ch][c] += step_to((y - comb_lp[ch][c]) * comb_damp, 8);
+                    const int32_t fb = shr0(comb_lp[ch][c] * rev_fb, 15);
                     comb_buf[ch][c][comb_w[ch][c]] = (int16_t)clamp15(x + fb);
                     if (++comb_w[ch][c] >= comb_len[ch][c]) comb_w[ch][c] = 0U;
                     sum += y;
                 }
-                x = sum >> 2;
+                x = shr0(sum, 2);
                 for (unsigned a = 0; a < AP_COUNT; ++a) {
                     const int32_t y = ap_buf[ch][a][ap_w[ch][a]];
-                    ap_buf[ch][a][ap_w[ch][a]] = (int16_t)clamp15(x + (y >> 1));
+                    ap_buf[ch][a][ap_w[ch][a]] = (int16_t)clamp15(x + shr0(y, 1));
                     if (++ap_w[ch][a] >= ap_len[ch][a]) ap_w[ch][a] = 0U;
                     x = y - x;
                 }

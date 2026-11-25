@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // The wiring of web/emu/index.html: the engine loop, the seven encoders, the
-// fourteen buttons, the keyboard and the four orchestra desks. The panel itself
+// fourteen buttons, the keyboard and the eight orchestra desks. The panel itself
 // is drawn by app/orch_ui.c inside build/emu/orch.wasm, and the sound is the
 // engine's; this file only turns hands into emu_* calls.
 
@@ -12,8 +12,10 @@ const ENCODERS = [
   { k: 5, label: "KNOB 3" }, { k: 6, label: "KNOB 4" },
 ];
 const DESKS = [
-  { part: 0, name: "P1 Strings" }, { part: 1, name: "P2 Woodwinds" },
-  { part: 2, name: "P3 Brass" }, { part: 3, name: "P4 Mallets" },
+  { part: 0, name: "P1 Strings" }, { part: 1, name: "P2 Strings" },
+  { part: 2, name: "P3 Woodwinds" }, { part: 3, name: "P4 Woodwinds" },
+  { part: 4, name: "P5 Brass" }, { part: 5, name: "P6 Brass" },
+  { part: 6, name: "P7 Mallets" }, { part: 7, name: "P8 Choir" },
 ];
 
 /* the board's keys: 27 of them; the page lays out the first 18, F3 upward */

@@ -43,16 +43,16 @@
 #define DELAY_STEP 88           /* 60..259 ms */
 #else
 #define MOD_SIZE 1024U          /* 23 ms: ensemble taps at 5/7/9 ms */
-#define DLY_SIZE 4096U          /* 93 ms */
+#define DLY_SIZE 8192U          /* 186 ms (pool) */
 #define PB_SIZE 2048U
 #define PB_GRAIN 512U
-#define COMB_MAX 256U
-#define AP_MAX 128U
+#define COMB_MAX 512U
+#define AP_MAX 256U
 #define ENS_BASE 240U, 320U, 400U
-#define COMB_TUNE 188U, 200U, 216U, 232U
-#define AP_TUNE 102U, 81U
+#define COMB_TUNE 376U, 400U, 432U, 464U
+#define AP_TUNE 204U, 162U
 #define DELAY_MIN 600
-#define DELAY_STEP 29           /* 14..79 ms */
+#define DELAY_STEP 58           /* 14..145 ms */
 #endif
 #define MOD_MASK (MOD_SIZE - 1U)
 #define DLY_MASK (DLY_SIZE - 1U)
@@ -80,12 +80,12 @@ static int32_t dly_cur, dly_lp_l, dly_lp_r;
 static int16_t er_buf[ER_SIZE] FM1_AUDIO_DATA;
 static uint32_t er_w;
 
-static int16_t comb_buf[2][COMB_COUNT][COMB_MAX];
+static int16_t comb_buf[2][COMB_COUNT][COMB_MAX] FM1_AUDIO_DATA;
 static uint32_t comb_len[2][COMB_COUNT];
 static uint32_t comb_w[2][COMB_COUNT];
 static int32_t comb_lp[2][COMB_COUNT];
 
-static int16_t ap_buf[2][AP_COUNT][AP_MAX];
+static int16_t ap_buf[2][AP_COUNT][AP_MAX] FM1_AUDIO_DATA;
 static uint32_t ap_len[2][AP_COUNT];
 static uint32_t ap_w[2][AP_COUNT];
 

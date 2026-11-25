@@ -96,14 +96,14 @@ static void test_delay(void)
     CHECK(abs32(big[600U * 2U]) < 2000);
 }
 
-/* SYNC puts the echo on the beat instead of where the time knob points. The
- * FM-1's line is 93 ms, so the tests use tempos whose sixteenth fits: 240 BPM
- * is 2 756 samples and 180 BPM 3 675, and the free time the knob asked for
- * (600) stays empty. A division longer than the line halves until it fits. */
+/* SYNC puts the echo on the beat instead of where the time knob points: at
+ * 120 BPM a sixteenth is 5 512 samples, and the free time the knob asked for
+ * (600) stays empty. The FM-1's line is 186 ms, so a division longer than
+ * that halves until it fits: 60 BPM's sixteenth (11 025) lands on 5 512. */
 static void test_sync(void)
 {
     orch_fx_init();
-    orch_fx_set_tempo(240U);
+    orch_fx_set_tempo(120U);
     only(ORCH_FX_DELAY);
     orch_fx_set_mix(ORCH_FX_DELAY, 100);
     orch_fx_set_param(ORCH_FX_DELAY, 0U, 0);     /* free time would be 600 */
@@ -113,25 +113,25 @@ static void test_sync(void)
     memset(big, 0, sizeof big);
     big[0] = 400000;
     orch_fx_process(big, BIG);
-    CHECK(abs32(big[2756U * 2U]) > 10000);       /* on the beat */
+    CHECK(abs32(big[5512U * 2U]) > 10000);       /* on the beat */
     CHECK(abs32(big[600U * 2U]) < 2000);         /* not on the knob's time */
 
-    /* slower tempo, later echo */
+    /* faster tempo, earlier echo: 180 BPM is 3 675 */
     orch_fx_set_tempo(180U);
     orch_fx_reset();
     memset(big, 0, sizeof big);
     big[0] = 400000;
     orch_fx_process(big, BIG);
-    CHECK(abs32(big[2756U * 2U]) < 2000);
+    CHECK(abs32(big[5512U * 2U]) < 2000);
     CHECK(abs32(big[3675U * 2U]) > 10000);
 
-    /* 120 BPM: a sixteenth (5 512) does not fit, so it lands on the 32nd */
-    orch_fx_set_tempo(120U);
+    /* 60 BPM: the sixteenth does not fit and halves to the 32nd */
+    orch_fx_set_tempo(60U);
     orch_fx_reset();
     memset(big, 0, sizeof big);
     big[0] = 400000;
     orch_fx_process(big, BIG);
-    CHECK(abs32(big[2756U * 2U]) > 10000);
+    CHECK(abs32(big[5512U * 2U]) > 10000);
 }
 
 /* One run of the reverb, returning the energy of an early and a late window.
@@ -166,8 +166,10 @@ static void reverb_run(unsigned shimmer, int sine, uint64_t *early, uint64_t *la
             const unsigned n = base + f;
             const int64_t v = block[f * 2U];
             const uint64_t a = (uint64_t)(v < 0 ? -v : v);
-            if (n >= 200U && n < 4400U) e1 += a;
-            if (n >= 14000U && n < 22000U) e2 += a;
+            /* an impulse rings out within a tenth of a second on the FM-1's
+             * combs and then reaches true silence; the tone burst is longer */
+            if (sine ? (n >= 200U && n < 4400U) : (n >= 100U && n < 1000U)) e1 += a;
+            if (sine ? (n >= 14000U && n < 22000U) : (n >= 2000U && n < 3000U)) e2 += a;
         }
     }
     *early = e1;
@@ -182,6 +184,29 @@ static void test_reverb(void)
     CHECK(early > 0U);
     CHECK(late > 0U);
     CHECK(late < early);              /* the tail decays */
+    /* and reaches silence: the loops round towards zero, so no offset is
+     * left circulating once the tail is gone (it used to settle at 8 LSB of
+     * Q15 for ever) */
+    {
+        uint64_t tail = 0;
+        orch_fx_init();
+        only(ORCH_FX_REVERB);
+        orch_fx_set_mix(ORCH_FX_REVERB, 100);
+        orch_fx_set_param(ORCH_FX_REVERB, 0U, 60);
+        orch_fx_set_param(ORCH_FX_REVERB, 1U, 0);
+        for (unsigned base = 0; base < 60000U; base += FRAMES) {
+            memset(block, 0, sizeof block);
+            for (unsigned f = 0; f < FRAMES; ++f)
+                if (base + f < 4410U)
+                    block[f * 2U] = block[f * 2U + 1U] =
+                        ((base + f) / 50U) % 2U ? 700000 : -700000;
+            orch_fx_process(block, FRAMES);
+            if (base >= 50000U)
+                for (unsigned i = 0; i < 2U * FRAMES; ++i)
+                    tail += (uint64_t)abs32(block[i]);
+        }
+        CHECK(tail == 0U);
+    }
 
     reverb_run(70U, 1, &shimmer_early, &shimmer_late);
     uint64_t dry_early = 0, dry_late = 0;
