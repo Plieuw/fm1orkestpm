@@ -1,4 +1,4 @@
-# 0.6.0 – 0.6.8: tuning, mix, adaptive playing, ARP, sequencer, vector panel
+# 0.6.0 – 0.6.9: tuning, mix, adaptive playing, ARP, sequencer, vector panel
 
 Written 25 November 2026 on `beta/0.6.0-refine`, branched from
 `beta/0.5.0-orchestra-merge`. One commit a topic; every number below is a host
@@ -193,6 +193,39 @@ limiter.
 - **Resonance** (CC71, RESON) moves along a 20 ms line. **MASTER** moves along
   a line across each block, both in the app and on the HAWK runtime, where the
   pot's own jitter was a step every callback.
+
+## 0.6.9: both cores
+
+The AC79 in the FM-1 has two cores. HAWK CHUA starts the second one at boot,
+but until now the orchestra replaced HAWK's synth, which was the only thing
+that gave it work, so it sat idle. Now the engine renders on both:
+
+- **The render is split.** `orch_render_q23` works in chunks of 32 samples.
+  First comes **control**, one sample at a time on core 0: events, ARP,
+  sequencer, call and response, tempo, and the controllers' lines. The gain
+  and balance each part has at each sample are written down. Then come the
+  **voices**, each through the whole chunk, with every other sounding voice on
+  the second core. Each core sums into its own buffers, and core 0 adds them,
+  applies the 1.36 / n share and the guard, and the hall's strings.
+- **One core or two sound the same, bit for bit.** A voice's render writes
+  only itself; each voice now has its own noise generator in place of the
+  shared one; and the sums are integers. The new suite
+  `tests/orch_cores_test.c` plays a busy orchestra and compares the output
+  bit for bit against a single core. It covers a second core that runs at
+  once, a real thread, one that refuses jobs, and one that takes a job and
+  never answers. It is clean under ThreadSanitizer as well.
+- **On the device** the hand-over is HAWK's own (`fm1_cpu1.h`, from X0X,
+  Melodee and Jangada): a check word, a 10 ms watchdog, and a hold for good
+  on units that misread, after which core 0 renders everything. The glue
+  hands the core to the engine (`orch_hawk_set_second_core`). Without a
+  second core (host, browser, 2ND CORE off) everything runs on one.
+- **A note started by the ARP or the sequencer** inside a chunk starts at the
+  chunk's beginning: at most 0.7 ms early.
+- `orch_init` now clears every voice and part and reseeds the generators, so
+  a fresh start sounds the same every time.
+
+Not measured: how much time this saves per block on the PI32v2. The split
+is HAWK's proven pattern, but nothing has run on a board.
 
 ## Not done, still open
 

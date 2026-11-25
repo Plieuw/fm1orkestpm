@@ -22,6 +22,16 @@ void orch_init(void);
 /* Audio ISR: FM1_BLOCK_FRAMES stereo frames of signed Q23. */
 void orch_render_q23(int32_t *stereo, unsigned frames);
 
+/* A second core, if the platform has one (the FM-1's AC79 has two). run
+ * hands it fn(arg) and returns 1 if it took the job, 0 if not (then this
+ * core does the work); wait returns 0 when the job is done, non-zero when
+ * the core stopped answering (then this core does it again). With none set
+ * every voice renders here. The output is the same bit for bit either way. */
+typedef int (*orch_core_run_fn)(void (*fn)(uint32_t), uint32_t arg);
+typedef int (*orch_core_wait_fn)(void);
+void orch_set_second_core(orch_core_run_fn run, orch_core_wait_fn wait);
+uint32_t orch_second_core_chunks(void);   /* chunks it has shared so far */
+
 /* Event input: MIDI 1.0 channel voice, channel 0..15. */
 void orch_midi_short_message(const uint8_t *message, unsigned bytes);
 void orch_midi_realtime(unsigned status);

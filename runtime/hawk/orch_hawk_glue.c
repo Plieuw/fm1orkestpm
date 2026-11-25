@@ -11,6 +11,8 @@
  *    engine on their own channels (one part a channel, 1..8), the realtime
  *    bytes to its ARP/phrase clock. HAWK's synth, ARP and KARMA are not run.
  *  - orch_hw_*(): the handful of functions the panel needs (orch_hawk_hw.h).
+ *  - the second core: handed to the engine (orch_set_second_core), which
+ *    renders half the sounding voices on it.
  *  - orch_hawk_main_frame(): the panel's turn in the main loop, in place of
  *    ui_input() / ui_leds() / ui_draw(). While OCT- and OCT+ are both held the
  *    UBOOT countdown owns the screen, as in HAWK; when they are let go, the
@@ -148,10 +150,33 @@ int orch_hw_store_save(const void *data, uint32_t len)
 void orch_hw_irq_off(void) { (void)irq_save(); }
 void orch_hw_irq_on(void) { irq_restore(0); }
 
+/* --- the second core ------------------------------------------------------ */
+
+/* HAWK starts the AC79's second core at boot (main.c, FELUCCA_CPU2, its
+ * 2ND CORE setting) and hands it jobs through fm1_cpu1.h: one function and
+ * one argument at a time, with its check word, a 10 ms watchdog and a hold
+ * for good on any unit that misreads. The orchestra gives it every other
+ * sounding voice of each 32-sample chunk (orch_engine.c render_chunk); if it
+ * is not running, refuses or stops answering, this core renders them. */
+#if FELUCCA_CPU2
+static int orch_c1_run(void (*fn)(uint32_t), uint32_t arg)
+{
+    return fm1_c1_on ? fm1_cpu1_run(fn, arg) : 0;
+}
+static int orch_c1_wait(void) { return fm1_cpu1_wait(); }
+#endif
+
 /* --- the main loop -------------------------------------------------------- */
 
 static void orch_hawk_main_frame(void)
 {
+#if FELUCCA_CPU2
+    static uint8_t second_core_given;
+    if (!second_core_given) {          /* the core was started before the main loop */
+        second_core_given = 1;
+        orch_hawk_set_second_core(orch_c1_run, orch_c1_wait);
+    }
+#endif
     static uint8_t countdown_had_screen;
     uint32_t both = btn_bit(B_OCTDN) | btn_bit(B_OCTUP);
     int ours = (fm1_in.buttons & both) != both;

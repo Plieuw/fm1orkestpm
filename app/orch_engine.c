@@ -77,6 +77,7 @@ typedef struct {
     uint16_t strike_left;
     uint16_t bow_gain;   /* Q8 force scale, proportional to the string length */
     int16_t pan_l, pan_r;
+    uint32_t rng;        /* its own noise, so two cores never share one generator */
     uint8_t note, channel, part, family, instrument, artic, player, excite, damp;
     uint8_t velocity, gate, active, releasing, struck;
 } voice_t;
@@ -243,6 +244,16 @@ static int32_t noise16(void)
 {
     rng ^= rng << 13; rng ^= rng >> 17; rng ^= rng << 5;
     return (int16_t)(rng >> 16);
+}
+
+/* A voice's own noise: what runs per sample uses only this, so a voice
+ * renders the same on either core and the two never write one state */
+static int32_t noise_v(uint32_t *state)
+{
+    uint32_t x = *state;
+    x ^= x << 13; x ^= x >> 17; x ^= x << 5;
+    *state = x;
+    return (int16_t)(x >> 16);
 }
 /* Semitone ratio table from A, Q16. */
 static const uint32_t RATIO_A[12] = {
@@ -585,6 +596,9 @@ static void voice_start(unsigned part, unsigned note, unsigned velocity,
         v->exc_dc = 0;
     }
     v->age = ++age_counter;
+    (void)noise16();
+    v->rng = rng ^ (v->age * 0x9E3779B9U);
+    if (!v->rng) v->rng = 0x6d2b79f5U;
     v->note_id = note_id;
     v->note = (uint8_t)note;
     v->channel = (uint8_t)(part < ORCH_PARTS ? part : 0U); /* channel identity is kept by the note */
@@ -1497,11 +1511,23 @@ static int32_t clamp_q23(int32_t x)
     return x;
 }
 
+/* zero a static block without libc (no memset in the firmware's app
+ * objects) and without a zero copy of it in flash */
+static void zero_words(void *p, unsigned bytes)
+{
+    uint32_t *w = (uint32_t *)p;
+    for (unsigned i = 0; i < bytes / 4U; ++i) w[i] = 0U;
+}
+
 void orch_init(void)
 {
     orch_resonance_clear();
     orch_cc_init();
     mix_gain_q12 = (int32_t)MIX_GAIN_Q12[1];
+    /* every voice and part back to nothing: a fresh start sounds the same
+     * every time (the two-core test compares runs bit for bit) */
+    zero_words(voices, sizeof voices);
+    zero_words(runtime, sizeof runtime);
     for (unsigned i = 0; i < ORCH_MAX_VOICES; ++i) voice_stop(i);
     event_read = event_write = 0U;
     for (unsigned c = 0; c < ORCH_MIDI_CHANNELS; ++c) sustain[c] = 0U;
@@ -1527,6 +1553,9 @@ void orch_init(void)
         for (unsigned pc = 0; pc < 12U; ++pc) seq_input_pc_count[p][pc] = 0U;
     }
     sample_counter = step_start = 0U;
+    age_counter = 0U;               /* a fresh start sounds the same every time */
+    rng = 0x6d2b79f5U;
+    seq_rng = 0x2545F491U;
     for (unsigned l = 0; l < ORCH_PARTS; ++l) {
         seq_lane_muted[l] = 0U;
         for (unsigned n = 0; n < ORCH_STEP_NOTES; ++n) {
@@ -1896,12 +1925,12 @@ static unsigned voice_tick(voice_t *v)
          * 13.6 M, marimba C6 6.8 M, a cello 3-4 M). The burst scales with the
          * loop's length as the bow force does (bow_gain, 400 samples = 1.0,
          * at least 0.25). */
-        const int32_t burst = (noise16() * (int32_t)v->velocity) >> 8;
+        const int32_t burst = (noise_v(&v->rng) * (int32_t)v->velocity) >> 8;
         const int32_t scaled = v->bow_gain < 256U ? (burst * (int32_t)v->bow_gain) >> 8 : burst;
         loop += ((scaled >> 1) * excitation_gain_q15) >> 15;
     }
     if (v->gate && v->excite != EXC_STRIKE) {
-        const int32_t noise = noise16();
+        const int32_t noise = noise_v(&v->rng);
         switch (v->excite) {
         case EXC_BOW: {
             /* Helmholtz friction, added to the string's velocity loop. The
@@ -2060,49 +2089,130 @@ static unsigned voice_tick(voice_t *v)
     return lfo_destinations;
 }
 
-void orch_render_q23(int32_t *out, unsigned frames)
+/* ------------------------------------------------------- the render
+ *
+ * Two phases a chunk of ORCH_CHUNK samples:
+ *
+ *  1. control, one sample at a time on this core: the event queues, the ARP,
+ *     the sequencer, call and response, the tempo, and the controllers'
+ *     lines, whose gain and balance a part has at each sample are written
+ *     down for phase 2. A note the ARP or the sequencer starts inside the
+ *     chunk starts at its beginning: at most 32 samples (0.7 ms) early.
+ *  2. the voices, each through the whole chunk: every other sounding voice
+ *     on the second core when one answers (orch_set_second_core), the rest
+ *     here; each core sums its voices into its own buffers. A voice's render
+ *     reads its part's settings and the controllers' values and writes only
+ *     itself (its own noise too), and the sums are integers, so the output is
+ *     the same bit for bit on one core or two (tests/orch_cores_test.c).
+ *
+ * Then the mix: the 1.36 / n share by how many sounded at each sample, the
+ * guard, and the hall's shared strings. */
+#define ORCH_CHUNK 32U
+static int32_t chunk_gain[ORCH_PARTS][ORCH_CHUNK];
+static int32_t chunk_pan_l[ORCH_PARTS][ORCH_CHUNK], chunk_pan_r[ORCH_PARTS][ORCH_CHUNK];
+static int32_t sum_l[2][ORCH_CHUNK], sum_r[2][ORCH_CHUNK];
+static uint8_t sum_n[2][ORCH_CHUNK];
+
+static orch_core_run_fn second_run;
+static orch_core_wait_fn second_wait;
+static uint32_t second_chunks;    /* chunks the second core shared, for the panel and tests */
+
+void orch_set_second_core(orch_core_run_fn run, orch_core_wait_fn wait)
 {
-    if (!out) return;
-    drain_events();
-    for (unsigned f = 0; f < frames; ++f) {
-        orch_perf_advance_sample(sample_counter);
+    second_run = run;
+    second_wait = run ? wait : 0;
+}
+
+uint32_t orch_second_core_chunks(void) { return second_chunks; }
+
+/* the voices in `mask` through `n` samples, into the sums of `side` */
+static void render_voices(uint32_t mask, unsigned n, unsigned side)
+{
+    int32_t *L = sum_l[side], *R = sum_r[side];
+    uint8_t *cnt = sum_n[side];
+    for (unsigned f = 0; f < n; ++f) { L[f] = 0; R[f] = 0; cnt[f] = 0U; }
+    for (unsigned i = 0; i < ORCH_MAX_VOICES; ++i) {
+        if (!(mask >> i & 1U)) continue;
+        voice_t *v = &voices[i];
+        const unsigned part = v->part < ORCH_PARTS ? v->part : 0U;
+        const int32_t vel_q12 = (int32_t)orch_cc_velocity_q12(v->family, v->velocity);
+        for (unsigned f = 0; f < n; ++f) {
+            if (!v->active) break;
+            const unsigned lfo_destinations = voice_tick(v);
+            if (!v->active) break;
+            ++cnt[f];
+            int32_t amp = (v->out * v->env >> 15);
+            amp = (amp * (int32_t)v->level_gain_q15) >> 15;
+            amp = (amp * (32767 + v->expr_q15)) >> 15;
+            if (lfo_destinations & ORCH_LFO_TREMOLO) {
+                const int32_t depth = (int32_t)v->lfo_depth * 245 / 100;
+                const int32_t gain = 32767 - ((v->lfo_value + 32768) * depth >> 16);
+                amp = (amp * gain) >> 15;
+            }
+            /* velocity on an even dB line (orch_cc_tables.inc), then the
+             * part's volume x expression x dynamics at this sample */
+            int32_t g = (int32_t)(((int64_t)amp * vel_q12) >> 12);
+            g = (int32_t)(((int64_t)g * chunk_gain[part][f]) >> 15);
+            /* CC10: a balance on the seat the stage gave the part. Pan is Q8;
+             * eight voices of these products stay below 2^31 */
+            L[f] += g * (((int32_t)v->pan_l * chunk_pan_l[part][f]) >> 15);
+            R[f] += g * (((int32_t)v->pan_r * chunk_pan_r[part][f]) >> 15);
+        }
+    }
+}
+
+/* the second core's job: arg = its voices | the chunk's length << 8 */
+static void second_core_job(uint32_t arg)
+{
+    render_voices(arg & 0xFFU, (unsigned)(arg >> 8), 1U);
+}
+
+static void render_chunk(int32_t *out, unsigned n)
+{
+    /* 1. control, a sample at a time */
+    for (unsigned f = 0; f < n; ++f) {
+        orch_perf_advance_sample(sample_counter + f);
         orch_cc_step();
         tempo_tick();
         drain_performance_events();
         response_tick();
         seq_tick();
-        /* Pan is Q8 (0..256), not Q15. Accumulate the original Q8 products
-         * in int32_t; with at most eight voices the sum is bounded below
-         * 2^31. This preserves the original gain and avoids __divdi3. */
-        int32_t left = 0, right = 0;
-        unsigned active = 0U;
-        for (unsigned i = 0; i < ORCH_MAX_VOICES; ++i) {
-            voice_t *v = &voices[i];
-            if (!v->active) continue;
-            const unsigned lfo_destinations = voice_tick(v);
-            if (!v->active) continue;
-            ++active;
-            int32_t amp = (v->out * v->env >> 15);
-            amp = (amp * (int32_t)v->level_gain_q15) >> 15;
-            amp = (amp * (32767 + v->expr_q15)) >> 15;
-            {
-                if (lfo_destinations & ORCH_LFO_TREMOLO) {
-                    const int32_t depth = (int32_t)v->lfo_depth * 245 / 100;
-                    const int32_t gain = 32767 - ((v->lfo_value + 32768) * depth >> 16);
-                    amp = (amp * gain) >> 15;
-                }
-            }
-            /* velocity on an even dB line (orch_cc_tables.inc), then the
-             * part's volume x expression x dynamics */
-            int32_t g = (int32_t)(((int64_t)amp *
-                orch_cc_velocity_q12(v->family, v->velocity)) >> 12);
-            g = (int32_t)(((int64_t)g * orch_cc_gain_q15[v->part]) >> 15);
-            /* CC10: a balance on the seat the stage gave the part */
-            left += g * (((int32_t)v->pan_l * orch_cc_pan_l_q15[v->part]) >> 15);
-            right += g * (((int32_t)v->pan_r * orch_cc_pan_r_q15[v->part]) >> 15);
+        for (unsigned p = 0; p < ORCH_PARTS; ++p) {
+            chunk_gain[p][f] = orch_cc_gain_q15[p];
+            chunk_pan_l[p][f] = orch_cc_pan_l_q15[p];
+            chunk_pan_r[p][f] = orch_cc_pan_r_q15[p];
         }
-        /* the gain glides to its new value over about 6 ms (1/256 of the
-         * gap a sample), so a voice starting does not step the others */
+    }
+
+    /* 2. the voices: every other sounding one to the second core */
+    uint32_t own = 0U, theirs = 0U;
+    unsigned sounding = 0U;
+    for (unsigned i = 0; i < ORCH_MAX_VOICES; ++i) {
+        if (!voices[i].active) continue;
+        if (sounding++ & 1U) theirs |= 1U << i;
+        else own |= 1U << i;
+    }
+    if (!theirs || !second_run || !second_run(second_core_job, theirs | (uint32_t)n << 8)) {
+        own |= theirs;
+        theirs = 0U;
+    }
+    render_voices(own, n, 0U);
+    if (theirs) {
+        ++second_chunks;
+        if (second_wait && second_wait())        /* it stopped answering: here */
+            render_voices(theirs, n, 1U);
+        for (unsigned f = 0; f < n; ++f) {
+            sum_l[0][f] += sum_l[1][f];
+            sum_r[0][f] += sum_r[1][f];
+            sum_n[0][f] = (uint8_t)(sum_n[0][f] + sum_n[1][f]);
+        }
+    }
+
+    /* 3. the mix */
+    for (unsigned f = 0; f < n; ++f) {
+        const unsigned active = sum_n[0][f];
+        /* the share glides to its new value, so a voice starting does not
+         * step the others */
         if (active) {
             const int32_t want = (int32_t)MIX_GAIN_Q12[active <= ORCH_MAX_VOICES ? active : ORCH_MAX_VOICES];
             if (want < mix_gain_q12)       /* a voice came in: ~1.5 ms */
@@ -2111,11 +2221,20 @@ void orch_render_q23(int32_t *out, unsigned frames)
                 mix_gain_q12 += (want - mix_gain_q12 + 1023) / 1024;
         }
         /* a 64-bit multiply and a shift: no divide on the PI32v2 */
-        int32_t l = clamp_q23((int32_t)(((int64_t)left * mix_gain_q12) >> 12));
-        int32_t r = clamp_q23((int32_t)(((int64_t)right * mix_gain_q12) >> 12));
-        out[f * 2U] = (int32_t)l;
-        out[f * 2U + 1U] = (int32_t)r;
-        ++sample_counter;
+        out[f * 2U] = clamp_q23((int32_t)(((int64_t)sum_l[0][f] * mix_gain_q12) >> 12));
+        out[f * 2U + 1U] = clamp_q23((int32_t)(((int64_t)sum_r[0][f] * mix_gain_q12) >> 12));
+    }
+    sample_counter += n;
+}
+
+void orch_render_q23(int32_t *out, unsigned frames)
+{
+    if (!out) return;
+    drain_events();
+    for (unsigned done = 0; done < frames; ) {
+        const unsigned n = frames - done > ORCH_CHUNK ? ORCH_CHUNK : frames - done;
+        render_chunk(out + done * 2U, n);
+        done += n;
     }
     /* the whole orchestra into its shared strings (orch_resonance.c) */
     orch_resonance_process(out, frames);

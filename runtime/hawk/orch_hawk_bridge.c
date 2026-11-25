@@ -34,6 +34,11 @@ void orch_hawk_init(void)
     orch_fx_init();
 }
 
+void orch_hawk_set_second_core(int (*run)(void (*fn)(uint32_t), uint32_t arg), int (*wait)(void))
+{
+    orch_set_second_core(run, wait);
+}
+
 /* HAWK synth_render() replacement: output is interleaved L/R signed Q15.
  * master_q12 is HAWK's MASTER pot (0..4088, its square law, main.c). Since
  * 0.6.1 it spans up to +12 dB: the orchestra shares full scale evenly (1/n)

@@ -6,6 +6,9 @@
 
 void orch_hawk_init(void);
 void orch_hawk_render_q15(int32_t *output, uint32_t frames, uint32_t master_q12);
+/* the second core for the engine (orch_set_second_core): run hands it
+ * fn(arg), 1 = taken; wait: 0 = done, else this core does the job */
+void orch_hawk_set_second_core(int (*run)(void (*fn)(uint32_t), uint32_t arg), int (*wait)(void));
 
 /* The panel (orch_hawk_panel.c): started once the splash is over, a frame
  * per main-loop pass, a full repaint after the update countdown, and the

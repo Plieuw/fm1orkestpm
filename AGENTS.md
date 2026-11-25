@@ -20,7 +20,7 @@ branch another agent works on, one topic per commit, and leave
 ## Build and test
 
 ```sh
-FM1_CORE=../fm1-core sh tests/run_tests.sh          # eight suites
+FM1_CORE=../fm1-core sh tests/run_tests.sh          # nine suites
 cc -std=c11 -O2 -Wall -Wextra -Werror -DFM1_HOST_TEST \
    -I../fm1-core/include -Iapp -c app/<file>.c -o /tmp/x.o
 ```
@@ -29,6 +29,12 @@ There is no JieLi PI32v2 toolchain and no board in this environment. The
 firmware package is built by CI (`hawk-target-build`, see
 `docs/BUILD_FIRMWARE.md`); nothing has been flashed or heard. Never write that
 the engine or the panel is tested on the FM-1.
+
+The engine renders on both of the AC79's cores (0.6.9, `render_chunk` in
+`app/orch_engine.c`): a voice's per-sample work may write only that voice, and
+anything shared it reads must be settled in the control phase before the
+split. `tests/orch_cores_test.c` holds one core and two to the same output, bit
+for bit; keep it green (and clean under `-fsanitize=thread`).
 
 The firmware build is freestanding: no `<string.h>`, no 64-bit divides (the
 PI32v2 has none), no `uint64_t /` anywhere in `app/`. Every `app/orch_*` file
