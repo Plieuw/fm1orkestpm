@@ -139,6 +139,17 @@ static void repeats(unsigned family, unsigned note, unsigned velocity)
 
 int main(int argc, char **argv)
 {
+    if (argc >= 2 && strcmp(argv[1], "soft") == 0) {
+        /* the soft end of the even velocity line: still a tone? */
+        const char *fam[ORCH_FAM_COUNT] = {
+            "strings", "woodwinds", "brass", "mallets", "choir"
+        };
+        const unsigned vels[5] = { 8U, 20U, 40U, 64U, 100U };
+        for (unsigned f = 0; f < ORCH_FAM_COUNT; ++f)
+            for (unsigned k = 0; k < 5; ++k)
+                one(fam[f], f, 57U, vels[k]);
+        return 0;
+    }
     if (argc >= 2 && strcmp(argv[1], "repeat") == 0) {
         repeats(ORCH_FAM_STRINGS, 60U, 100U);
         return 0;

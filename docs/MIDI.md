@@ -1,4 +1,4 @@
-# MIDI implementation (0.6.6)
+# MIDI implementation (0.6.7)
 
 The engine answers MIDI as a Yamaha XG tone generator does, as far as an
 orchestra of physical models can. Each part listens on its own channel (part 1
@@ -15,7 +15,7 @@ fast sweep does not step. They are not saved.
 
 | Message | Does | Law, reset value |
 | --- | --- | --- |
-| Note on velocity | how hard the note is played: brighter and louder | even dB over 32 dB (1 measures −34.5 dB from 127; 0.6.3 had −63 dB, with the bottom 16 steps nearly silent) |
+| Note on velocity | how hard the note is played: brighter and louder | even dB over 32 dB in every family (a table per family; 0.6.3 had −63 dB, with the bottom 16 steps nearly silent) |
 | Pitch bend | the loop's length, so the pitch | ±2 semitones; RPN 0 sets 0..24 |
 | CC1 modulation | vibrato on the part's own LFO (rate CC76, delay CC78), on top of the part's LFO setting | 0..±50 cents, reset 0 |
 | CC2 breath | how hard it is bowed or blown: level (even dB over 30 dB) and drive (half to full, so softer is darker) | 127 |

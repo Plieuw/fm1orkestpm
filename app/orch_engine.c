@@ -1233,11 +1233,11 @@ static void response_schedule(unsigned leader, unsigned note, unsigned velocity)
     const struct orch_part *follower_cfg = orch_part_get(response_follower);
     /* Strings become a quiet harmonic bed; winds/brass make shorter replies. */
     if (follower_cfg && follower_cfg->family == ORCH_FAM_STRINGS) {
-        response_velocity = 54U;
+        response_velocity = 81U;   /* 0.6.3's 54, on the even line */
         response_on_at = sample_counter + quarter;
         response_off_at = response_on_at + quarter * 2U;
     } else {
-        response_velocity = 72U;
+        response_velocity = 94U;   /* 0.6.3's 72 */
         response_on_at = sample_counter + quarter / 2U;
         response_off_at = response_on_at + quarter / 2U;
     }
@@ -2094,7 +2094,8 @@ void orch_render_q23(int32_t *out, unsigned frames)
             }
             /* velocity on an even dB line (orch_cc_tables.inc), then the
              * part's volume x expression x dynamics */
-            int32_t g = (amp * (int32_t)orch_cc_velocity_q12(v->velocity)) >> 12;
+            int32_t g = (int32_t)(((int64_t)amp *
+                orch_cc_velocity_q12(v->family, v->velocity)) >> 12);
             g = (int32_t)(((int64_t)g * orch_cc_gain_q15[v->part]) >> 15);
             /* CC10: a balance on the seat the stage gave the part */
             left += g * (((int32_t)v->pan_l * orch_cc_pan_l_q15[v->part]) >> 15);

@@ -18,6 +18,8 @@
 #include "orch_engine.h"
 #include "orch_fx.h"
 #include "orch_level.h"
+#include "orch_scenes.h"
+#include "orch_resonance.h"
 
 static uint32_t clock_ms;
 static int32_t block[256];
@@ -139,8 +141,45 @@ static void test_level_falls_while_the_keys_are_down(void)
     CHECK(render_peak(12) > 0U);
 }
 
+/* Every factory scene, the whole orchestra at velocity 127 with CC7 fully
+ * open, through the scene's own effects: under full scale, no limiter. A
+ * scene leaves none of the last scene's effect settings behind. */
+static void test_scenes_stay_in_range(void)
+{
+    for (unsigned sc = 0; sc < ORCH_SCENE_COUNT; ++sc) {
+        orch_init();
+        orch_fx_init();
+        CHECK(orch_scene_apply(sc) == 0);
+        for (unsigned p = 0; p < ORCH_PARTS; ++p) {
+            const uint8_t vol[3] = { (uint8_t)(0xB0U | p), 7U, 127U };
+            orch_midi_short_message(vol, 3U);
+            orch_note_event(p, 48U + 5U * p, 127U);
+        }
+        int32_t top = 0;
+        for (unsigned b = 0; b < 600U; ++b) {
+            memset(block, 0, sizeof block);
+            orch_render_q23(block, 128U);
+            orch_fx_process(block, 128U);
+            for (unsigned i = 0; i < 256U; ++i) {
+                const int32_t a = block[i] < 0 ? -block[i] : block[i];
+                if (a > top) top = a;
+            }
+        }
+        CHECK(top > 0 && top < 8388607);
+    }
+    orch_scene_apply(5U);                      /* AMBIENT: shimmer open */
+    orch_scene_apply(1U);                      /* BAROQUE: none, a drier room */
+    CHECK(orch_fx_param(ORCH_FX_REVERB, 1U) == 0U);
+    CHECK(orch_fx_enabled(ORCH_FX_CHORUS) == 0U);
+    CHECK(orch_resonance_amount() == 20U);
+    orch_resonance_set_amount(25U);
+    orch_init();
+    orch_fx_init();
+}
+
 int main(void)
 {
+    test_scenes_stay_in_range();
     test_scale_is_the_orchestra();
     test_level_falls_while_the_keys_are_down();
     if (failures) { printf("%u level test(s) failed\n", failures); return 1; }

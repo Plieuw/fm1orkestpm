@@ -14,40 +14,80 @@
 #include "orch_fx.h"
 #include "orch_part.h"
 #include "orch_performance.h"
+#include "orch_resonance.h"
 
-static const uint8_t ART_VALUES[5] = {
-    ORCH_ART_AUTO, ORCH_ART_LEGATO, ORCH_ART_DETACHE,
-    ORCH_ART_STACCATO, ORCH_ART_PIZZICATO
-};
+/* Articulations, short names for the table */
+#define AU ORCH_ART_AUTO
+#define LG ORCH_ART_LEGATO
+#define DT ORCH_ART_DETACHE
+#define ST ORCH_ART_STACCATO
+#define PZ ORCH_ART_PIZZICATO
+#define TS ORCH_ART_TASTO
 
 /* Four orchestral sections plus their adaptive performance and master-effect
  * starting points. The player's live MIDI input remains the source for
- * adaptive phrasing; a scene only chooses its musical context. */
+ * adaptive phrasing; a scene only chooses its musical context: which parts
+ * the adaptive layer may articulate (AUTO) and which are pinned, whether the
+ * sequencer follows the live harmony, how the ARP listens, how much the
+ * hall's shared strings ring, and the four effects with all their settings.
+ * Retuned for 0.6.7: the velocities sit on the even dB line, the delay locks
+ * to the tempo (MIDI clock or the playing), chorus only where a sound wants
+ * it, shimmer only in the open scenes. */
 typedef struct {
     const char *name;
     uint8_t inst[ORCH_PARTS], art[ORCH_PARTS], cap[ORCH_PARTS];
     uint8_t arp, phrase, arp_type, phrase_ge, bpm, division;
     uint8_t density, range, cluster, accent, quantize;
+    uint8_t resonance;        /* the shared strings, 0..100 */
+    uint8_t seq_adaptive;     /* the motif follows the live harmony */
+    uint8_t arp_adaptive, arp_order, ratchet, strum;
     uint8_t fx_on[ORCH_FX_SLOT_COUNT], fx_mix[ORCH_FX_SLOT_COUNT];
+    /* RATE DEPTH SPREAD TONE / RATE DEPTH WIDTH TAPS /
+     * TIME FEEDBACK SYNC DAMP / DECAY SHIM EARLY DAMP */
+    uint8_t fx_p[ORCH_FX_SLOT_COUNT][ORCH_FX_PARAMS];
 } scene_t;
 
 static const scene_t scenes[ORCH_SCENE_COUNT] = {
-    { "CINEMA STR", {0,1,2,3,5,6,11,17}, {0,0,0,0,0,0,0,0}, {4,3,3,2,2,2,2,1}, 0,0,0,0,88,4,92,3,2,58,1,
-      {1,1,0,1},{24,32,0,30} },
-    { "BAROQUE", {0,1,4,5,2,6,8,14}, {2,2,0,0,0,2,0,0}, {3,2,2,1,2,2,2,1}, 1,0,2,0,112,4,80,2,2,42,2,
-      {1,0,0,1},{18,0,0,20} },
-    { "WIND CHOIR", {0,5,7,8,6,9,17,2}, {0,0,0,0,0,0,0,0}, {2,3,2,2,2,2,1,2}, 0,1,0,8,76,5,88,3,2,50,1,
-      {1,0,1,1},{22,0,18,34} },
-    { "BRASS FAN", {0,10,11,12,13,9,2,17}, {0,3,0,3,3,0,0,0}, {1,3,3,2,2,2,2,1}, 0,0,0,0,104,4,76,2,3,72,2,
-      {0,0,0,1},{0,0,0,22} },
-    { "PIZZ MOTION", {0,1,4,14,2,5,6,16}, {4,4,4,3,4,0,0,3}, {3,2,2,1,2,2,2,1}, 1,1,5,12,126,5,105,2,3,64,1,
-      {1,1,0,1},{28,20,0,24} },
-    { "AMBIENT", {2,3,5,17,6,7,11,14}, {0,0,0,0,0,0,0,0}, {2,2,2,2,2,2,2,1}, 0,1,0,19,68,6,72,4,2,36,3,
-      {1,1,1,1},{38,42,36,48} },
-    { "OSTINATO", {0,2,5,10,1,6,11,14}, {1,1,0,0,1,0,0,3}, {3,3,2,2,2,2,2,1}, 1,1,8,26,120,4,100,2,2,55,1,
-      {1,0,1,0},{20,0,24,0} },
-    { "FULL ORCH", {0,2,5,10,1,6,11,17}, {0,0,0,0,0,0,0,0}, {4,4,3,3,3,3,2,2}, 0,0,0,0,100,4,90,3,3,60,0,
-      {1,1,0,1},{25,25,0,28} }
+    /* strings carry, winds colour; the adaptive layer articulates them all */
+    { "CINEMA STR", {0,1,2,3,5,6,11,17}, {AU,AU,AU,AU,AU,AU,AU,AU}, {4,3,3,2,2,2,2,1},
+      0,0,0,0,88,4, 92,3,2,58,1, 35, 0, 1,0,1,0,
+      {0,1,0,1},{0,22,0,32},
+      {{25,50,40,100},{20,40,70,100},{50,35,0,100},{70,10,40,55}} },
+    /* detache strings and harp in a dry room; the ARP measured, by pitch */
+    { "BAROQUE", {0,1,4,5,2,6,8,14}, {DT,DT,AU,AU,AU,DT,AU,AU}, {3,2,2,1,2,2,2,1},
+      1,0,2,0,112,4, 80,2,2,42,2, 20, 1, 0,0,1,0,
+      {0,0,0,1},{0,0,0,20},
+      {{25,50,40,100},{30,50,50,100},{50,35,0,100},{45,0,50,60}} },
+    /* breathing entries: chords spread a little, an echo on the eighth */
+    { "WIND CHOIR", {0,5,7,8,6,9,17,2}, {AU,AU,AU,AU,AU,AU,AU,AU}, {2,3,2,2,2,2,1,2},
+      0,1,0,8,76,5, 88,3,2,50,1, 25, 1, 1,0,1,15,
+      {0,0,1,1},{0,0,14,34},
+      {{25,50,40,100},{30,50,50,100},{50,30,100,60},{62,18,30,50}} },
+    /* compact calls, close and dry; the low brass short */
+    { "BRASS FAN", {0,10,11,12,13,9,2,17}, {AU,ST,AU,ST,ST,AU,AU,AU}, {1,3,3,2,2,2,2,1},
+      0,0,0,0,104,4, 76,2,3,72,2, 15, 0, 0,0,1,0,
+      {0,0,0,1},{0,0,0,24},
+      {{25,50,40,100},{30,50,50,100},{50,35,0,100},{55,0,55,45}} },
+    /* pizzicato that rings in the hall's strings; a triplet echo */
+    { "PIZZ MOTION", {0,1,4,14,2,5,6,16}, {PZ,PZ,PZ,ST,PZ,AU,AU,ST}, {3,2,2,1,2,2,2,1},
+      1,1,5,12,126,5, 105,2,3,64,1, 45, 1, 1,1,1,0,
+      {0,1,1,1},{0,14,18,24},
+      {{25,50,40,100},{30,40,60,100},{50,35,50,50},{50,0,45,50}} },
+    /* sul tasto strings, long tails, the shimmer open */
+    { "AMBIENT", {2,3,5,17,6,7,11,14}, {TS,TS,AU,AU,AU,AU,AU,AU}, {2,2,2,2,2,2,2,1},
+      0,1,0,19,68,6, 72,4,2,36,3, 60, 1, 1,0,1,30,
+      {1,1,1,1},{18,36,30,48},
+      {{10,50,80,60},{15,60,100,100},{50,55,100,70},{90,60,20,65}} },
+    /* an interlocking pulse; the motif and the ARP follow the live harmony */
+    { "OSTINATO", {0,2,5,10,1,6,11,14}, {DT,DT,AU,AU,DT,AU,AU,ST}, {3,3,2,2,2,2,2,1},
+      1,1,8,26,120,4, 100,2,2,55,1, 25, 1, 1,0,1,0,
+      {0,0,1,1},{0,0,20,22},
+      {{25,50,40,100},{30,50,50,100},{50,35,100,55},{50,0,40,50}} },
+    /* everyone, adaptive, a broad hall */
+    { "FULL ORCH", {0,2,5,10,1,6,11,17}, {AU,AU,AU,AU,AU,AU,AU,AU}, {4,4,3,3,3,3,2,2},
+      0,0,0,0,100,4, 90,3,3,60,0, 30, 0, 1,0,1,0,
+      {0,1,0,1},{0,16,0,30},
+      {{25,50,40,100},{20,40,70,100},{50,35,0,100},{66,8,40,55}} }
 };
 
 /* Independent 16-step orchestral motifs. 60 is a neutral pitch anchor;
@@ -57,29 +97,29 @@ static const scene_t scenes[ORCH_SCENE_COUNT] = {
 typedef struct { uint8_t note, velocity, gate; } scene_step_t;
 static const scene_step_t scene_steps[ORCH_SCENE_COUNT][ORCH_SEQ_STEPS] = {
  /* Cinema: spacious pulse, phrase-shaped rests */
- {{60,72,92},{0,0,0},{64,62,92},{0,0,0},{67,76,96},{0,0,0},{64,60,92},{0,0,0},
-  {62,70,92},{0,0,0},{65,62,92},{0,0,0},{69,80,96},{0,0,0},{65,58,88},{0,0,0}},
+ {{60,94,92},{0,0,0},{64,85,92},{0,0,0},{67,97,96},{0,0,0},{64,84,92},{0,0,0},
+  {62,92,92},{0,0,0},{65,85,92},{0,0,0},{69,100,96},{0,0,0},{65,83,88},{0,0,0}},
  /* Baroque: measured eighth-note motion */
- {{60,88,68},{64,66,68},{67,76,68},{64,66,68},{62,84,68},{65,64,68},{69,74,68},{65,64,68},
-  {64,86,68},{67,66,68},{71,76,68},{67,66,68},{65,82,68},{69,64,68},{72,76,68},{69,64,68}},
+ {{60,106,68},{64,89,68},{67,97,68},{64,89,68},{62,103,68},{65,87,68},{69,95,68},{65,87,68},
+  {64,105,68},{67,89,68},{71,97,68},{67,89,68},{65,102,68},{69,87,68},{72,97,68},{69,87,68}},
  /* Wind choir: breath-like spaced entries */
- {{60,72,96},{0,0,0},{0,0,0},{64,62,96},{0,0,0},{67,74,100},{0,0,0},{0,0,0},
-  {62,70,96},{0,0,0},{0,0,0},{65,62,96},{0,0,0},{69,76,100},{0,0,0},{0,0,0}},
+ {{60,94,96},{0,0,0},{0,0,0},{64,85,96},{0,0,0},{67,95,100},{0,0,0},{0,0,0},
+  {62,92,96},{0,0,0},{0,0,0},{65,85,96},{0,0,0},{69,97,100},{0,0,0},{0,0,0}},
  /* Brass fanfare: dotted ceremonial calls */
- {{60,110,62},{0,0,0},{67,92,62},{0,0,0},{72,112,72},{0,0,0},{67,84,62},{0,0,0},
-  {65,104,62},{0,0,0},{69,90,62},{0,0,0},{74,116,76},{0,0,0},{69,88,62},{0,0,0}},
+ {{60,119,62},{0,0,0},{67,108,62},{0,0,0},{72,120,72},{0,0,0},{67,103,62},{0,0,0},
+  {65,116,62},{0,0,0},{69,107,62},{0,0,0},{74,123,76},{0,0,0},{69,106,62},{0,0,0}},
  /* Pizz motion: syncopated short notes */
- {{60,94,42},{0,0,0},{64,68,38},{67,82,42},{0,0,0},{64,72,38},{0,0,0},{69,90,42},
-  {0,0,0},{67,70,38},{64,82,42},{0,0,0},{62,72,38},{0,0,0},{65,92,42},{0,0,0}},
+ {{60,110,42},{0,0,0},{64,91,38},{67,102,42},{0,0,0},{64,94,38},{0,0,0},{69,107,42},
+  {0,0,0},{67,92,38},{64,102,42},{0,0,0},{62,94,38},{0,0,0},{65,108,42},{0,0,0}},
  /* Ambient: sparse slow anchors */
- {{60,58,100},{0,0,0},{0,0,0},{0,0,0},{67,52,100},{0,0,0},{0,0,0},{0,0,0},
-  {62,56,100},{0,0,0},{0,0,0},{0,0,0},{69,54,100},{0,0,0},{0,0,0},{0,0,0}},
+ {{60,83,100},{0,0,0},{0,0,0},{0,0,0},{67,80,100},{0,0,0},{0,0,0},{0,0,0},
+  {62,82,100},{0,0,0},{0,0,0},{0,0,0},{69,81,100},{0,0,0},{0,0,0},{0,0,0}},
  /* Ostinato: interlocking pulse with rests */
- {{60,90,74},{0,0,0},{67,72,62},{0,0,0},{60,84,74},{64,66,58},{0,0,0},{67,76,62},
-  {60,88,74},{0,0,0},{67,70,62},{64,66,58},{60,82,74},{0,0,0},{69,80,62},{0,0,0}},
+ {{60,107,74},{0,0,0},{67,94,62},{0,0,0},{60,103,74},{64,89,58},{0,0,0},{67,97,62},
+  {60,106,74},{0,0,0},{67,92,62},{64,89,58},{60,102,74},{0,0,0},{69,100,62},{0,0,0}},
  /* Full orchestra: broad anchor + cadence */
- {{60,76,84},{0,0,0},{64,62,84},{0,0,0},{67,80,90},{0,0,0},{69,66,84},{0,0,0},
-  {67,74,84},{0,0,0},{65,62,84},{0,0,0},{64,76,88},{0,0,0},{60,68,96},{0,0,0}}
+ {{60,97,84},{0,0,0},{64,85,84},{0,0,0},{67,100,90},{0,0,0},{69,89,84},{0,0,0},
+  {67,95,84},{0,0,0},{65,85,84},{0,0,0},{64,97,88},{0,0,0},{60,91,96},{0,0,0}}
 };
 static const uint8_t scene_seq_enabled[ORCH_SCENE_COUNT] = {0,1,0,0,1,0,1,0};
 static const uint8_t scene_seq_part[ORCH_SCENE_COUNT] = {0,0,1,2,0,1,0,0};
@@ -156,23 +196,13 @@ int orch_scene_apply(unsigned index)
         {{3,2,12,2,5000,0,120},{3,2,10,2,5000,0,150},{1,1,8,2,5000,80,250},{3,2,8,2,5000,0,100},{3,2,8,2,5000,0,150},{3,2,8,2,5000,0,150},{1,1,8,2,5000,80,250},{3,2,8,2,5000,0,100}},
         {{0,1,10,0,3600,180,700},{0,1,10,0,3300,200,750},{0,1,8,0,3000,250,850},{0,1,8,0,2800,300,900},{0,1,8,0,3200,220,800},{0,1,8,0,3000,260,850},{0,1,8,0,2800,300,900},{0,5,8,0,700,450,1400}}
     };
-    /* Full performance snapshots: ARP + phrase sequencer share the same
-     * timing/groove/clock controls, but each scene gets its own character. */
-    static const uint8_t fx_a[ORCH_SCENE_COUNT][ORCH_FX_SLOT_COUNT] = {
-        {28,34,42,62}, {18,22,28,38}, {24,42,36,48}, {20,26,32,30},
-        {36,30,44,52}, {16,38,56,78}, {22,28,30,36}, {26,32,40,58}
-    };
-    static const uint8_t fx_b[ORCH_SCENE_COUNT][ORCH_FX_SLOT_COUNT] = {
-        {32,46,28,42}, {18,30,22,18}, {40,54,34,36}, {24,42,20,16},
-        {48,38,46,34}, {62,72,58,86}, {28,34,24,20}, {36,48,38,44}
-    };
     if (index >= ORCH_SCENE_COUNT) return -1;
     const scene_t *p = &scenes[index];
     orch_reset_notes();
     for (unsigned part=0U; part<ORCH_PARTS; ++part) {
         struct orch_perf_config pc;
         (void)orch_engine_set_instrument(part,p->inst[part]);
-        (void)orch_engine_set_articulation(part,ART_VALUES[p->art[part] < 5U ? p->art[part] : 0U]);
+        (void)orch_engine_set_articulation(part,p->art[part]);
         (void)orch_engine_set_player_cap(part,p->cap[part]);
         (void)orch_engine_set_adsr(part,scene_adsr[index][part].a,
             scene_adsr[index][part].d,scene_adsr[index][part].s,
@@ -193,6 +223,10 @@ int orch_scene_apply(unsigned index)
         pc.cluster=p->cluster;
         pc.accent=p->accent;
         pc.quantize=p->quantize;
+        pc.arp_adaptive=p->arp_adaptive;
+        pc.arp_order=p->arp_order;
+        pc.ratchet=p->ratchet;
+        pc.strum=p->strum;
         /* Complete ARP/SEQ state, not just the pattern selector. */
         switch (index) {
         case 0U: /* Cinema: broad, legato phrases */
@@ -246,14 +280,17 @@ int orch_scene_apply(unsigned index)
         }
         (void)orch_perf_set_config(part,&pc);
     }
-    /* The scene's master effects: on/off and mix from the scene, the first two
-     * of each effect's four parameters from its character table. */
+    /* The scene's master effects: on/off, mix and all four settings, so
+     * nothing of the last scene's effects is left behind. */
     for (unsigned s=0U; s<ORCH_FX_SLOT_COUNT; ++s) {
         (void)orch_fx_set_enabled(s,p->fx_on[s]);
         (void)orch_fx_set_mix(s,p->fx_mix[s]);
-        (void)orch_fx_set_param(s,0U,fx_a[index][s]);
-        (void)orch_fx_set_param(s,1U,fx_b[index][s]);
+        for (unsigned k=0U; k<ORCH_FX_PARAMS; ++k)
+            (void)orch_fx_set_param(s,k,p->fx_p[s][k]);
     }
+    /* the hall's shared strings, and whether the motif follows the playing */
+    orch_resonance_set_amount(p->resonance);
+    orch_seq_set_adaptive(p->seq_adaptive);
     /* The 16-step motif and the cross-part call/response are recalled too;
      * the sequencer is stopped until PLAY, as the 0.3.14 scenes left it. */
     orch_seq_set_enabled(0U);

@@ -2,7 +2,7 @@
 
 Polyphonic physical-modeling firmware for the M-VAVE FM1 (JieLi WL82 / AC791N, PI32v2).
 
-## Status: 0.6.6-beta
+## Status: 0.6.7-beta
 
 0.6.0 tunes the waveguides (up to +26 cents off in the high register before),
 shares the mix evenly over the voices (1/n, no limiter), reworks the adaptive playing, the ARP and the sequencer (a lane per
@@ -11,7 +11,8 @@ plan. 0.6.3 adds a shared sympathetic resonance: eight open strings the
 whole orchestra rings, set by RESON on the CONSOLE page. 0.6.4 answers MIDI as a Yamaha XG part
 ([docs/MIDI.md](docs/MIDI.md)) and spreads velocity evenly over 32 dB; 0.6.5 carries that line through
 the adaptive playing, the ARP and the sequencer, each with its own CCs;
-0.6.6 takes the tempo from the MIDI clock, else from the playing (128 at start). See [docs/CHANGES_0.6.0.md](docs/CHANGES_0.6.0.md). Below: how 0.5.0
+0.6.6 takes the tempo from the MIDI clock, else from the playing (128 at start);
+0.6.7 retunes the factory scenes and gives each instrument family its own velocity line. See [docs/CHANGES_0.6.0.md](docs/CHANGES_0.6.0.md). Below: how 0.5.0
 brought the two lines together.
 
 ### 0.5.0 — the two lines merged

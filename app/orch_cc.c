@@ -108,9 +108,9 @@ unsigned orch_cc_dynamic(unsigned part, unsigned velocity)
     return v < 1 ? 1U : (unsigned)v;
 }
 
-uint16_t orch_cc_velocity_q12(unsigned velocity)
+uint16_t orch_cc_velocity_q12(unsigned family, unsigned velocity)
 {
-    return VEL_OUT_Q12[velocity & 127U];
+    return VEL_OUT_Q12[family < 5U ? family : 0U][velocity & 127U];
 }
 
 /* 1/128 of the gap a sample, at least one step: about 3 ms */

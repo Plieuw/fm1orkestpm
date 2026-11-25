@@ -1,4 +1,4 @@
-# 0.6.0 – 0.6.6: tuning, mix, adaptive playing, ARP, sequencer, vector panel
+# 0.6.0 – 0.6.7: tuning, mix, adaptive playing, ARP, sequencer, vector panel
 
 Written 25 November 2026 on `beta/0.6.0-refine`, branched from
 `beta/0.5.0-orchestra-merge`. One commit a topic; every number below is a host
@@ -146,6 +146,33 @@ limiter.
   details are in [MIDI.md](MIDI.md#tempo).
 - **Power on is 128 BPM** (was 120).
 - CC89 (tempo, 0.6.5) is gone: the clock carries the tempo.
+
+## 0.6.7: the presets made for this firmware
+
+- **Velocity per family.** The models get louder with velocity by very
+  different amounts: brass hardly at all, because its level compensation
+  flattens it; woodwinds and choir only below 16; strings 22 dB; mallets
+  45 dB. With one shared table, a woodwind at velocity 8 was only 13 dB under
+  velocity 100, and a mallet 38 dB. Now each family has its own table, and
+  every family lands on the same even 32 dB line: measured within 0.6 dB from
+  8 to 127 (`tests/velocity_model.txt`, `tools/gen_cc_tables.py`).
+- **The eight factory scenes:**
+  - The motifs' velocities are moved onto the even line, so they sound as
+    loud as their 0.6.3 levels intended. So are call-and-response's answers
+    (54 and 72 became 81 and 94).
+  - Each scene sets the shared resonance (BRASS 15, BAROQUE 20, CINEMA 35,
+    PIZZ 45, AMBIENT 60, …).
+  - Each scene sets the adaptive sequencer (on where a motif should follow
+    the harmony) and the ARP's ear (adaptive span, as played, strum).
+  - Articulations come from all twelve: AMBIENT's strings play sul tasto,
+    OSTINATO's détaché. The rest stay AUTO, so adaptive playing chooses.
+  - Each scene sets all four settings of every effect, so nothing of the
+    previous scene remains. Before, the 3rd and 4th settings carried over.
+  - Chorus only in AMBIENT, and shimmer only in the open scenes.
+  - The delay is locked to the tempo (SYNC), which now comes from the MIDI
+    clock or the playing.
+- A test plays every scene: the whole orchestra at velocity 127, CC7 fully
+  open, through the scene's own effects. It stays under full scale.
 
 ## Not done, still open
 

@@ -36,8 +36,10 @@ void orch_cc_apply(unsigned part, unsigned cc, unsigned value);
  * keeps the velocity (the controllers act on its output already). 1..127. */
 unsigned orch_cc_dynamic(unsigned part, unsigned velocity);
 
-/* The velocity's share of a note's output, Q12, 127 -> 4064. */
-uint16_t orch_cc_velocity_q12(unsigned velocity);
+/* The velocity's share of a note's output for an instrument family, Q12,
+ * 127 -> 4064; soft notes of a family whose model drops steeply (mallets)
+ * get more than unity, so the multiply wants 64 bits. */
+uint16_t orch_cc_velocity_q12(unsigned family, unsigned velocity);
 
 /* Once per sample: the playing controllers glide to where they were sent. */
 void orch_cc_step(void);
