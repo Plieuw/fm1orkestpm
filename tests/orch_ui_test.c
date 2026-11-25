@@ -469,6 +469,31 @@ int main(void)
     }
     CHECK(paused == 0);
 
+    /* MIDI moves the transport and the ARP as the panel would: CC89 the
+     * tempo (127 = 250 BPM), CC85 the sequencer, CC18 the ARP gate; the
+     * panel takes them over on its next scan */
+    {
+        const uint8_t tempo_cc[3] = { 0xB0U, 89U, 127U };
+        const uint8_t run_cc[3] = { 0xB0U, 85U, 127U };
+        const uint8_t gate_cc[3] = { 0xB0U, 18U, 0U };
+        orch_midi_short_message(tempo_cc, 3U);
+        orch_midi_short_message(run_cc, 3U);
+        orch_midi_short_message(gate_cc, 3U);
+        memset(block, 0, sizeof block);
+        orch_render_q23(block, 128U);
+        clock_ms += 1000U;
+        orch_ui_control();
+        CHECK(orch_ui_tempo() == 250U);
+        struct orch_perf_config pc;
+        orch_perf_get_config(0U, &pc);
+        CHECK(pc.bpm == 250U);
+        CHECK(pc.gate == 5U);
+        CHECK(orch_seq_enabled() == 1U);
+        const uint8_t stop_cc[3] = { 0xB0U, 85U, 0U };
+        orch_midi_short_message(stop_cc, 3U);
+        orch_render_q23(block, 128U);
+    }
+
     if (failures) {
         printf("orch_ui: %d failure(s)\n", failures);
         return 1;

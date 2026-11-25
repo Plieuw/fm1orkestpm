@@ -43,6 +43,8 @@ unsigned orch_note_count(unsigned part);
 
 /* Sequencer (16 steps, four notes per step, per-note gate percentage). */
 void orch_seq_set_tempo(uint16_t bpm);
+unsigned orch_seq_tempo(void);
+unsigned orch_seq_enabled(void);
 void orch_seq_set_enabled(unsigned enabled);
 /* Since 0.6.0 every part has its own lane of 16 steps, played on that part.
  * orch_seq_set_part() chooses the lane orch_seq_set_step() and

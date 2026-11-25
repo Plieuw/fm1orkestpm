@@ -3,6 +3,7 @@
 #include "orch_engine.h"
 #include "orch_fx.h"
 #include "orch_resonance.h"
+#include "orch_performance.h"
 
 #include "orch_cc_tables.inc"
 
@@ -95,6 +96,16 @@ void orch_cc_init(void)
         orch_cc_pan_r_q15[p] = pan_r_to[p];
     }
     gliding = 0U;
+}
+
+unsigned orch_cc_dynamic(unsigned part, unsigned velocity)
+{
+    if (velocity > 127U) velocity = 127U;
+    if (!velocity || part >= ORCH_PARTS) return velocity;
+    const struct cc_part *c = &cc[part];
+    int v = (int)velocity + EXPR_STEPS[c->expression] + BREATH_STEPS[c->breath] -
+            (c->soft ? 10 : 0);                      /* -2.5 dB */
+    return v < 1 ? 1U : (unsigned)v;
 }
 
 uint16_t orch_cc_velocity_q12(unsigned velocity)
@@ -208,6 +219,67 @@ static void set_send(unsigned slot, unsigned value)
     orch_fx_set_enabled(slot, value ? 1U : 0U);
 }
 
+/* --------------------------------------------- the ARP and the sequencer */
+
+/* value 0..127 into n equal zones, every value used */
+static unsigned zone(unsigned value, unsigned n)
+{
+    const unsigned z = (value * n) >> 7;
+    return z < n ? z : n - 1U;
+}
+
+/* The ARP's settings, per part, as the ARP page sets them (SAVE keeps
+ * them). Returns 1 when the controller was one of them. */
+static int arp_cc(unsigned p, unsigned n, unsigned value)
+{
+    struct orch_perf_config pc;
+    if (orch_perf_get_config(p, &pc) != 0) return 0;
+    const unsigned on = value >= 64U;
+    switch (n) {
+    case 80U: pc.arp_enabled = (uint8_t)on; break;          /* GP5 */
+    case 81U: pc.latch = (uint8_t)on; break;                /* GP6: hold */
+    case 82U: pc.phrase_enabled = (uint8_t)on; break;       /* GP7 */
+    case 83U: pc.arp_order = (uint8_t)on; break;            /* GP8: as played */
+    case 16U: pc.arp_type = (uint8_t)zone(value, ORCH_PERF_ARP_TYPES); break;
+    case 17U: pc.division = (uint8_t)zone(value, ORCH_PERF_DIVISIONS); break;
+    case 18U: pc.gate = (uint8_t)(5U + (value * 95U + 63U) / 127U); break;
+    case 19U: pc.swing = (uint8_t)value; break;
+    case 102U: pc.density = (uint8_t)value; break;
+    case 103U: pc.accent = (uint8_t)value; break;
+    case 104U: pc.range = (uint8_t)(1U + zone(value, 4U)); break;
+    case 105U: pc.cluster = (uint8_t)(1U + zone(value, 4U)); break;
+    case 106U: pc.ratchet = (uint8_t)(1U + zone(value, 4U)); break;
+    case 107U: pc.strum = (uint8_t)((value * 40U + 63U) / 127U); break;
+    case 108U: pc.velocity_groove = (uint8_t)zone(value, 8U); break;
+    case 109U: pc.gate_groove = (uint8_t)zone(value, 8U); break;
+    case 110U: pc.repeat = (uint8_t)zone(value, 4U); break;
+    case 111U: pc.quantize = (uint8_t)zone(value, 18U); break;
+    case 112U: pc.root = (uint8_t)zone(value, 13U); break;
+    case 113U: pc.phrase_ge = (uint8_t)zone(value, ORCH_PERF_GE_COUNT); break;
+    case 114U: pc.logic = (uint8_t)zone(value, ORCH_PERF_LOGIC_COUNT); break;
+    case 115U: pc.arp_adaptive = (uint8_t)on; break;
+    case 116U: pc.external_clock = (uint8_t)on; break;
+    default: return 0;
+    }
+    orch_perf_set_config(p, &pc);
+    return 1;
+}
+
+/* the tempo is the whole orchestra's: the sequencer, every ARP, the delay */
+static void set_tempo(unsigned value)
+{
+    const unsigned bpm = 40U + (value * 210U + 63U) / 127U;   /* 40..250 */
+    orch_seq_set_tempo((uint16_t)bpm);
+    orch_fx_set_tempo(bpm);
+    for (unsigned p = 0; p < ORCH_PARTS; ++p) {
+        struct orch_perf_config pc;
+        if (orch_perf_get_config(p, &pc) == 0 && pc.bpm != bpm) {
+            pc.bpm = (uint16_t)bpm;
+            orch_perf_set_config(p, &pc);
+        }
+    }
+}
+
 /* the instruments of a family, in order */
 static unsigned family_instrument(unsigned family, unsigned index, unsigned *count)
 {
@@ -266,9 +338,16 @@ void orch_cc_apply(unsigned p, unsigned n, unsigned value)
     case 94U: set_send(ORCH_FX_DELAY, value); return;     /* XG variation */
     case 95U: set_send(ORCH_FX_ENSEMBLE, value); return;
     case 71U: orch_resonance_set_amount(around(value, 0U, 25U, 100U)); return;
+    /* the sequencer's transport is shared, so every channel reaches it */
+    case 85U: orch_seq_set_enabled(value >= 64U); return;
+    case 86U: orch_seq_set_length(1U + zone(value, 16U)); return;
+    case 88U: orch_seq_set_adaptive(value >= 64U); return;
+    case 89U: set_tempo(value); return;
     default: break;
     }
     if (p >= ORCH_PARTS) return;
+    if (n == 87U) { orch_seq_set_lane_muted(p, value >= 64U); return; }
+    if (arp_cc(p, n, value)) return;
     struct cc_part *c = &cc[p];
     const struct orch_part *part = orch_part_get(p);
     struct orch_adsr d;

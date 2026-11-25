@@ -117,6 +117,38 @@ static void test_phrase_arc_has_peak_and_cadence(void)
     CHECK(start<peak);
     CHECK(peak>cadence);
     CHECK(cadence<start);
+    /* the swell is steps on the even dB line: the same at pp as at ff */
+    for (unsigned pos=0U;pos<16U;++pos)
+        CHECK((int)orch_test_phrase_arc_velocity(40U,pos)-40 ==
+              (int)orch_test_phrase_arc_velocity(100U,pos)-100);
+}
+
+/* The ARP's ear hears the played dynamic: the same keys under breath 0 read
+ * as a quiet passage and thin the chord cluster; the held notes keep their
+ * velocity. */
+static void test_arp_hears_the_played_dynamic(void)
+{
+    unsigned loud_hits=0U, soft_hits=0U;
+    for (unsigned pass=0U;pass<2U;++pass) {
+        orch_perf_init();
+        struct orch_perf_config c; orch_perf_default_config(&c);
+        c.phrase_enabled=1U; c.cluster=2U;
+        CHECK(orch_perf_set_config(0U,&c)==0);
+        const unsigned played=pass?20U:100U;
+        CHECK(orch_perf_note_event_played(0U,60U,100U,played)==1);
+        CHECK(orch_perf_note_event_played(0U,64U,100U,played)==1);
+        CHECK(orch_perf_note_event_played(0U,67U,100U,played)==1);
+        unsigned hits=0U, velocity_ok=1U;
+        for (uint32_t t=0U;t<2U*44100U;++t) {
+            orch_perf_advance_sample(t);
+            struct orch_perf_event e;
+            while (orch_perf_pop_event(&e))
+                if (e.note_on) { ++hits; if (e.velocity<60U) velocity_ok=0U; }
+        }
+        CHECK(velocity_ok);
+        if (pass) soft_hits=hits; else loud_hits=hits;
+    }
+    CHECK(soft_hits>0U && soft_hits<loud_hits);
 }
 
 static void test_contour_anchor_arp_starts_near_player(void)
@@ -218,6 +250,7 @@ int main(void) {
     test_arp_fixed_span();
     test_arp_capture_and_release(); test_phrase_generator(); test_latch_and_clock_stop();
     test_all_pattern_slots(); test_adaptive_contour_changes_arp_direction(); test_contour_anchor_arp_starts_near_player(); test_phrase_arc_has_peak_and_cadence();
+    test_arp_hears_the_played_dynamic();
     if(failures){printf("%u performance test(s) failed\n",failures);return 1;}
     puts("orch_performance: all checks passed"); return 0;
 }

@@ -253,18 +253,23 @@ static unsigned groove_gate(const perf_part_t *p, unsigned step, unsigned base)
     return out;
 }
 
-/* Shared musical envelope: rise, peak, then breathe into the cadence. */
+/* Shared musical envelope: rise, peak, then breathe into the cadence. The
+ * gate follows it as a share; the velocity as steps on the engine's even dB
+ * line (0.25 dB a step), so the swell is the same -6.9 .. +3.2 dB at pp as
+ * at ff. (Until 0.6.4 the velocity was scaled by the share too, which on the
+ * even line made the arc 3 dB deep at pp and 10 dB at ff.) */
 static const uint8_t phrase_arc[16] = {
     82U, 86U, 90U, 95U, 101U, 107U, 113U, 118U,
     120U, 116U, 108U, 99U, 90U, 82U, 74U, 68U
 };
+static const int8_t PHRASE_ARC_STEPS[16] = {
+    -14, -10, -7, -4, 1, 5, 8, 11, 12, 10, 5, -1, -7, -14, -21, -26
+};
 
 static unsigned arc_velocity(unsigned velocity, unsigned position)
 {
-    unsigned value=(velocity*(unsigned)phrase_arc[position&15U]+50U)/100U;
-    if(value<1U)value=1U;
-    if(value>127U)value=127U;
-    return value;
+    const int value=(int)velocity+PHRASE_ARC_STEPS[position&15U];
+    return value<1?1U:(value>127?127U:(unsigned)value);
 }
 
 static unsigned arc_gate(unsigned gate, unsigned position)
@@ -523,7 +528,13 @@ static void perform_step(unsigned part, perf_part_t *p, uint32_t now,
                     if (pn->used) continue;
                     pn->used=1U;
                     pn->note=(uint8_t)out[i];
-                    pn->velocity=(uint8_t)(outv[i]*(4U-rep)/4U);
+                    /* each echo 5, 12, 24 dB down (as 3/4, 1/2, 1/4 of
+                     * the velocity sounded at mf), the same at any dynamic */
+                    {
+                        static const uint8_t ECHO_STEPS[4] = { 0U, 20U, 47U, 95U };
+                        const int v=(int)outv[i]-(int)ECHO_STEPS[rep];
+                        pn->velocity=(uint8_t)(v<1?1:v);
+                    }
                     pn->on_at=at;
                     pn->gate_samples=gate_samples*3U/4U;
                     ++p->pending_count;
@@ -623,7 +634,18 @@ int orch_perf_get_config(unsigned part, struct orch_perf_config *c)
 
 int orch_perf_note_event(unsigned part, unsigned note, unsigned velocity)
 {
+    return orch_perf_note_event_played(part,note,velocity,velocity);
+}
+
+/* `played` is how hard the part is being played (the velocity under the
+ * breath and expression controllers, orch_cc_dynamic): the ARP's ear learns
+ * the contour from it, the held notes keep their velocity. */
+int orch_perf_note_event_played(unsigned part, unsigned note, unsigned velocity,
+                                unsigned played)
+{
     if(part>=ORCH_PERF_PARTS||note>127U||velocity>127U)return 0;
+    if(played>127U)played=127U;
+    if(velocity&&!played)played=1U;
     perf_part_t *p=&parts[part];
     if(!p->cfg.arp_enabled&&!p->cfg.phrase_enabled)return 0;
     if(velocity) {
@@ -654,11 +676,11 @@ int orch_perf_note_event(unsigned part, unsigned note, unsigned velocity)
                 }
                 if (delta>=5) p->input_peak=1U;
             } else p->input_phrase_age=0U;
-            if (had_note && velocity>previous_velocity+20U) p->input_peak=1U;
+            if (had_note && played>previous_velocity+20U) p->input_peak=1U;
             p->input_note=(uint8_t)note; p->input_have_note=1U;
             p->input_last_on=p->last_sample;
             p->input_velocity_avg=previous_velocity?
-                (uint8_t)((previous_velocity*3U+velocity)/4U):(uint8_t)velocity;
+                (uint8_t)((previous_velocity*3U+played)/4U):(uint8_t)played;
         }
         p->input_activity=100U;
         if (p->input_ioi_avg) {

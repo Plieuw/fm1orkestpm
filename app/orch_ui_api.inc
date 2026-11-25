@@ -313,6 +313,13 @@ void orch_ui_control(void)
     }
     update_meters();
 
+    /* MIDI can move the transport too (CC85 run, CC89 tempo, orch_cc.c): the
+     * panel follows what the engine plays, so its next edit starts there */
+    if (orch_seq_tempo() != ui.tempo && orch_seq_tempo() >= 40U && orch_seq_tempo() <= 250U)
+        ui.tempo = (uint16_t)orch_seq_tempo();
+    if ((orch_seq_enabled() != 0U) != (ui.seq_on != 0U))
+        ui.seq_on = (uint8_t)(orch_seq_enabled() != 0U);
+
     /* Three things can change: the page's settings, the values that move on
      * their own, and the strip. Each has its own cost — a page body, a couple
      * of cells, or one knob. */

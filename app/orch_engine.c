@@ -982,9 +982,12 @@ static uint32_t engine_start_part_note(unsigned part, unsigned note, unsigned ve
 
     part_runtime_t *rt = &runtime[part];
     struct orch_intent *in = &rt->intent;
-    orch_adaptive_note(&cfg->adaptive, in, note, velocity, sample_counter,
+    /* the adaptive layer hears how hard the part is played: the velocity
+     * under the breath and expression controllers (orch_cc_dynamic) */
+    const unsigned played = orch_cc_dynamic(part, velocity);
+    orch_adaptive_note(&cfg->adaptive, in, note, played, sample_counter,
                        cfg->articulation);
-    orch_adaptive_velocity(&cfg->adaptive, in, velocity);
+    orch_adaptive_velocity(&cfg->adaptive, in, played);
 
     uint32_t id = 0U;
     if (part_note_add(part, note, &id) < 0) return 0U;
@@ -1188,9 +1191,12 @@ static void drain_events(void)
                 engine_note_off(e.channel, n, 0U);
         } else {
             const unsigned part=orch_part_for_channel(e.channel);
-            if (part != 0xFFU) seq_learn_input(part, e.note, e.velocity);
-            if (part != 0xFFU && e.velocity) response_schedule(part,e.note,e.velocity);
-            if (!orch_perf_note_event(part,e.note,e.velocity)) {
+            /* the ears (sequencer, call and response, ARP) hear the played
+             * dynamic; the instrument gets the velocity */
+            const unsigned played = part != 0xFFU ? orch_cc_dynamic(part, e.velocity) : e.velocity;
+            if (part != 0xFFU) seq_learn_input(part, e.note, played);
+            if (part != 0xFFU && e.velocity) response_schedule(part,e.note,played);
+            if (!orch_perf_note_event_played(part,e.note,e.velocity,played)) {
                 if (e.velocity) engine_note_on(e.channel,e.note,e.velocity);
                 else engine_note_off(e.channel,e.note,e.channel<ORCH_MIDI_CHANNELS &&
                                                         sustain[e.channel]);
@@ -1435,6 +1441,9 @@ void orch_seq_set_tempo(uint16_t bpm)
     tempo = bpm;
 }
 
+unsigned orch_seq_tempo(void) { return tempo; }
+unsigned orch_seq_enabled(void) { return seq_enabled; }
+
 void orch_seq_set_enabled(unsigned enabled)
 {
     if (seq_enabled && !enabled) seq_stop_pending = 1U;
@@ -1477,17 +1486,23 @@ static uint32_t seq_start_voice(unsigned part, unsigned note, unsigned velocity)
     return engine_start_part_note(part, note, velocity);
 }
 
-/* Match the ARP/phrase engine's 16-step orchestral phrase arc. */
-static const uint8_t seq_phrase_arc[16] = {
-    82U, 86U, 90U, 95U, 101U, 107U, 113U, 118U,
-    120U, 116U, 108U, 99U, 90U, 82U, 74U, 68U
+/* The ARP/phrase engine's 16-step orchestral phrase arc, in velocity steps
+ * on the even line (orch_performance.c PHRASE_ARC_STEPS): the same swell in
+ * dB at every dynamic, -6.9 .. +3.2 dB. */
+static const int8_t seq_phrase_arc[16] = {
+    -14, -10, -7, -4, 1, 5, 8, 11, 12, 10, 5, -1, -7, -14, -21, -26
 };
+
+static unsigned seq_arc_velocity(int velocity, unsigned position)
+{
+    const int value = velocity + seq_phrase_arc[position & 15U];
+    return value < 1 ? 1U : (value > 127 ? 127U : (unsigned)value);
+}
 
 #ifdef FM1_HOST_TEST
 unsigned orch_test_seq_phrase_arc_velocity(unsigned velocity, unsigned position)
 {
-    unsigned value=(velocity*(unsigned)seq_phrase_arc[position&15U]+50U)/100U;
-    return value<1U?1U:(value>127U?127U:value);
+    return seq_arc_velocity((int)velocity, position);
 }
 #endif
 
@@ -1560,10 +1575,7 @@ static void seq_tick(void)
                 if (adjusted > 127) adjusted = 127;
                 /* A full 16-step arc gives the line a rise, peak and release;
                  * it changes playback velocity only, never stored step data. */
-                adjusted = (adjusted * (int)seq_phrase_arc[current_step] + 50) / 100;
-                if (adjusted < 1) adjusted = 1;
-                if (adjusted > 127) adjusted = 127;
-                velocity = (unsigned)adjusted;
+                velocity = seq_arc_velocity(adjusted, current_step);
             }
             if (seq_active[l][n]) seq_release_voice(l, seq_note[l][n], seq_note_id[l][n]);
             seq_note_id[l][n] = seq_start_voice(l, played_note, velocity);

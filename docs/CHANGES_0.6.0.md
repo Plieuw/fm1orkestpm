@@ -1,4 +1,4 @@
-# 0.6.0 – 0.6.4: tuning, mix, adaptive playing, ARP, sequencer, vector panel
+# 0.6.0 – 0.6.5: tuning, mix, adaptive playing, ARP, sequencer, vector panel
 
 Written 25 November 2026 on `beta/0.6.0-refine`, branched from
 `beta/0.5.0-orchestra-merge`. One commit a topic; every number below is a host
@@ -120,6 +120,20 @@ limiter.
   limiter.
 - XG powers on at volume 100 (−4.2 dB), and so does this engine now. With
   CC7 at 127 it is as loud as before or louder. MASTER has +12 dB besides.
+
+## 0.6.5: the even line through adaptive playing, ARP and sequencer
+
+- The adaptive layer, the ARP's ear, the sequencer's ear and call-and-response
+  hear the **played dynamic**: the velocity under CC2 breath, CC11 expression
+  and the soft pedal, in steps on the even dB line (`orch_cc_dynamic`). A breath
+  crescendo now thickens the divisi and the ARP's clusters, as a harder touch
+  does. The voice keeps its velocity, so nothing is taken off twice.
+- The phrase arc and the echoes are offsets in dB, the same at every dynamic.
+  Before this they scaled the velocity, so the arc was 3 dB deep at pp and
+  10 dB at ff.
+- Every ARP setting and the sequencer's transport has a controller on the
+  free XG numbers (CC16..19, 80..89, 102..116), using all 128 values. The
+  panel follows MIDI tempo and run. See [MIDI.md](MIDI.md).
 
 ## Not done, still open
 

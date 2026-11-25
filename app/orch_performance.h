@@ -64,6 +64,10 @@ int orch_perf_get_config(unsigned part, struct orch_perf_config *config);
 /* Returns non-zero when this note was captured by an enabled performance
  * engine and should not be sent directly to the instrument voices. */
 int orch_perf_note_event(unsigned part, unsigned note, unsigned velocity);
+/* the same, with how hard the part is played (velocity under breath and
+ * expression) for the ARP's ear; the held notes keep `velocity` */
+int orch_perf_note_event_played(unsigned part, unsigned note, unsigned velocity,
+                                unsigned played);
 void orch_perf_midi_realtime(unsigned status, uint32_t sample_now);
 void orch_perf_set_external_tempo(unsigned bpm);
 void orch_perf_advance_sample(uint32_t sample_now);

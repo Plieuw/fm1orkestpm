@@ -346,6 +346,43 @@ static void test_midi_controllers(void)
         render(1U);
         CHECK(orch_part_get(0U)->adsr.attack_ms == 4000U);
     }
+    /* The adaptive layer hears the played dynamic: the same note under CC2
+     * breath 0 reads as a lighter line than at breath 127 */
+    {
+        uint32_t energy[2];
+        for (unsigned k = 0; k < 2U; ++k) {
+            orch_init();
+            midi(0xB0U, 2U, k ? 0U : 127U);
+            render(2U);
+            midi(0x90U, 60U, 100U);
+            render(2U);
+            energy[k] = orch_last_intent(0U)->energy;
+        }
+        CHECK(energy[1] < energy[0]);
+    }
+    /* the ARP and the sequencer by controller, full range */
+    orch_init();
+    midi(0xB0U, 80U, 127U);                    /* ARP on */
+    midi(0xB0U, 16U, 127U);                    /* the last type */
+    midi(0xB0U, 102U, 77U);                    /* density, 1:1 */
+    midi(0xB0U, 106U, 127U);                   /* ratchet 4 */
+    midi(0xB0U, 86U, 0U);                      /* sequence length 1 */
+    midi(0xB0U, 87U, 127U);                    /* this part's lane muted */
+    render(1U);
+    {
+        struct orch_perf_config pc;
+        orch_perf_get_config(0U, &pc);
+        CHECK(pc.arp_enabled == 1U);
+        CHECK(pc.arp_type == ORCH_PERF_ARP_TYPES - 1U);
+        CHECK(pc.density == 77U);
+        CHECK(pc.ratchet == 4U);
+        CHECK(orch_seq_length() == 1U);
+        CHECK(orch_seq_lane_muted(0U) == 1U);
+    }
+    orch_init();
+    orch_seq_set_lane_muted(0U, 0U);
+    orch_seq_set_length(16U);
+
     /* CC71 is the shared resonance, 64 its default */
     midi(0xB0U, 71U, 64U);
     render(1U);

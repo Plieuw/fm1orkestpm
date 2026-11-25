@@ -1,4 +1,4 @@
-# MIDI implementation (0.6.4)
+# MIDI implementation (0.6.5)
 
 The engine answers MIDI as a Yamaha XG tone generator does, as far as an
 orchestra of physical models can. Each part listens on its own channel (part 1
@@ -60,6 +60,72 @@ effect off, and 1..127 switch it on at a mix of 1..100 %.
 | 93 | chorus send | CHORUS |
 | 94 | variation send | DELAY |
 | 95 | — | ENSEMBLE |
+
+## Adaptive playing, ARP and sequencer: the played dynamic
+
+The adaptive layer, the ARP's ear, the sequencer's ear and call-and-response
+do not hear the bare velocity. They hear how hard the part is being played:
+the velocity, less what CC2 breath, CC11 expression and the soft pedal take
+off, in steps on the same even dB line (about 4 steps a dB; expression 64
+is about 47 steps). A line swelled with a breath controller therefore reads as a
+crescendo: the divisi density, the bow energy, the release, the ARP's chord
+clusters and the adaptive sequencer follow it. The voice itself keeps the
+velocity, because the controllers already act on its output, so nothing is
+taken off twice. CC7 volume is a mixing level, not playing, and does not count.
+
+Everything the ARP and the sequencer do to a velocity is now steps on that
+line, so it sounds the same at pp as at ff:
+
+- the 16-step phrase arc is −6.9..+3.2 dB (until 0.6.4 it scaled the velocity,
+  which on the even line made it 3 dB deep at pp and 10 dB at ff);
+- echoes (phrase repeat) are 5, 12 and 24 dB down;
+- grooves and accents were already offsets and stay that way.
+
+## ARP controllers (per part; SAVE keeps them)
+
+XG leaves the general-purpose controllers and 102..119 free, so the ARP's
+settings use them. Switches are on at 64 and above. Choices are equal zones
+over all 128 values, so every value lands somewhere.
+
+| CC | ARP page | Range |
+| --- | --- | --- |
+| 80 (GP5) | ARP on | switch |
+| 81 (GP6) | hold (latch) | switch |
+| 82 (GP7) | phrase on | switch |
+| 83 (GP8) | order: by pitch / as played | switch |
+| 16 (GP1) | type | 31 zones |
+| 17 (GP2) | rate (division) | 10 zones |
+| 18 (GP3) | gate | 5..100 % |
+| 19 (GP4) | swing | 0..127, 1:1 |
+| 102 | phrase density | 0..127, 1:1 |
+| 103 | accent | 0..127, 1:1 |
+| 104 | range | 1..4 octaves |
+| 105 | cluster | 1..4 |
+| 106 | ratchet | 1..4 |
+| 107 | strum | 0..40 ms |
+| 108 | velocity groove | 8 zones |
+| 109 | gate groove | 8 zones |
+| 110 | repeat (echoes) | 0..3 |
+| 111 | quantise | off, chord, inferred, 15 scales |
+| 112 | root | auto, C..B |
+| 113 | phrase (GE) | 46 zones |
+| 114 | stream logic | OR, AND, XOR, NOR, ALT, S/R |
+| 115 | adaptive span | switch |
+| 116 | MIDI clock | switch |
+
+## Sequencer controllers
+
+The transport is shared, so every channel reaches it. The lane mute belongs to
+the channel's part. The panel takes over the tempo and run state on its next
+scan.
+
+| CC | Does | Range |
+| --- | --- | --- |
+| 85 | run / stop | switch |
+| 86 | length | 1..16 steps |
+| 87 | this part's lane muted | switch |
+| 88 | adaptive sequencer | switch |
+| 89 | tempo: the sequencer, every ARP, the delay | 40..250 BPM (about 1.65 BPM a value) |
 
 ## Not (yet) answered
 

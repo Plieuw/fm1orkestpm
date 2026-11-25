@@ -29,6 +29,13 @@ void orch_cc_reset_part(unsigned part); /* CC121, as XG resets */
 #define ORCH_CC_BEND 0x101U
 void orch_cc_apply(unsigned part, unsigned cc, unsigned value);
 
+/* How hard the part is being played, in velocity steps on the even line: the
+ * note's velocity less what CC2 breath, CC11 expression and the soft pedal
+ * take off. The adaptive layer, the ARP's and the sequencer's ears hear
+ * this, so a line swelled with breath reads as a crescendo; the voice itself
+ * keeps the velocity (the controllers act on its output already). 1..127. */
+unsigned orch_cc_dynamic(unsigned part, unsigned velocity);
+
 /* The velocity's share of a note's output, Q12, 127 -> 4064. */
 uint16_t orch_cc_velocity_q12(unsigned velocity);
 
