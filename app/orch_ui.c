@@ -104,7 +104,8 @@ struct save_record {
     uint8_t scale, seq_on, part, scene, seq_part;
     struct save_part parts[ORCH_PARTS];
     struct orch_perf_config perf[ORCH_PARTS];
-    struct orch_step_note steps[ORCH_SEQ_STEPS][4];
+    struct orch_step_note steps[ORCH_PARTS][ORCH_SEQ_STEPS][4];
+    uint8_t seq_length, lane_muted[ORCH_PARTS];
     uint8_t fx_on[ORCH_FX_SLOT_COUNT], fx_mix[ORCH_FX_SLOT_COUNT];
     uint8_t fx_p[ORCH_FX_SLOT_COUNT][ORCH_FX_PARAMS];
     int8_t listener_x;
@@ -120,6 +121,7 @@ static struct {
     uint8_t scene;                    /* the factory scene last recalled */
     uint8_t save_req;                 /* SAVE pressed: written after the edits */
     uint8_t arp_bank;                 /* which four ARP settings the knobs hold */
+    uint8_t seq_bank;                 /* SEQUENCE: 0 the step, 1 the pattern */
     int8_t transpose;
     uint16_t tempo;
     uint32_t buttons, keys;
@@ -132,7 +134,9 @@ static struct {
 
 /* What the panel wrote into the sequencer; the engine only has a setter, so the
  * screen shows this mirror. */
-static struct orch_step_note seq_notes[ORCH_SEQ_STEPS][SEQ_SLOTS];
+static struct orch_step_note seq_lanes[ORCH_PARTS][ORCH_SEQ_STEPS][SEQ_SLOTS];
+/* The lane of the selected part: every part has its own since 0.6.0. */
+#define seq_notes (seq_lanes[ui.part])
 
 /* Platforms with a tight RAM section can place the panel's two big buffers
  * elsewhere (the HAWK firmware build puts them in its .pool). */

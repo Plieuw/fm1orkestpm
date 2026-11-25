@@ -113,11 +113,13 @@ void orch_scene_step(unsigned index, unsigned step, struct orch_step_note *out)
 {
     if (!out) return;
     out->note = out->velocity = out->gate_percent = 0U;
+    out->chance = 100U;
     if (index >= ORCH_SCENE_COUNT || step >= ORCH_SEQ_STEPS) return;
     const scene_step_t *s = &scene_steps[index][step];
     out->note = s->note;
     out->velocity = s->velocity;
     out->gate_percent = s->gate;
+    out->chance = 100U;
 }
 
 int orch_scene_apply(unsigned index)
@@ -255,13 +257,14 @@ int orch_scene_apply(unsigned index)
     /* The 16-step motif and the cross-part call/response are recalled too;
      * the sequencer is stopped until PLAY, as the 0.3.14 scenes left it. */
     orch_seq_set_enabled(0U);
-    orch_seq_clear();
+    orch_seq_clear_all();
+    orch_seq_set_length(ORCH_SEQ_STEPS);
+    orch_seq_set_part(scene_seq_part[index]);   /* the motif's lane */
     for (unsigned st=0U; st<ORCH_SEQ_STEPS; ++st) {
         struct orch_step_note n;
         orch_scene_step(index, st, &n);
         if (n.velocity) (void)orch_seq_set_step(st, 0U, &n);
     }
-    orch_seq_set_part(scene_seq_part[index]);
     orch_call_response_configure(scene_response_enabled[index],
         scene_response_leader[index], scene_response_follower[index],
         scene_response_interval[index]);

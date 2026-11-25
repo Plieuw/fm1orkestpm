@@ -15,6 +15,7 @@ void orch_ui_init(void)
     ui.fx_bank = 0U;
     ui.scene = 0U;
     ui.arp_bank = 0U;
+    ui.seq_bank = 0U;
     ui.buttons = 0U;
     ui.keys = 0U;
     ui.knob = 0U;
@@ -29,7 +30,7 @@ void orch_ui_init(void)
     orch_stage_reset();
     next_scan = 0U;
     ui_fill(shown_voices, 0xFFU, (unsigned)sizeof shown_voices);
-    ui_fill(seq_notes, 0U, (unsigned)sizeof seq_notes);
+    ui_fill(seq_lanes, 0U, (unsigned)sizeof seq_lanes);
 
     fm1_controls_init();
     fm1_screen_init();
@@ -134,6 +135,8 @@ void orch_ui_handle(const struct fm1_controls *controls)
             /* on FX this encoder turns the strip over to the effect's other two
              * parameters; everywhere else it steps the instrument */
             if (ui.page == PAGE_FX) ui.fx_bank = (uint8_t)!ui.fx_bank;
+            else if (ui.page == PAGE_SEQ)    /* the step, or the pattern */
+                ui.seq_bank = (uint8_t)!ui.seq_bank;
             else if (ui.page == PAGE_ARP)    /* the ARP page's five banks */
                 ui.arp_bank = (uint8_t)step_wrap((int)ui.arp_bank, step, (int)ARP_BANKS);
             else step_instrument(step);
@@ -147,7 +150,7 @@ void orch_ui_handle(const struct fm1_controls *controls)
                 pc.logic = (uint8_t)step_wrap((int)pc.logic, step, (int)ORCH_PERF_LOGIC_COUNT);
                 break;
             case PAGE_SEQ:
-                ui.seq_step = (uint8_t)step_wrap((int)ui.seq_step, step, (int)ORCH_SEQ_STEPS);
+                ui.seq_step = (uint8_t)step_wrap((int)ui.seq_step, step, (int)orch_seq_length());
                 break;
             case PAGE_GLO:
                 ui.scale = (uint8_t)step_wrap((int)ui.scale, step, SCALE_COUNT);
@@ -164,7 +167,11 @@ void orch_ui_handle(const struct fm1_controls *controls)
                     (unsigned)clamp_percent((int)orch_fx_mix(ui.fx_sel) + pct_delta(delta) * 5));
                 break;
             case PAGE_ARP: arp_knob(&pc, 0U, delta, step); break;
-            case PAGE_SEQ: seq_touch_slot(0U, 0, pct_delta(delta) * 5, 0); break;
+            case PAGE_SEQ:
+                if (ui.seq_bank)
+                    orch_seq_set_length((unsigned)step_range((int)orch_seq_length(), delta, 1, 16));
+                else seq_touch_slot(0, delta, 0, 0);              /* the note */
+                break;
             case PAGE_GLO:
                 ui.scale = (uint8_t)step_wrap((int)ui.scale, step, SCALE_COUNT);
                 break;
@@ -185,7 +192,11 @@ void orch_ui_handle(const struct fm1_controls *controls)
                 break;
             }
             case PAGE_ARP: arp_knob(&pc, 1U, delta, step); break;
-            case PAGE_SEQ: seq_touch_slot(0U, 0, 0, pct_delta(delta) * 5); break;
+            case PAGE_SEQ:
+                if (ui.seq_bank)
+                    apply_tempo((unsigned)step_range((int)ui.tempo, delta * 2, 40, 250));
+                else seq_touch_slot(0, 0, pct_delta(delta) * 5, 0); /* velocity */
+                break;
             case PAGE_GLO:
                 ui.transpose = (int8_t)step_range((int)ui.transpose, delta, -24, 24);
                 break;
@@ -203,8 +214,11 @@ void orch_ui_handle(const struct fm1_controls *controls)
                 break;
             }
             case PAGE_ARP: arp_knob(&pc, 2U, delta, step); break;
-            case PAGE_GLO:
             case PAGE_SEQ:
+                if (ui.seq_bank) orch_seq_set_lane_muted(ui.part, step < 0);
+                else seq_touch_slot(0, 0, 0, pct_delta(delta) * 5); /* gate */
+                break;
+            case PAGE_GLO:
                 apply_tempo((unsigned)step_range((int)ui.tempo, delta * 2, 40, 250));
                 break;
             case PAGE_ENV: adsr_edit(0, 0, pct_delta(delta) * 5, 0); break;
@@ -223,7 +237,10 @@ void orch_ui_handle(const struct fm1_controls *controls)
             case PAGE_FX:
                 orch_fx_set_enabled(ui.fx_sel, !orch_fx_enabled(ui.fx_sel));
                 break;
-            case PAGE_SEQ: seq_clear_step(); break;
+            case PAGE_SEQ:
+                if (ui.seq_bank) seq_clear_step();
+                else seq_touch_slot(pct_delta(delta) * 5, 0, 0, 0); /* chance */
+                break;
             case PAGE_GLO:
                 /* a scene is recalled as soon as it is chosen, as the PRESETS
                  * encoder did on the 0.3.14 panel; SAVE keeps the result */

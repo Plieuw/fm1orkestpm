@@ -266,6 +266,24 @@ int main(void)
     key(60, 1);
     key(60, 0);
     CHECK(orch_ui_seq_step() == 1U);      /* the recorder moves on */
+    press(B_REC);                         /* recording off for the edits */
+
+    /* the open step: KNOB1 its note, KNOB4 its chance (back on step 1) */
+    turn(E_ALGO, -1);
+    CHECK(orch_ui_seq_step() == 0U);
+    turn(E_KNOB1, 2);
+    turn(E_KNOB4, -2);                    /* 100 -> 90 % */
+    /* PRESETS: the pattern bank — the length, the lane on or muted */
+    turn(E_PRESET, 1);
+    turn(E_KNOB1, -4);                    /* 16 -> 12 steps */
+    CHECK(orch_seq_length() == 12U);
+    turn(E_KNOB3, -1);
+    CHECK(orch_seq_lane_muted(2U) == 1U);
+    turn(E_KNOB3, 1);
+    CHECK(orch_seq_lane_muted(2U) == 0U);
+    turn(E_KNOB1, 4);                     /* and 16 again */
+    turn(E_PRESET, 1);                    /* back to the step bank */
+    press(B_REC);
     CHECK(orch_part_get(2)->family == ORCH_FAM_WOODWINDS);
 
     /* PLAY runs the sequencer: the step recorded above must sound */

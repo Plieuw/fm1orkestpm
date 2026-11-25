@@ -212,6 +212,66 @@ static void test_gain_staging(void)
     orch_init();
 }
 
+/* Every part has its own lane: two lanes play at once, each on its part; a
+ * muted lane is silent; the length wraps the steps; a 0 % step never plays
+ * and a 50 % one some of the time. */
+static void test_sequencer_lanes(void)
+{
+    struct orch_step_note n = { 60U, 100U, 80U, 100U };
+    orch_init();
+    orch_seq_set_tempo(240U);
+    orch_seq_set_part(0U);
+    CHECK(orch_seq_set_step(0U, 0U, &n) == 0);
+    n.note = 48U;
+    orch_seq_set_part(3U);
+    CHECK(orch_seq_set_step(0U, 0U, &n) == 0);
+    orch_seq_set_enabled(1U);
+    render(10U);
+    CHECK(orch_voices_of_part(0U) > 0U);
+    CHECK(orch_voices_of_part(3U) > 0U);
+    orch_seq_set_enabled(0U);
+    render(400U);
+
+    orch_seq_set_lane_muted(3U, 1U);
+    orch_seq_set_enabled(1U);
+    render(10U);
+    CHECK(orch_voices_of_part(0U) > 0U);
+    CHECK(orch_voices_of_part(3U) == 0U);
+    orch_seq_set_enabled(0U);
+    render(400U);
+
+    /* length 2 at 240 BPM: a sixteenth is 2756 samples, so step 0 comes back
+     * after 5512 and the position never reaches step 2 */
+    orch_seq_set_length(2U);
+    orch_seq_set_enabled(1U);
+    unsigned top = 0U;
+    for (unsigned b = 0; b < 200U; ++b) {
+        render(1U);
+        if (orch_seq_position() != 0xFFU && orch_seq_position() > top) top = orch_seq_position();
+    }
+    CHECK(top == 1U);
+    orch_seq_set_enabled(0U);
+    CHECK(orch_seq_set_step(0U, 0U, &(struct orch_step_note){ 60U, 100U, 80U, 101U }) == 0);
+
+    /* chance: 50 % over 64 passes plays somewhere between a quarter and
+     * three quarters of them */
+    orch_init();
+    orch_seq_set_tempo(240U);
+    orch_seq_set_length(1U);
+    orch_seq_set_step(0U, 0U, &(struct orch_step_note){ 60U, 100U, 20U, 50U });
+    orch_seq_set_enabled(1U);
+    unsigned played = 0U, was = 0U;
+    for (unsigned b = 0; b < 64U * 22U; ++b) {
+        render(1U);
+        const unsigned now = orch_note_count(0U);
+        if (now && !was) ++played;
+        was = now;
+    }
+    CHECK(played > 12U && played < 52U);
+    orch_seq_set_enabled(0U);
+    orch_init();
+}
+
 static void test_routing(void)
 {
     orch_init();
@@ -545,7 +605,7 @@ static void test_sequencer(void)
     orch_seq_set_adaptive(0U);
     orch_init();
     orch_seq_clear();
-    note.note = 60U; note.velocity = 100U; note.gate_percent = 50U;
+    note.note = 60U; note.velocity = 100U; note.gate_percent = 50U; note.chance = 100U;
     CHECK(orch_seq_set_step(0U, 0U, &note) == 0);
     CHECK(orch_seq_set_step(16U, 0U, &note) == -1);
     CHECK(orch_seq_set_step(0U, 9U, &note) == -1);
@@ -671,6 +731,7 @@ int main(void)
     test_string_pitch_autocorrelation();
     test_high_register_tuning();
     test_gain_staging();
+    test_sequencer_lanes();
     test_routing();
     test_eight_part_routing();
     test_repeated_same_pitch_note_off_fifo();

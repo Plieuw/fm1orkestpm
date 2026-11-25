@@ -99,10 +99,12 @@ static event_t events[EVENT_CAP];
 static part_runtime_t runtime[ORCH_PARTS];
 static volatile uint8_t event_write, event_read;
 static uint8_t sustain[ORCH_MIDI_CHANNELS];
-static struct orch_step_note pattern[ORCH_SEQ_STEPS][ORCH_STEP_NOTES];
-static uint8_t pattern_count[ORCH_SEQ_STEPS];
-static uint8_t seq_note[ORCH_STEP_NOTES], seq_active[ORCH_STEP_NOTES];
-static uint32_t seq_note_id[ORCH_STEP_NOTES];
+static struct orch_step_note pattern[ORCH_PARTS][ORCH_SEQ_STEPS][ORCH_STEP_NOTES];
+static uint8_t pattern_count[ORCH_PARTS][ORCH_SEQ_STEPS];
+static volatile uint8_t seq_length = ORCH_SEQ_STEPS, seq_lane_muted[ORCH_PARTS];
+static uint32_t seq_rng = 0x2545F491U;
+static uint8_t seq_note[ORCH_PARTS][ORCH_STEP_NOTES], seq_active[ORCH_PARTS][ORCH_STEP_NOTES];
+static uint32_t seq_note_id[ORCH_PARTS][ORCH_STEP_NOTES];
 /* Optional arranger context is learned from incoming MIDI only, never from
  * generated sequencer/ARP notes. Counts preserve pitch classes when notes
  * overlap in different octaves. */
@@ -120,7 +122,7 @@ static uint8_t seq_input_have_note[ORCH_PARTS];
 static uint8_t seq_input_activity[ORCH_PARTS];
 static int8_t seq_input_direction[ORCH_PARTS];
 static uint32_t seq_input_last_on[ORCH_PARTS], seq_input_ioi[ORCH_PARTS];
-static uint32_t seq_off_at[ORCH_STEP_NOTES];
+static uint32_t seq_off_at[ORCH_PARTS][ORCH_STEP_NOTES];
 static uint32_t age_counter, sample_counter, step_start;
 
 static void seq_learn_input(unsigned part, unsigned note, unsigned velocity);
@@ -1179,21 +1181,48 @@ static void drain_performance_events(void)
 
 /* ------------------------------------------------------------- sequencer */
 
-void orch_seq_clear(void)
+static void seq_clear_lane(unsigned lane)
 {
-    for (unsigned s = 0; s < ORCH_SEQ_STEPS; ++s) {
-        pattern_count[s] = 0U;
+    for (unsigned st = 0; st < ORCH_SEQ_STEPS; ++st) {
+        pattern_count[lane][st] = 0U;
         for (unsigned n = 0; n < ORCH_STEP_NOTES; ++n) {
-            pattern[s][n].note = 60U;
-            pattern[s][n].velocity = 0U;
-            pattern[s][n].gate_percent = 80U;
+            pattern[lane][st][n].note = 60U;
+            pattern[lane][st][n].velocity = 0U;
+            pattern[lane][st][n].gate_percent = 80U;
+            pattern[lane][st][n].chance = 100U;
         }
     }
+}
+
+void orch_seq_clear(void) { seq_clear_lane(seq_part); }
+
+void orch_seq_clear_all(void)
+{
+    for (unsigned l = 0; l < ORCH_PARTS; ++l) seq_clear_lane(l);
 }
 
 void orch_seq_set_part(unsigned part)
 {
     seq_part = (uint8_t)(part < ORCH_PARTS ? part : 0U);
+}
+
+void orch_seq_set_length(unsigned steps)
+{
+    if (steps < 1U) steps = 1U;
+    if (steps > ORCH_SEQ_STEPS) steps = ORCH_SEQ_STEPS;
+    seq_length = (uint8_t)steps;
+}
+
+unsigned orch_seq_length(void) { return seq_length; }
+
+void orch_seq_set_lane_muted(unsigned part, unsigned muted)
+{
+    if (part < ORCH_PARTS) seq_lane_muted[part] = (uint8_t)(muted ? 1U : 0U);
+}
+
+unsigned orch_seq_lane_muted(unsigned part)
+{
+    return part < ORCH_PARTS ? seq_lane_muted[part] : 0U;
 }
 
 /* Configure a sparse, tempo-synchronised answer line between two parts.
@@ -1340,7 +1369,7 @@ void orch_init(void)
     for (unsigned c = 0; c < ORCH_MIDI_CHANNELS; ++c) sustain[c] = 0U;
     orch_parts_init();
     part_notes_reset();
-    orch_seq_clear();
+    orch_seq_clear_all();
     orch_perf_init();
     tempo = 120U;
     seq_enabled = seq_started = seq_stop_pending = 0U;
@@ -1359,9 +1388,14 @@ void orch_init(void)
         for (unsigned pc = 0; pc < 12U; ++pc) seq_input_pc_count[p][pc] = 0U;
     }
     sample_counter = step_start = 0U;
-    for (unsigned n = 0; n < ORCH_STEP_NOTES; ++n) {
-        seq_active[n] = 0U; seq_off_at[n] = 0U; seq_note[n] = 0U; seq_note_id[n] = 0U;
+    for (unsigned l = 0; l < ORCH_PARTS; ++l) {
+        seq_lane_muted[l] = 0U;
+        for (unsigned n = 0; n < ORCH_STEP_NOTES; ++n) {
+            seq_active[l][n] = 0U; seq_off_at[l][n] = 0U;
+            seq_note[l][n] = 0U; seq_note_id[l][n] = 0U;
+        }
     }
+    seq_length = ORCH_SEQ_STEPS;
 }
 
 void orch_seq_set_tempo(uint16_t bpm)
@@ -1382,19 +1416,21 @@ int orch_seq_set_step(unsigned step, unsigned slot, const struct orch_step_note 
 {
     if (step >= ORCH_SEQ_STEPS || slot >= ORCH_STEP_NOTES || !n ||
         n->note > 127U || n->velocity > 127U || n->gate_percent > 100U) return -1;
-    pattern[step][slot] = *n;
-    if (n->velocity && pattern_count[step] <= slot) pattern_count[step] = (uint8_t)(slot + 1U);
-    else if (!n->velocity && pattern_count[step] == slot + 1U)
-        while (pattern_count[step] && !pattern[step][pattern_count[step] - 1U].velocity)
-            --pattern_count[step];
+    const unsigned l = seq_part;
+    pattern[l][step][slot] = *n;
+    /* a chance outside 1..99 plays always (a caller written before the field
+     * existed may leave it unset) */
+    if (!n->chance || n->chance > 100U) pattern[l][step][slot].chance = 100U;
+    if (n->velocity && pattern_count[l][step] <= slot) pattern_count[l][step] = (uint8_t)(slot + 1U);
+    else if (!n->velocity && pattern_count[l][step] == slot + 1U)
+        while (pattern_count[l][step] && !pattern[l][step][pattern_count[l][step] - 1U].velocity)
+            --pattern_count[l][step];
     return 0;
 }
 
-/* Sequencer notes enter the same part path as MIDI: the reserved source is
- * SEQ_CHANNEL, mapped to the chosen part by seq_part. */
-static void seq_release_voice(unsigned note, uint32_t note_id)
+/* Sequencer notes enter the same part path as MIDI, each lane on its part. */
+static void seq_release_voice(unsigned part, unsigned note, uint32_t note_id)
 {
-    const unsigned part = seq_part;
     for (unsigned i = 0; i < ORCH_MAX_VOICES; ++i) {
         voice_t *v = &voices[i];
         if (v->active && v->part == part && v->note_id == note_id &&
@@ -1406,9 +1442,9 @@ static void seq_release_voice(unsigned note, uint32_t note_id)
     part_note_remove_id(part, note_id);
 }
 
-static uint32_t seq_start_voice(unsigned note, unsigned velocity)
+static uint32_t seq_start_voice(unsigned part, unsigned note, unsigned velocity)
 {
-    return engine_start_part_note(seq_part, note, velocity);
+    return engine_start_part_note(part, note, velocity);
 }
 
 /* Match the ARP/phrase engine's 16-step orchestral phrase arc. */
@@ -1429,8 +1465,12 @@ static void seq_tick(void)
 {
     if (!seq_enabled) {
         if (seq_stop_pending) {
-            for (unsigned n = 0; n < ORCH_STEP_NOTES; ++n)
-                if (seq_active[n]) { seq_release_voice(seq_note[n], seq_note_id[n]); seq_active[n] = 0U; }
+            for (unsigned l = 0; l < ORCH_PARTS; ++l)
+                for (unsigned n = 0; n < ORCH_STEP_NOTES; ++n)
+                    if (seq_active[l][n]) {
+                        seq_release_voice(l, seq_note[l][n], seq_note_id[l][n]);
+                        seq_active[l][n] = 0U;
+                    }
             seq_stop_pending = 0U;
         }
         return;
@@ -1446,36 +1486,44 @@ static void seq_tick(void)
                               ((uint32_t)current_tempo * 4U);
     }
     const uint32_t step_samples = cached_step_samples;
+    const unsigned length = seq_length ? seq_length : ORCH_SEQ_STEPS;
     if (!seq_started) {
         seq_started = 1U;
-        current_step = 15U;
+        current_step = (uint8_t)(length - 1U);
         step_start = sample_counter - step_samples;
     }
-    for (unsigned n = 0; n < ORCH_STEP_NOTES; ++n) {
-        if (seq_active[n] && (int32_t)(sample_counter - seq_off_at[n]) >= 0) {
-            seq_release_voice(seq_note[n], seq_note_id[n]);
-            seq_active[n] = 0U;
+    for (unsigned l = 0; l < ORCH_PARTS; ++l)
+        for (unsigned n = 0; n < ORCH_STEP_NOTES; ++n) {
+            if (seq_active[l][n] && (int32_t)(sample_counter - seq_off_at[l][n]) >= 0) {
+                seq_release_voice(l, seq_note[l][n], seq_note_id[l][n]);
+                seq_active[l][n] = 0U;
+            }
         }
-    }
-    if ((uint32_t)(sample_counter - step_start) >= step_samples) {
-        step_start += step_samples;
-        current_step = (uint8_t)((current_step + 1U) & 15U);
-        for (unsigned n = 0; n < pattern_count[current_step]; ++n) {
-            const struct orch_step_note *p = &pattern[current_step][n];
+    if ((uint32_t)(sample_counter - step_start) < step_samples) return;
+    step_start += step_samples;
+    current_step = (uint8_t)((current_step + 1U) % length);
+    for (unsigned l = 0; l < ORCH_PARTS; ++l) {
+        if (seq_lane_muted[l]) continue;
+        for (unsigned n = 0; n < pattern_count[l][current_step]; ++n) {
+            const struct orch_step_note *p = &pattern[l][current_step][n];
             if (!p->velocity) continue;
+            /* chance: a step below 100 % plays that share of the passes */
+            if (p->chance && p->chance < 100U) {
+                seq_rng = seq_rng * 1664525U + 1013904223U;
+                if ((seq_rng >> 25) % 100U >= p->chance) continue;
+            }
             /* In adaptive mode, keep the user's rhythm and step data, but
              * voice chord tones from the live harmony and thin inner voices
              * during quiet/sparse playing. Slot zero remains the anchor. */
-            const unsigned have_input = seq_input_have_note[seq_part] &&
-                (uint32_t)(sample_counter - seq_input_last_on[seq_part]) < ORCH_SAMPLE_RATE * 2U;
+            const unsigned have_input = seq_input_have_note[l] &&
+                (uint32_t)(sample_counter - seq_input_last_on[l]) < ORCH_SAMPLE_RATE * 2U;
             if (seq_adaptive && have_input && n > 0U &&
-                (seq_input_activity[seq_part] < 82U ||
-                 seq_input_velocity[seq_part] < 46U) &&
+                (seq_input_activity[l] < 82U || seq_input_velocity[l] < 46U) &&
                 (current_step & 3U) != 0U) continue;
-            const unsigned played_note = seq_adapt_note(seq_part, p->note);
+            const unsigned played_note = seq_adapt_note(l, p->note);
             unsigned velocity = p->velocity;
             if (seq_adaptive && have_input) {
-                const int delta = ((int)seq_input_velocity[seq_part] - 80) / 5;
+                const int delta = ((int)seq_input_velocity[l] - 80) / 5;
                 int adjusted = (int)velocity + delta;
                 if ((current_step & 3U) == 0U) adjusted += 5;
                 if (adjusted < 1) adjusted = 1;
@@ -1487,23 +1535,24 @@ static void seq_tick(void)
                 if (adjusted > 127) adjusted = 127;
                 velocity = (unsigned)adjusted;
             }
-            seq_note_id[n] = seq_start_voice(played_note, velocity);
-            seq_note[n] = (uint8_t)played_note;
-            seq_active[n] = 1U;
+            if (seq_active[l][n]) seq_release_voice(l, seq_note[l][n], seq_note_id[l][n]);
+            seq_note_id[l][n] = seq_start_voice(l, played_note, velocity);
+            seq_note[l][n] = (uint8_t)played_note;
+            seq_active[l][n] = 1U;
             /* Preserve the stored gate as the base; adaptive activity adds
              * legato space for relaxed input and shorter articulation when
              * the player is moving quickly. */
             unsigned gate = p->gate_percent > 100U ? 100U : p->gate_percent;
             if (seq_adaptive && have_input) {
                 unsigned adaptive_gate = 82U;
-                if (seq_input_activity[seq_part] < 82U) adaptive_gate = 94U;
-                else if (seq_input_activity[seq_part] > 135U) adaptive_gate = 68U;
+                if (seq_input_activity[l] < 82U) adaptive_gate = 94U;
+                else if (seq_input_activity[l] > 135U) adaptive_gate = 68U;
                 gate = (gate * 3U + adaptive_gate) / 4U;
                 gate = (gate * (unsigned)seq_phrase_arc[current_step] + 50U) / 100U;
             }
             if (gate < 8U) gate = 8U;
             if (gate > 100U) gate = 100U;
-            seq_off_at[n] = sample_counter + (step_samples * gate) / 100U;
+            seq_off_at[l][n] = sample_counter + (step_samples * gate) / 100U;
         }
     }
 }

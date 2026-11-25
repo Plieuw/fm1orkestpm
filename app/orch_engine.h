@@ -13,7 +13,8 @@
 #define ORCH_STEP_NOTES 4U
 #define ORCH_SAMPLE_RATE 44100U
 
-struct orch_step_note { uint8_t note, velocity, gate_percent; };
+/* chance: percent the step plays (0 means always, so older data plays). */
+struct orch_step_note { uint8_t note, velocity, gate_percent, chance; };
 
 void orch_init(void);
 
@@ -43,9 +44,18 @@ unsigned orch_note_count(unsigned part);
 /* Sequencer (16 steps, four notes per step, per-note gate percentage). */
 void orch_seq_set_tempo(uint16_t bpm);
 void orch_seq_set_enabled(unsigned enabled);
+/* Since 0.6.0 every part has its own lane of 16 steps, played on that part.
+ * orch_seq_set_part() chooses the lane orch_seq_set_step() and
+ * orch_seq_clear() address; orch_seq_clear_all() empties every lane. The
+ * transport (enabled, tempo, length) is shared. */
 int orch_seq_set_step(unsigned step, unsigned slot, const struct orch_step_note *note);
 void orch_seq_clear(void);
+void orch_seq_clear_all(void);
 void orch_seq_set_part(unsigned part);
+void orch_seq_set_length(unsigned steps);          /* 1..16 */
+unsigned orch_seq_length(void);
+void orch_seq_set_lane_muted(unsigned part, unsigned muted);
+unsigned orch_seq_lane_muted(unsigned part);
 /* Optional orchestral arranger; disabled by default. */
 void orch_seq_set_adaptive(unsigned enabled);
 /* Optional cross-part call/response; disabled by default. Interval is semitones. */

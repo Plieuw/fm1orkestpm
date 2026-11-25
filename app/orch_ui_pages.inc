@@ -86,10 +86,21 @@ static void page_knobs(void)
         break;
     case PAGE_SEQ: {
         const struct orch_step_note *note = &seq_notes[ui.seq_step][0];
-        cell_number(0, "VEL", (int)note->velocity, 1, 127);
-        cell_number(1, "GATE", (int)note->gate_percent, 5, 100);
-        cell_number(2, "TEMPO", (int)ui.tempo, 40, 250);
-        cell_text(3, "CLEAR", "STEP", 0U, 0);
+        if (ui.seq_bank) {          /* the pattern: length, tempo, the lane, clear */
+            cell_number(0, "LENGTH", (int)orch_seq_length(), 1, 16);
+            cell_number(1, "TEMPO", (int)ui.tempo, 40, 250);
+            cell_text(2, "LANE", orch_seq_lane_muted(ui.part) ? "MUTED" : "PLAYS",
+                      orch_seq_lane_muted(ui.part) ? 0U : 100U, !orch_seq_lane_muted(ui.part));
+            cell_text(3, "CLEAR", "STEP", 0U, 0);
+        } else {                    /* the open step: its first note */
+            char nn[4];
+            note_name(note->note, nn);
+            cell_text(0, "NOTE", note->velocity ? nn : "-", note->note * 100U / 127U,
+                      note->velocity != 0U);
+            cell_number(1, "VEL", (int)note->velocity, 1, 127);
+            cell_number(2, "GATE", (int)note->gate_percent, 5, 100);
+            cell_number(3, "CHANCE", (int)(note->chance ? note->chance : 100U), 5, 100);
+        }
         break;
     }
     case PAGE_GLO:
@@ -257,7 +268,9 @@ static void draw_step_cell(unsigned i)
     const unsigned y = BODY_Y + 8U;
     const unsigned cell = 14U;
     const unsigned x = 8U + i * cell;
-    const uint16_t bg = (i == ui.seq_step) ? C_ROW : C_CARD;
+    /* a step past the pattern's length is a dark slot: it does not play */
+    const uint16_t bg = (i == ui.seq_step) ? C_ROW
+                      : (i >= orch_seq_length() ? C_BG : C_CARD);
 
     fm1_screen_fill(x, y + 8U, 12U, 26U, bg);
     fm1_screen_fill(x, y + 8U, 12U, 1U, C_LINE);
@@ -265,10 +278,14 @@ static void draw_step_cell(unsigned i)
     fm1_screen_fill(x, y + 33U, 12U, 1U, C_LINE);
     const unsigned vel = seq_notes[i][0].velocity;
     if (vel) {
+        /* the bar is the velocity; a step that plays only sometimes is drawn
+         * paler, as much paler as it is unlikely */
         const unsigned h = 2U + vel * 22U / 127U;
-        fm1_screen_fill(x + 2U, y + 32U - h, 8U, h, C_AMBER);
-        fm1_screen_fill(x + 2U, y + 32U - h, 8U, 1U,
-                        mix565(C_AMBER, C_TEXT, 90U));
+        const unsigned chance = seq_notes[i][0].chance ? seq_notes[i][0].chance : 100U;
+        const uint16_t c = chance >= 100U ? C_AMBER
+                         : mix565(C_AMBER, bg, (100U - chance) * 2U);
+        fm1_screen_fill(x + 2U, y + 32U - h, 8U, h, c);
+        fm1_screen_fill(x + 2U, y + 32U - h, 8U, 1U, mix565(c, C_TEXT, 90U));
     }
     if (i == ui.seq_step) {
         fm1_screen_fill(x, y + 8U, 12U, 1U, C_AMBER);

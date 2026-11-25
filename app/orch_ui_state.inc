@@ -103,9 +103,9 @@ static void recall_scene(unsigned index)
     if (orch_scene_apply(index) != 0) return;
     ui.scene = (uint8_t)index;
     ui.seq_on = 0U;
-    ui_fill(seq_notes, 0U, (unsigned)sizeof seq_notes);
+    ui_fill(seq_lanes, 0U, (unsigned)sizeof seq_lanes);
     for (unsigned st = 0; st < ORCH_SEQ_STEPS; ++st)
-        orch_scene_step(index, st, &seq_notes[st][0]);
+        orch_scene_step(index, st, &seq_lanes[orch_scene_seq_part(index) % ORCH_PARTS][st][0]);
     apply_tempo(orch_scene_bpm(index));
 }
 
@@ -186,8 +186,9 @@ static void release_chord(void)
 
 static void seq_apply_step(unsigned step)
 {
+    orch_seq_set_part(ui.part);
     for (unsigned s = 0; s < SEQ_SLOTS; ++s)
-        orch_seq_set_step(step, s, &seq_notes[step][s]);
+        orch_seq_set_step(step, s, &seq_notes[step][s]);   /* lane: ui.part */
 }
 
 static void seq_write_note(unsigned note)
@@ -199,8 +200,9 @@ static void seq_write_note(unsigned note)
     seq_notes[ui.seq_step][slot].note = (uint8_t)note;
     seq_notes[ui.seq_step][slot].velocity = 100U;
     seq_notes[ui.seq_step][slot].gate_percent = 80U;
+    seq_notes[ui.seq_step][slot].chance = 100U;
     seq_apply_step(ui.seq_step);
-    ui.seq_step = (uint8_t)((ui.seq_step + 1U) % ORCH_SEQ_STEPS);
+    ui.seq_step = (uint8_t)((ui.seq_step + 1U) % orch_seq_length());
 }
 
 static void seq_clear_step(void)
@@ -209,19 +211,26 @@ static void seq_clear_step(void)
         seq_notes[ui.seq_step][s].note = 0U;
         seq_notes[ui.seq_step][s].velocity = 0U;
         seq_notes[ui.seq_step][s].gate_percent = 0U;
+        seq_notes[ui.seq_step][s].chance = 100U;
     }
     seq_apply_step(ui.seq_step);
 }
 
-static void seq_touch_slot(unsigned slot_delta, int note_delta, int vel_delta,
+static void seq_touch_slot(int chance_delta, int note_delta, int vel_delta,
                            int gate_delta)
 {
     struct orch_step_note *s = &seq_notes[ui.seq_step][0];
-    (void)slot_delta;
     if (!s->velocity) {
         s->note = 60U;
         s->velocity = 100U;
         s->gate_percent = 80U;
+        s->chance = 100U;
+    }
+    if (chance_delta) {
+        int c = (int)(s->chance ? s->chance : 100U) + chance_delta;
+        if (c < 5) c = 5;
+        if (c > 100) c = 100;
+        s->chance = (uint8_t)c;
     }
     if (note_delta) {
         int note = (int)s->note + note_delta;
@@ -263,6 +272,8 @@ static uint32_t record_check(const struct save_record *r)
 }
 
 static struct save_record rec_buf;   /* not on the control task's stack */
+/* the firmware keeps the record in one 3 840-byte storage object */
+typedef char save_record_fits[sizeof(struct save_record) <= 3840U ? 1 : -1];
 
 static void save_state(void)
 {
@@ -297,13 +308,17 @@ static void save_state(void)
     }
     for (unsigned st = 0; st < ORCH_SEQ_STEPS; ++st)
         for (unsigned sl = 0; sl < SEQ_SLOTS; ++sl)
-            r->steps[st][sl] = seq_notes[st][sl];
+            for (unsigned l = 0; l < ORCH_PARTS; ++l)
+                r->steps[l][st][sl] = seq_lanes[l][st][sl];
     for (unsigned s = 0; s < ORCH_FX_SLOT_COUNT; ++s) {
         r->fx_on[s] = (uint8_t)orch_fx_enabled(s);
         r->fx_mix[s] = (uint8_t)orch_fx_mix(s);
         for (unsigned i = 0; i < ORCH_FX_PARAMS; ++i)
             r->fx_p[s][i] = (uint8_t)orch_fx_param(s, i);
     }
+    r->seq_length = (uint8_t)orch_seq_length();
+    for (unsigned l = 0; l < ORCH_PARTS; ++l)
+        r->lane_muted[l] = (uint8_t)orch_seq_lane_muted(l);
     r->listener_x = (int8_t)orch_stage_listener_x();
     r->listener_depth = (uint8_t)orch_stage_listener_depth();
     r->check = record_check(r);
@@ -342,13 +357,25 @@ static void load_state(void)
                             sp->lfo_delay_ms, sp->lfo_fade_ms);
         perf_put(p, &r->perf[p]);
     }
-    for (unsigned st = 0; st < ORCH_SEQ_STEPS; ++st) {
-        for (unsigned sl = 0; sl < SEQ_SLOTS; ++sl) {
-            seq_notes[st][sl] = r->steps[st][sl];
-            if (seq_notes[st][sl].note > 127U) seq_notes[st][sl].note = 60U;
-            if (seq_notes[st][sl].velocity > 127U) seq_notes[st][sl].velocity = 127U;
+    {
+        const uint8_t keep = ui.part;
+        for (unsigned l = 0; l < ORCH_PARTS; ++l) {
+            ui.part = (uint8_t)l;
+            for (unsigned st = 0; st < ORCH_SEQ_STEPS; ++st) {
+                for (unsigned sl = 0; sl < SEQ_SLOTS; ++sl) {
+                    struct orch_step_note *n = &seq_notes[st][sl];
+                    *n = r->steps[l][st][sl];
+                    if (n->note > 127U) n->note = 60U;
+                    if (n->velocity > 127U) n->velocity = 127U;
+                    if (n->gate_percent > 100U) n->gate_percent = 100U;
+                    if (n->chance > 100U) n->chance = 100U;
+                }
+                seq_apply_step(st);
+            }
+            orch_seq_set_lane_muted(l, r->lane_muted[l]);
         }
-        seq_apply_step(st);
+        ui.part = keep;
+        orch_seq_set_length(r->seq_length ? r->seq_length : ORCH_SEQ_STEPS);
     }
     for (unsigned s = 0; s < ORCH_FX_SLOT_COUNT; ++s) {
         orch_fx_set_enabled(s, r->fx_on[s]);
