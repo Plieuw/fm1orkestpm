@@ -49,7 +49,7 @@ value, 0 the shortest or least, and 127 the longest or most.
 
 | Message | Does | Range |
 | --- | --- | --- |
-| CC0 bank select MSB + program change | bank 0 keeps the part's family; banks 1..5 choose strings, woodwinds, brass, mallets, choir. The program chooses the instrument in the family and wraps around | |
+| CC0 bank select MSB + program change | bank 0 keeps the part's family; banks 1..5 choose strings, woodwinds, brass, mallets, choir. The program chooses the instrument in the family, in score order, and wraps around: strings violin, viola, cello, bass, harp, harpsichord; woodwinds piccolo, flute, alto flute, oboe, English horn, clarinet, bass clarinet, bassoon, contrabassoon; brass trumpet, horn, trombone, bass trombone, tuba; mallets glockenspiel, celesta, xylophone, vibraphone, marimba, tubular bells, timpani; choir mixed, women, men | |
 | CC71 harmonic content | the shared resonance (it belongs to the whole hall, so any channel can set it) | 0..100, 64 = 25 |
 | CC72 release | | 1..6000 ms, log |
 | CC73 attack | | 1..4000 ms, log |

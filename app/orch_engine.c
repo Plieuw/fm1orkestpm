@@ -24,8 +24,15 @@
 
 #define ORCH_AUDIO FM1_AUDIO_CODE
 
-#define DELAY_SIZE 2048U
-#define DELAY_MASK (DELAY_SIZE - 1U)
+/* Two lengths of delay line (0.7.1): sixteen voices would not fit the pool
+ * at 2048 samples each, and only the low notes need that much. Voices 0..7
+ * have 2048 (down to 21.5 Hz, the contrabassoon's and the timpani's
+ * floor), 8..15 have 1024 (down to 43 Hz with a whole tone of bend to
+ * spare). A note picks a voice its line can hold (pick_voice). */
+#define DELAY_SIZE 2048U                 /* the long lines; note_len_q16's ceiling */
+#define SHORT_SIZE 1024U
+#define ORCH_LONG_VOICES 8U
+#define BODY_SIZE 416U                   /* the lowest body, 110 Hz, is 401 samples */
 #define EVENT_CAP 64U
 #define ORCH_ENV_MAX 32767
 #define Q23_MAX 8388607
@@ -37,8 +44,9 @@
 enum orch_excite { EXC_BOW = 0, EXC_BREATH, EXC_LIP, EXC_STRIKE, EXC_VOICE };
 
 typedef struct {
-    int16_t delay[DELAY_SIZE];
-    int16_t body[512];
+    int16_t *delay;      /* its line: long_lines or short_lines (orch_init) */
+    uint32_t dmask;      /* the line's length less one */
+    int16_t body[BODY_SIZE];
     uint32_t write;
     uint16_t body_len, body_write;
     int32_t body_lp;
@@ -105,6 +113,8 @@ typedef struct {
 typedef struct { uint8_t channel, note, velocity, type; } event_t;
 
 static voice_t voices[ORCH_MAX_VOICES] FM1_AUDIO_DATA;
+static int16_t long_lines[ORCH_LONG_VOICES][DELAY_SIZE] FM1_AUDIO_DATA;
+static int16_t short_lines[ORCH_MAX_VOICES - ORCH_LONG_VOICES][SHORT_SIZE] FM1_AUDIO_DATA;
 static event_t events[EVENT_CAP];
 static part_runtime_t runtime[ORCH_PARTS];
 static volatile uint8_t event_write, event_read;
@@ -389,7 +399,20 @@ static const struct instrument_profile INST_PROFILE[ORCH_INST_COUNT] = {
     {31300U,29200U,1200U,2U,3U,700U,84U,0U,1U,0U,0U,72U}, /* marimba */
     {31100U,29000U,1800U,2U,2U,520U,82U,0U,1U,0U,0U,78U}, /* xylophone */
     {31400U,29400U,150U,2U,4U,900U,88U,0U,1U,0U,0U,64U}, /* timpani */
-    {31700U,31200U,500U,3U,90U,520U,62U,0U,0U,5U,0U,10U}  /* choir */
+    {31700U,31200U,500U,3U,90U,520U,62U,0U,0U,5U,0U,10U}, /* choir */
+    /* 0.7.1 */
+    {32050U,31250U,700U,3U,34U,260U,50U,1U,0U,4U,0U,36U}, /* english horn: a darker oboe */
+    {32200U,31300U,300U,3U,34U,280U,50U,1U,0U,2U,0U,30U}, /* bass clarinet */
+    {32300U,31400U,160U,3U,48U,360U,58U,1U,0U,1U,0U,28U}, /* contrabassoon */
+    {32050U,31000U,700U,3U,30U,220U,38U,1U,0U,3U,0U,46U}, /* alto flute: breathier */
+    {32200U,31200U,300U,3U,40U,300U,62U,1U,0U,2U,0U,22U}, /* bass trombone */
+    {32500U,29000U,2600U,2U,1U,1400U,70U,0U,1U,0U,0U,80U}, /* glockenspiel: long, bright */
+    {32550U,29500U,1100U,2U,2U,1800U,72U,0U,1U,0U,0U,70U}, /* vibraphone: rings on */
+    {32600U,30000U,400U,2U,2U,2500U,78U,0U,1U,0U,0U,60U}, /* tubular bells */
+    {32300U,29200U,2000U,2U,1U,900U,74U,0U,1U,0U,0U,76U}, /* celesta */
+    {32450U,31100U,900U,4U,2U,700U,58U,0U,1U,0U,0U,6U},  /* harpsichord: a bright quill */
+    {31700U,31200U,700U,3U,80U,520U,60U,0U,0U,5U,0U,10U}, /* women's choir */
+    {31700U,31250U,350U,3U,95U,560U,64U,0U,0U,4U,0U,10U}  /* men's choir */
 };
 /* Helmholtz friction curve. While the bow and string surfaces stick they move
  * together; once the string slips faster than the rosin can hold it, the
@@ -504,21 +527,25 @@ static void voice_stop(unsigned i)
     voices[i].env = 0;
 }
 
-static unsigned pick_voice(unsigned part)
+/* One global pool of sixteen mono voices. Parts do not reserve voices. A
+ * note that needs a long line (need_long) looks only among voices 0..7;
+ * any other looks at the short ones first, so the long ones stay free for
+ * the low notes, then at the long ones. In that order: a free voice wins;
+ * else the quietest release tail is taken; else the oldest held note (last
+ * note priority: the newest music is kept). */
+static unsigned pick_voice(unsigned part, int need_long)
 {
     (void)part;
     int quietest = -1;
     int oldest = -1;
     int32_t quiet_env = 0x7fffffff;
     uint32_t oldest_age = UINT32_MAX;
-
-    /* One global pool of exactly eight mono voices. Parts do not reserve
-     * voices and cannot impose a private ceiling. A free slot always wins.
-     * If all slots are occupied, steal the quietest release tail first;
-     * otherwise use last-note priority by replacing the oldest held note.
-     * This keeps the newest musical information and lets all parts compete
-     * dynamically for the same eight physical-model voices. */
-    for (unsigned i = 0; i < ORCH_MAX_VOICES; ++i) {
+    const unsigned count = need_long ? ORCH_LONG_VOICES : ORCH_MAX_VOICES;
+    for (unsigned k = 0; k < count; ++k) {
+        /* short voices first unless the note needs a long line */
+        const unsigned i = need_long ? k
+            : (k < ORCH_MAX_VOICES - ORCH_LONG_VOICES ? ORCH_LONG_VOICES + k
+                                                      : k - (ORCH_MAX_VOICES - ORCH_LONG_VOICES));
         voice_t *v = &voices[i];
         if (!v->active) return i;
         if (v->releasing && v->env < quiet_env) {
@@ -538,7 +565,7 @@ static unsigned pick_voice(unsigned part)
 /* A connected note in the same part/player should continue the existing
  * resonator instead of allocating a fresh, silent waveguide. This is the
  * physical-model equivalent of a legato bow/breath connection. */
-static int find_legato_voice(unsigned part, unsigned player, unsigned family)
+static int find_legato_voice(unsigned part, unsigned player, unsigned family, int need_long)
 {
     int exact = -1;
     int fallback = -1;
@@ -553,6 +580,7 @@ static int find_legato_voice(unsigned part, unsigned player, unsigned family)
          * envelope threshold should force a second voice after a quiet note.
          * Percussive mallets are excluded by the caller. */
         if (!v->active || v->part != part || v->family != family) continue;
+        if (need_long && v->dmask + 1U < DELAY_SIZE) continue;   /* its line is too short */
         if (v->player == player && v->age >= exact_age) {
             exact = (int)i;
             exact_age = v->age;
@@ -573,14 +601,25 @@ static void voice_start(unsigned part, unsigned note, unsigned velocity,
     const unsigned family = cfg ? cfg->family : ORCH_FAM_STRINGS;
     const unsigned instrument = cfg ? cfg->instrument : ORCH_INST_VIOLIN;
     const struct instrument_profile *ip = &INST_PROFILE[instrument < ORCH_INST_COUNT ? instrument : 0U];
+    struct artic_profile prof;
+    artic_profile(in->articulation, family, &prof);
+
+    /* how long a line the note needs: its loop with a whole tone of bend
+     * and the vibrato to spare (1/8 more, and 16 samples) */
+    int need_long;
+    {
+        unsigned sounding = note + prof.semis;
+        if (sounding > 127U) sounding = 127U;
+        uint32_t need = note_len_q16(sounding);
+        if (ip->half_period) need >>= 1;
+        need_long = (need >> 16) + (need >> 19) + 16U > SHORT_SIZE - 8U;
+    }
     const int legato_slot = (in->connected && family != ORCH_FAM_MALLETS)
-                               ? find_legato_voice(part, player, family) : -1;
-    const unsigned i = legato_slot >= 0 ? (unsigned)legato_slot : pick_voice(part);
+                               ? find_legato_voice(part, player, family, need_long) : -1;
+    const unsigned i = legato_slot >= 0 ? (unsigned)legato_slot : pick_voice(part, need_long);
     const int legato_reuse = legato_slot >= 0;
     voice_t *v = &voices[i];
-    struct artic_profile prof;
-
-    artic_profile(in->articulation, family, &prof);
+    const uint32_t line_max_q16 = (v->dmask - 7U) << 16;   /* the line's size less 8 */
     if (in->articulation == ORCH_ART_AUTO) {
         prof.damp = ip->damping;
         prof.attack_ms = ip->attack_ms;
@@ -595,7 +634,7 @@ static void voice_start(unsigned part, unsigned note, unsigned velocity,
     const unsigned excite = (prof.excite != 0xFFU) ? prof.excite : family_exc;
 
     if (!legato_reuse) {
-        for (unsigned n = 0; n < DELAY_SIZE; ++n) v->delay[n] = 0;
+        for (unsigned n = 0; n <= v->dmask; ++n) v->delay[n] = 0;
         v->write = 0U;
         v->lp = 0;
         v->dc = 0;
@@ -672,6 +711,7 @@ static void voice_start(unsigned part, unsigned note, unsigned velocity,
     uint32_t target = note_len_q16(sounding);
     if (ip->half_period) target >>= 1;
     if (target < (8U << 16)) target = 8U << 16;
+    if (target > line_max_q16) target = line_max_q16;
 
     uint32_t start = target;
     v->glide_left = 0U;
@@ -680,6 +720,7 @@ static void voice_start(unsigned part, unsigned note, unsigned velocity,
         if (!legato_reuse) start = runtime[part].last_len_q16;
         v->glide_left = ((uint32_t)in->glide_ms * ORCH_SAMPLE_RATE) / 1000U;
     }
+    if (start > line_max_q16) start = line_max_q16;   /* a glide from below the line */
     v->len_q16 = start;
     v->len_target_q16 = target;
     if (v->glide_left) {
@@ -867,7 +908,7 @@ static void voice_start(unsigned part, unsigned note, unsigned velocity,
     if (!legato_reuse) {
         v->body_len = (uint16_t)(ORCH_SAMPLE_RATE / (ip->body_hz ? ip->body_hz : 440U));
         if (v->body_len < 8U) v->body_len = 8U;
-        if (v->body_len > 512U) v->body_len = 512U;
+        if (v->body_len > BODY_SIZE) v->body_len = BODY_SIZE;
         v->body_write = 0U; v->body_lp = 0;
         for (unsigned n = 0; n < v->body_len; ++n) v->body[n] = 0;
         v->excite_phase = rng ^ (note * 0x9e3779b9U);
@@ -903,7 +944,7 @@ static void voice_start(unsigned part, unsigned note, unsigned velocity,
     if (excite == EXC_BOW && !legato_reuse && !prof.pluck) {
         v->strike_left = (uint16_t)((10U * ORCH_SAMPLE_RATE) / 1000U);
         const int32_t bite = (int32_t)velocity * 90;
-        for (unsigned n = 0; n < 24U && n < DELAY_SIZE; ++n)
+        for (unsigned n = 0; n < 24U; ++n)
             v->delay[n] = (int16_t)clamp16((noise16() * bite) >> 8);
     }
 
@@ -914,7 +955,7 @@ static void voice_start(unsigned part, unsigned note, unsigned velocity,
                                     ORCH_SAMPLE_RATE / 1000U);
         int32_t amp = (int32_t)velocity * 160 + (int32_t)prof.accent * 60;
         if (v->bow_gain < 256U) amp = (amp * (int32_t)v->bow_gain) >> 8;  /* as above */
-        for (unsigned n = 0; n < 64U && n < DELAY_SIZE; ++n)
+        for (unsigned n = 0; n < 64U; ++n)
             v->delay[n] = (int16_t)clamp16((noise16() * amp) >> 8);
         if (v->strike_left > 512U) v->strike_left = 512U;
     }
@@ -1515,7 +1556,8 @@ unsigned orch_test_seq_adapt_note(unsigned part, unsigned note)
  * voice takes its share quickly, so the sum stays within the bound) and up
  * over about 25 ms (a voice ending lets the others grow back gently). */
 static const uint16_t MIX_GAIN_Q12[ORCH_MAX_VOICES + 1U] = {
-    0U, 4096U, 2785U, 1857U, 1393U, 1114U, 928U, 796U, 696U
+    0U, 4096U, 2785U, 1857U, 1393U, 1114U, 928U, 796U, 696U,
+    619U, 557U, 506U, 464U, 428U, 398U, 371U, 348U
 };
 static int32_t mix_gain_q12 = 4096;
 
@@ -1546,6 +1588,17 @@ void orch_init(void)
      * every time (the two-core test compares runs bit for bit) */
     zero_words(voices, sizeof voices);
     zero_words(runtime, sizeof runtime);
+    zero_words(long_lines, sizeof long_lines);
+    zero_words(short_lines, sizeof short_lines);
+    for (unsigned i = 0; i < ORCH_MAX_VOICES; ++i) {
+        if (i < ORCH_LONG_VOICES) {
+            voices[i].delay = long_lines[i];
+            voices[i].dmask = DELAY_SIZE - 1U;
+        } else {
+            voices[i].delay = short_lines[i - ORCH_LONG_VOICES];
+            voices[i].dmask = SHORT_SIZE - 1U;
+        }
+    }
     for (unsigned i = 0; i < ORCH_MAX_VOICES; ++i) voice_stop(i);
     event_read = event_write = 0U;
     for (unsigned c = 0; c < ORCH_MIDI_CHANNELS; ++c) sustain[c] = 0U;
@@ -1792,7 +1845,7 @@ static void voice_control(voice_t *v, unsigned n)
     /* pitch bend (orch_cc.c): the loop's length by the part's ratio */
     if (orch_cc_bend_q16[v->part] != 65536) {
         uint64_t bent = ((uint64_t)len * (uint32_t)orch_cc_bend_q16[v->part]) >> 16;
-        if (bent > ((uint64_t)(DELAY_SIZE - 8U) << 16)) bent = (uint64_t)(DELAY_SIZE - 8U) << 16;
+        if (bent > ((uint64_t)(v->dmask - 7U) << 16)) bent = (uint64_t)(v->dmask - 7U) << 16;
         if (bent < (16U << 16)) bent = 16U << 16;
         len = (uint32_t)bent;
     }
@@ -1953,10 +2006,10 @@ static int32_t voice_sample(voice_t *v)
 
     uint32_t whole = len >> 16;
     if (whole < 4U) whole = 4U;
-    if (whole > DELAY_SIZE - 4U) whole = DELAY_SIZE - 4U;
+    if (whole > v->dmask - 3U) whole = v->dmask - 3U;
     const uint32_t frac = (len >> 8) & 0xFFU;
-    const uint32_t i0 = (v->write + DELAY_SIZE - whole) & DELAY_MASK;
-    const uint32_t i1 = (i0 + DELAY_SIZE - 1U) & DELAY_MASK;   /* one older */
+    const uint32_t i0 = (v->write - whole) & v->dmask;
+    const uint32_t i1 = (i0 - 1U) & v->dmask;   /* one older */
     const int32_t s0 = v->delay[i0], s1 = v->delay[i1];
     int32_t delayed = (s0 * (int32_t)(256U - frac) + s1 * (int32_t)frac) >> 8;
 
@@ -2052,7 +2105,7 @@ static int32_t voice_sample(voice_t *v)
         }
     }
     v->delay[v->write] = (int16_t)clamp16(loop);
-    v->write = (v->write + 1U) & DELAY_MASK;
+    v->write = (v->write + 1U) & v->dmask;
     {
         const int32_t body_delayed = v->body[v->body_write];
         v->body_lp += (body_delayed - v->body_lp) >> 2;
@@ -2192,10 +2245,10 @@ static void render_voices(uint32_t mask, unsigned n, unsigned side)
     }
 }
 
-/* the second core's job: arg = its voices | the chunk's length << 8 */
+/* the second core's job: arg = its voices | the chunk's length << 16 */
 static void second_core_job(uint32_t arg)
 {
-    render_voices(arg & 0xFFU, (unsigned)(arg >> 8), 1U);
+    render_voices(arg & 0xFFFFU, (unsigned)(arg >> 16), 1U);
 }
 
 static void render_chunk(int32_t *out, unsigned n)
@@ -2223,7 +2276,7 @@ static void render_chunk(int32_t *out, unsigned n)
         if (sounding++ & 1U) theirs |= 1U << i;
         else own |= 1U << i;
     }
-    if (!theirs || !second_run || !second_run(second_core_job, theirs | (uint32_t)n << 8)) {
+    if (!theirs || !second_run || !second_run(second_core_job, theirs | (uint32_t)n << 16)) {
         own |= theirs;
         theirs = 0U;
     }

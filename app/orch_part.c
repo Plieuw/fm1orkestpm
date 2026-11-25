@@ -3,13 +3,64 @@
 
 static struct orch_part parts[ORCH_PARTS];
 
+/* Each family in score order, top to bottom. */
+static const uint8_t MEMBERS[ORCH_FAM_COUNT][9] = {
+    { ORCH_INST_VIOLIN, ORCH_INST_VIOLA, ORCH_INST_CELLO, ORCH_INST_DOUBLE_BASS,
+      ORCH_INST_HARP, ORCH_INST_HARPSICHORD },
+    { ORCH_INST_PICCOLO, ORCH_INST_FLUTE, ORCH_INST_ALTO_FLUTE, ORCH_INST_OBOE,
+      ORCH_INST_ENGLISH_HORN, ORCH_INST_CLARINET, ORCH_INST_BASS_CLARINET,
+      ORCH_INST_BASSOON, ORCH_INST_CONTRABASSOON },
+    { ORCH_INST_TRUMPET, ORCH_INST_FRENCH_HORN, ORCH_INST_TROMBONE,
+      ORCH_INST_BASS_TROMBONE, ORCH_INST_TUBA },
+    { ORCH_INST_GLOCKENSPIEL, ORCH_INST_CELESTA, ORCH_INST_XYLOPHONE,
+      ORCH_INST_VIBRAPHONE, ORCH_INST_MARIMBA, ORCH_INST_TUBULAR_BELLS,
+      ORCH_INST_TIMPANI },
+    { ORCH_INST_CHOIR, ORCH_INST_WOMENS_CHOIR, ORCH_INST_MENS_CHOIR }
+};
+static const uint8_t MEMBER_COUNT[ORCH_FAM_COUNT] = { 6U, 9U, 5U, 7U, 3U };
+
+unsigned orch_family_size(unsigned family)
+{
+    return family < ORCH_FAM_COUNT ? MEMBER_COUNT[family] : 0U;
+}
+
+unsigned orch_family_member(unsigned family, unsigned index)
+{
+    if (family >= ORCH_FAM_COUNT) return ORCH_INST_VIOLIN;
+    if (index >= MEMBER_COUNT[family]) return MEMBERS[family][0];
+    return MEMBERS[family][index];
+}
+
 unsigned orch_instrument_family(unsigned instrument)
 {
+    switch (instrument) {
+    case ORCH_INST_ENGLISH_HORN: case ORCH_INST_BASS_CLARINET:
+    case ORCH_INST_CONTRABASSOON: case ORCH_INST_ALTO_FLUTE:
+        return ORCH_FAM_WOODWINDS;
+    case ORCH_INST_BASS_TROMBONE:
+        return ORCH_FAM_BRASS;
+    case ORCH_INST_GLOCKENSPIEL: case ORCH_INST_VIBRAPHONE:
+    case ORCH_INST_TUBULAR_BELLS: case ORCH_INST_CELESTA:
+        return ORCH_FAM_MALLETS;
+    case ORCH_INST_HARPSICHORD:
+        return ORCH_FAM_STRINGS;
+    case ORCH_INST_WOMENS_CHOIR: case ORCH_INST_MENS_CHOIR:
+        return ORCH_FAM_CHOIR;
+    default: break;
+    }
     if (instrument <= ORCH_INST_HARP) return ORCH_FAM_STRINGS;
     if (instrument <= ORCH_INST_BASSOON) return ORCH_FAM_WOODWINDS;
     if (instrument <= ORCH_INST_TUBA) return ORCH_FAM_BRASS;
     if (instrument <= ORCH_INST_TIMPANI) return ORCH_FAM_MALLETS;
     return ORCH_FAM_CHOIR;
+}
+
+unsigned orch_family_index(unsigned instrument)
+{
+    const unsigned f = orch_instrument_family(instrument);
+    for (unsigned i = 0; i < orch_family_size(f); ++i)
+        if (orch_family_member(f, i) == instrument) return i;
+    return 0U;
 }
 
 void orch_instrument_adsr(unsigned instrument, struct orch_adsr *a)
@@ -35,6 +86,18 @@ void orch_instrument_adsr(unsigned instrument, struct orch_adsr *a)
     case ORCH_INST_XYLOPHONE: a->attack_ms=2U; a->decay_ms=70U; a->sustain_percent=42U; a->release_ms=520U; break;
     case ORCH_INST_TIMPANI: a->attack_ms=4U; a->decay_ms=240U; a->sustain_percent=58U; a->release_ms=1100U; break;
     case ORCH_INST_CHOIR: a->attack_ms=115U; a->decay_ms=280U; a->sustain_percent=90U; a->release_ms=760U; break;
+    case ORCH_INST_ENGLISH_HORN: a->attack_ms=36U; a->decay_ms=220U; a->sustain_percent=85U; a->release_ms=460U; break;
+    case ORCH_INST_BASS_CLARINET: a->attack_ms=40U; a->decay_ms=230U; a->sustain_percent=86U; a->release_ms=500U; break;
+    case ORCH_INST_CONTRABASSOON: a->attack_ms=78U; a->decay_ms=280U; a->sustain_percent=88U; a->release_ms=640U; break;
+    case ORCH_INST_ALTO_FLUTE: a->attack_ms=44U; a->decay_ms=190U; a->sustain_percent=84U; a->release_ms=400U; break;
+    case ORCH_INST_BASS_TROMBONE: a->attack_ms=32U; a->decay_ms=190U; a->sustain_percent=86U; a->release_ms=420U; break;
+    case ORCH_INST_GLOCKENSPIEL: a->attack_ms=1U; a->decay_ms=120U; a->sustain_percent=55U; a->release_ms=1400U; break;
+    case ORCH_INST_VIBRAPHONE: a->attack_ms=2U; a->decay_ms=200U; a->sustain_percent=70U; a->release_ms=1800U; break;
+    case ORCH_INST_TUBULAR_BELLS: a->attack_ms=2U; a->decay_ms=300U; a->sustain_percent=72U; a->release_ms=2600U; break;
+    case ORCH_INST_CELESTA: a->attack_ms=1U; a->decay_ms=110U; a->sustain_percent=50U; a->release_ms=900U; break;
+    case ORCH_INST_HARPSICHORD: a->attack_ms=1U; a->decay_ms=90U; a->sustain_percent=55U; a->release_ms=650U; break;
+    case ORCH_INST_WOMENS_CHOIR: a->attack_ms=105U; a->decay_ms=260U; a->sustain_percent=90U; a->release_ms=720U; break;
+    case ORCH_INST_MENS_CHOIR: a->attack_ms=125U; a->decay_ms=300U; a->sustain_percent=90U; a->release_ms=800U; break;
     default: break;
     }
 }

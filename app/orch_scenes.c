@@ -49,22 +49,26 @@ typedef struct {
 
 static const scene_t scenes[ORCH_SCENE_COUNT] = {
     /* strings carry, winds colour; the adaptive layer articulates them all */
-    { "CINEMA STR", {0,1,2,3,5,6,11,17}, {AU,AU,AU,AU,AU,AU,AU,AU}, {4,3,3,2,2,2,2,1},
+    { "CINEMA STR", {0,1,2,3,5,26,11,17},   /* the celesta for sparkle */
+      {AU,AU,AU,AU,AU,AU,AU,AU}, {4,3,3,2,2,2,2,1},
       0,0,0,0,88,4, 92,3,2,58,1, 35, 0, 1,0,1,0,
       {0,1,0,1},{0,22,0,32},
       {{25,50,40,100},{20,40,70,100},{50,35,0,100},{70,10,40,55}} },
-    /* detache strings and harp in a dry room; the ARP measured, by pitch */
-    { "BAROQUE", {0,1,4,5,2,6,8,14}, {DT,DT,AU,AU,AU,DT,AU,AU}, {3,2,2,1,2,2,2,1},
+    /* detache strings and the harpsichord in a dry room; the ARP measured, by pitch */
+    { "BAROQUE", {0,1,27,5,2,6,8,14},       /* the harpsichord as continuo */
+      {DT,DT,AU,AU,AU,DT,AU,AU}, {3,2,2,1,2,2,2,1},
       1,0,2,0,112,4, 80,2,2,42,2, 20, 1, 0,0,1,0,
       {0,0,0,1},{0,0,0,20},
       {{25,50,40,100},{30,50,50,100},{50,35,0,100},{45,0,50,60}} },
     /* breathing entries: chords spread a little, an echo on the eighth */
-    { "WIND CHOIR", {0,5,7,8,6,9,17,2}, {AU,AU,AU,AU,AU,AU,AU,AU}, {2,3,2,2,2,2,1,2},
+    { "WIND CHOIR", {0,5,7,8,18,9,17,2},    /* the english horn */
+      {AU,AU,AU,AU,AU,AU,AU,AU}, {2,3,2,2,2,2,1,2},
       0,1,0,8,76,5, 88,3,2,50,1, 25, 1, 1,0,1,15,
       {0,0,1,1},{0,0,14,34},
       {{25,50,40,100},{30,50,50,100},{50,30,100,60},{62,18,30,50}} },
     /* compact calls, close and dry; the low brass short */
-    { "BRASS FAN", {0,10,11,12,13,9,2,17}, {AU,ST,AU,ST,ST,AU,AU,AU}, {1,3,3,2,2,2,2,1},
+    { "BRASS FAN", {0,10,11,12,13,22,2,17}, /* the bass trombone */
+      {AU,ST,AU,ST,ST,AU,AU,AU}, {1,3,3,2,2,2,2,1},
       0,0,0,0,104,4, 76,2,3,72,2, 15, 0, 0,0,1,0,
       {0,0,0,1},{0,0,0,24},
       {{25,50,40,100},{30,50,50,100},{50,35,0,100},{55,0,55,45}} },
@@ -74,7 +78,8 @@ static const scene_t scenes[ORCH_SCENE_COUNT] = {
       {0,1,1,1},{0,14,18,24},
       {{25,50,40,100},{30,40,60,100},{50,35,50,50},{50,0,45,50}} },
     /* sul tasto strings, long tails, the shimmer open */
-    { "AMBIENT", {2,3,5,17,6,7,11,14}, {TS,TS,AU,AU,AU,AU,AU,AU}, {2,2,2,2,2,2,2,1},
+    { "AMBIENT", {2,3,5,17,6,7,11,24},      /* the vibraphone */
+      {TS,TS,AU,AU,AU,AU,AU,AU}, {2,2,2,2,2,2,2,1},
       0,1,0,19,68,6, 72,4,2,36,3, 60, 1, 1,0,1,30,
       {1,1,1,1},{18,36,30,48},
       {{10,50,80,60},{15,60,100,100},{50,55,100,70},{90,60,20,65}} },

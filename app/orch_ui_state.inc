@@ -11,12 +11,13 @@ static void step_instrument(int delta)
 {
     const struct orch_part *part = orch_part_get(ui.part);
     if (!part || !delta) return;
-    const unsigned first = family_first(part->family);
-    const unsigned count = family_count(part->family);
-    int index = (int)(part->instrument - first) + delta;
+    /* the family in score order (orch_family_member), wrapping */
+    const unsigned count = orch_family_size(part->family);
+    if (!count) return;
+    int index = (int)orch_family_index(part->instrument) + delta;
     while (index < 0) index += (int)count;
     while (index >= (int)count) index -= (int)count;
-    orch_engine_set_instrument(ui.part, first + (unsigned)index);
+    orch_engine_set_instrument(ui.part, orch_family_member(part->family, (unsigned)index));
 }
 
 static void step_art(int delta)

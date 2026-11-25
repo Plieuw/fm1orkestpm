@@ -187,6 +187,112 @@ static void test_high_register_tuning(void)
     CHECK(c4 > 168.56 * 0.997 && c4 < 168.56 * 1.003);
 }
 
+/* the same, for one instrument */
+static double inst_period(unsigned inst, unsigned note, unsigned lo, unsigned hi)
+{
+    static int32_t cap[12288];
+    orch_init();
+    for (unsigned p = 0; p < ORCH_PARTS; ++p)
+        orch_engine_configure_part(p, orch_instrument_family(inst), p == 0U ? 0x0001U : 0U);
+    orch_engine_set_instrument(0U, inst);
+    orch_engine_set_player_cap(0U, 1U);
+    midi(0x90U, note, 100U);
+    for (unsigned b = 0; b < 96U; ++b) {
+        memset(block, 0, sizeof block);
+        orch_render_q23(block, 128U);
+        for (unsigned i = 0; i < 128U; ++i) cap[b * 128U + i] = block[i * 2U] >> 8;
+    }
+    double best = -1e300, sc[3] = { 0, 0, 0 };
+    unsigned bl = lo;
+    for (unsigned lag = lo; lag <= hi; ++lag) {
+        double score = 0;
+        for (unsigned n = 4096U; n < 12288U - hi - 1U; ++n)
+            score += (double)cap[n] * cap[n + lag];
+        if (score > best) { best = score; bl = lag; }
+    }
+    for (int k = -1; k <= 1; ++k) {
+        double score = 0;
+        for (unsigned n = 4096U; n < 12288U - hi - 1U; ++n)
+            score += (double)cap[n] * cap[n + (unsigned)((int)bl + k)];
+        sc[k + 1] = score;
+    }
+    const double den = sc[0] - 2.0 * sc[1] + sc[2];
+    orch_init();
+    return (double)bl + (den != 0.0 ? 0.5 * (sc[0] - sc[2]) / den : 0.0);
+}
+
+/* The instruments of 0.7.1 sound, in tune, at a note of their own range
+ * (period in samples, 0.4 %); the families list them in score order. */
+static void test_new_instruments(void)
+{
+    static const struct { uint8_t inst, note; double period; } at[] = {
+        { ORCH_INST_ENGLISH_HORN, 64U, 133.79 },     /* E4 */
+        { ORCH_INST_BASS_CLARINET, 50U, 300.32 },    /* D3 */
+        { ORCH_INST_CONTRABASSOON, 36U, 674.29 },    /* C2 */
+        { ORCH_INST_ALTO_FLUTE, 67U, 112.50 },       /* G4 */
+        { ORCH_INST_BASS_TROMBONE, 43U, 450.00 },    /* G2 */
+        { ORCH_INST_WOMENS_CHOIR, 69U, 100.23 },     /* A4 */
+        { ORCH_INST_MENS_CHOIR, 48U, 337.15 },       /* C3 */
+    };
+    for (unsigned k = 0; k < sizeof at / sizeof at[0]; ++k) {
+        const unsigned lo = (unsigned)(at[k].period * 0.96), hi = (unsigned)(at[k].period * 1.04) + 1U;
+        const double p = inst_period(at[k].inst, at[k].note, lo, hi);
+        CHECK(p > at[k].period * 0.996 && p < at[k].period * 1.004);
+    }
+    /* the struck ones ring: something comes out a second after the hit */
+    static const uint8_t struck[] = {
+        ORCH_INST_GLOCKENSPIEL, ORCH_INST_VIBRAPHONE, ORCH_INST_TUBULAR_BELLS,
+        ORCH_INST_CELESTA, ORCH_INST_HARPSICHORD
+    };
+    for (unsigned k = 0; k < sizeof struck; ++k) {
+        orch_init();
+        orch_engine_set_instrument(0U, struck[k]);
+        orch_engine_set_player_cap(0U, 1U);
+        midi(0x90U, 72U, 100U);
+        render(4U);
+        midi(0x80U, 72U, 0U);
+        render(300U);
+        CHECK(render_energy(20U) > 0);
+    }
+    CHECK(orch_family_size(ORCH_FAM_WOODWINDS) == 9U);
+    CHECK(orch_family_member(ORCH_FAM_WOODWINDS, 0U) == ORCH_INST_PICCOLO);
+    CHECK(orch_family_member(ORCH_FAM_WOODWINDS, 8U) == ORCH_INST_CONTRABASSOON);
+    unsigned total = 0U;
+    for (unsigned f = 0; f < ORCH_FAM_COUNT; ++f) {
+        total += orch_family_size(f);
+        for (unsigned i = 0; i < orch_family_size(f); ++i)
+            CHECK(orch_instrument_family(orch_family_member(f, i)) == f);
+    }
+    CHECK(total == ORCH_INST_COUNT);            /* each instrument in one family */
+    orch_init();
+}
+
+/* Sixteen voices: eight long lines for the low notes, eight short ones. Low
+ * notes everywhere get at most the eight long voices (and stay in tune);
+ * high notes take the short voices first, so both together fill sixteen. */
+static void test_sixteen_voices(void)
+{
+    orch_init();
+    for (unsigned p = 0; p < ORCH_PARTS; ++p) {
+        orch_engine_set_instrument(p, ORCH_INST_DOUBLE_BASS);
+        orch_engine_set_player_cap(p, 2U);
+        midi(0x90U | p, 28U, 100U);           /* E1: a 1070-sample loop */
+    }
+    render(4U);
+    CHECK(orch_active_voices() == 8U);        /* only the long lines can hold it */
+    orch_init();
+    for (unsigned p = 0; p < ORCH_PARTS; ++p) {
+        orch_engine_set_instrument(p, p < 4U ? ORCH_INST_DOUBLE_BASS : ORCH_INST_VIOLIN);
+        orch_engine_set_player_cap(p, 4U);
+        midi(0x90U | p, p < 4U ? 28U : 72U, 100U);
+    }
+    render(4U);
+    CHECK(orch_active_voices() == 16U);       /* 8 low on long, 8 high on short */
+    const double e1 = inst_period(ORCH_INST_DOUBLE_BASS, 28U, 1020U, 1120U);
+    CHECK(e1 > 1070.4 * 0.996 && e1 < 1070.4 * 1.004);
+    orch_init();
+}
+
 static int32_t peak_of(unsigned blocks)
 {
     int32_t top = 0;
@@ -1062,6 +1168,8 @@ int main(void)
     test_midi_controllers();
     test_tempo_follows();
     test_no_zipper();
+    test_new_instruments();
+    test_sixteen_voices();
     test_routing();
     test_eight_part_routing();
     test_repeated_same_pitch_note_off_fifo();

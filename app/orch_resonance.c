@@ -27,7 +27,10 @@ static const uint8_t RES_PAN_L[ORCH_RESONATORS] = {
 #define RES_SIZE 512U
 #define RES_MASK (RES_SIZE - 1U)
 
-static int32_t res_buf[ORCH_RESONATORS][RES_SIZE] FM1_AUDIO_DATA;
+/* the strings' lines, int16 holding the signal / 256 (0.7.1: half the
+ * pool, 8 KB, for the sixteen voices); a string's quietest ring is then
+ * 2^-15 of full scale, -90 dB, below anything it adds to */
+static int16_t res_buf[ORCH_RESONATORS][RES_SIZE] FM1_AUDIO_DATA;
 static int32_t res_lp[ORCH_RESONATORS];
 static uint32_t res_follow[ORCH_RESONATORS];
 static uint32_t res_w;
@@ -109,14 +112,19 @@ void orch_resonance_process(int32_t *stereo, unsigned frames)
             /* the read: `whole` back and the sample before it, by the fraction */
             const uint32_t i0 = (res_w + RES_SIZE - whole[k]) & RES_MASK;
             const uint32_t i1 = (i0 + RES_SIZE - 1U) & RES_MASK;
-            const int32_t a = res_buf[k][i0], b = res_buf[k][i1];
+            const int32_t a = (int32_t)res_buf[k][i0] * 256, b = (int32_t)res_buf[k][i1] * 256;
             const int32_t y = a + ((((b - a) >> 2) * (int32_t)frac[k]) >> 6);
             /* a quarter-sample smoother: the strings' highs die first */
             const int32_t sm = y - (y - res_lp[k]) / 4;
             res_lp[k] = y;
             const int32_t g = (int32_t)RES_FB_Q15[k];
             const int32_t fb = (sm >> 15) * g + (((sm & 0x7FFF) * g) >> 15);
-            res_buf[k][res_w] = ((in_s * feed[k]) >> 10) + fb;
+            {
+                int32_t x = (((in_s * feed[k]) >> 10) + fb) / 256;
+                if (x > 32767) x = 32767;
+                if (x < -32768) x = -32768;
+                res_buf[k][res_w] = (int16_t)x;
+            }
             const int32_t yp = y >> 4;
             sum_l += yp * (int32_t)RES_PAN_L[k];
             sum_r += yp * (int32_t)(256U - RES_PAN_L[k]);

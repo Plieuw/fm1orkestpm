@@ -169,7 +169,9 @@ static const char *inst_short(unsigned instrument)
         "VIOLIN", "VIOLA", "CELLO", "BASS", "HARP",
         "FLUTE", "PICCOLO", "CLARINET", "OBOE", "BASSOON",
         "TRUMPET", "HORN", "TROMBONE", "TUBA",
-        "MARIMBA", "XYLO", "TIMPANI", "CHOIR"
+        "MARIMBA", "XYLO", "TIMPANI", "CHOIR",
+        "ENG HORN", "B CLAR", "CBASSOON", "A FLUTE", "B TROMB",
+        "GLOCK", "VIBES", "BELLS", "CELESTA", "HARPSI", "WOMEN", "MEN"
     };
     return instrument < ORCH_INST_COUNT ? names[instrument] : "?";
 }

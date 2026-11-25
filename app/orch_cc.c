@@ -301,19 +301,6 @@ static int arp_cc(unsigned p, unsigned n, unsigned value)
     return 1;
 }
 
-/* the instruments of a family, in order */
-static unsigned family_instrument(unsigned family, unsigned index, unsigned *count)
-{
-    unsigned n = 0U, found = ORCH_INST_COUNT;
-    for (unsigned i = 0; i < ORCH_INST_COUNT; ++i) {
-        if (orch_instrument_family(i) != family) continue;
-        if (n == index) found = i;
-        ++n;
-    }
-    if (count) *count = n;
-    return found;
-}
-
 /* Program change with the bank select before it, as on XG: bank MSB 0
  * keeps the part's family, 1..5 choose strings, woodwinds, brass, mallets,
  * choir; the program picks the instrument in it, wrapping. */
@@ -323,11 +310,10 @@ static void program(unsigned p, unsigned value)
     if (!part) return;
     unsigned family = part->family;
     if (cc[p].bank >= 1U && cc[p].bank <= ORCH_FAM_COUNT) family = cc[p].bank - 1U;
-    unsigned n = 0U;
-    (void)family_instrument(family, 0U, &n);
+    const unsigned n = orch_family_size(family);
     if (!n) return;
     while (value >= n) value -= n;
-    const unsigned inst = family_instrument(family, value, 0);
+    const unsigned inst = orch_family_member(family, value);   /* score order */
     if (inst < ORCH_INST_COUNT && inst != part->instrument)
         orch_engine_set_instrument(p, inst);
 }

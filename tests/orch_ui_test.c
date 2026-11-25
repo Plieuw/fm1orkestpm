@@ -130,13 +130,18 @@ int main(void)
     turn(E_ALGO, -1);                     /* and back */
     CHECK(orch_part_get(2)->family == ORCH_FAM_WOODWINDS);
 
-    /* PRESETS walks the instruments inside the family and wraps */
+    /* PRESETS walks the instruments inside the family in score order
+     * (piccolo, flute, alto flute, oboe ...) and wraps */
     turn(E_PRESET, 1);
-    CHECK(orch_part_get(2)->instrument == ORCH_INST_PICCOLO);
+    CHECK(orch_part_get(2)->instrument == ORCH_INST_ALTO_FLUTE);
     turn(E_PRESET, 4);                    /* four detents: still one entry */
-    CHECK(orch_part_get(2)->instrument == ORCH_INST_CLARINET);
+    CHECK(orch_part_get(2)->instrument == ORCH_INST_OBOE);
     turn(E_PRESET, -9);
-    CHECK(orch_part_get(2)->instrument == ORCH_INST_PICCOLO);
+    CHECK(orch_part_get(2)->instrument == ORCH_INST_ALTO_FLUTE);
+    turn(E_PRESET, -1); turn(E_PRESET, -1); turn(E_PRESET, -1);
+    CHECK(orch_part_get(2)->instrument == ORCH_INST_CONTRABASSOON);   /* wrapped */
+    turn(E_PRESET, 1); turn(E_PRESET, 1); turn(E_PRESET, 1);
+    CHECK(orch_part_get(2)->instrument == ORCH_INST_ALTO_FLUTE);
 
     /* eight parts: SELECT wraps after the eighth */
     turn(E_SELECT, 1); turn(E_SELECT, 1); turn(E_SELECT, 1);
@@ -250,7 +255,7 @@ int main(void)
         CHECK(pc.latch == 1U);
         CHECK(pc.arp_order == 1U);
         CHECK(pc.external_clock == 0U);
-        CHECK(orch_part_get(2)->instrument == ORCH_INST_PICCOLO);  /* not stepped */
+        CHECK(orch_part_get(2)->instrument == ORCH_INST_ALTO_FLUTE);  /* not stepped */
         turn(E_PRESET, 1); turn(E_PRESET, 1);   /* GROOVE, then PLAY */
         turn(E_KNOB4, -1);                /* and goes off again */
         press(B_ARP);
@@ -459,7 +464,7 @@ int main(void)
     memset(block, 0, sizeof block);
     orch_render_q23(block, 128U);
     CHECK(orch_active_voices() == 0U);
-    CHECK(orch_part_get(2)->instrument == ORCH_INST_HARP);    /* BAROQUE */
+    CHECK(orch_part_get(2)->instrument == ORCH_INST_HARPSICHORD);    /* BAROQUE */
     CHECK(orch_ui_tempo() == orch_scene_bpm(1U));
     {
         struct orch_perf_config pc;

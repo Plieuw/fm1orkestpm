@@ -24,7 +24,19 @@ static const uint8_t SEAT[ORCH_INST_COUNT] = {
     176U,  /* marimba     */
     196U,  /* xylophone   */
     240U,  /* timpani     */
-    128U   /* choir       */
+    128U,  /* choir       */
+    146U,  /* english horn, beside the oboe */
+    98U,   /* bass clarinet, beside the clarinet */
+    164U,  /* contrabassoon, beside the bassoon */
+    112U,  /* alto flute, beside the flute */
+    220U,  /* bass trombone */
+    186U,  /* glockenspiel */
+    170U,  /* vibraphone */
+    228U,  /* tubular bells */
+    72U,   /* celesta, by the harp */
+    64U,   /* harpsichord, the continuo by the harp */
+    116U,  /* women's choir, left of centre */
+    140U   /* men's choir, right of centre */
 };
 
 static int listener_x;

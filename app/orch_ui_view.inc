@@ -18,19 +18,6 @@ static void note_name(unsigned note, char out[4])
     out[3] = '\0';
 }
 
-static unsigned family_first(unsigned family)
-{
-    static const uint8_t first[ORCH_FAM_COUNT] = { ORCH_INST_VIOLIN,
-        ORCH_INST_FLUTE, ORCH_INST_TRUMPET, ORCH_INST_MARIMBA, ORCH_INST_CHOIR };
-    return family < ORCH_FAM_COUNT ? first[family] : 0U;
-}
-
-static unsigned family_count(unsigned family)
-{
-    static const uint8_t count[ORCH_FAM_COUNT] = { 5U, 5U, 4U, 3U, 1U };
-    return family < ORCH_FAM_COUNT ? count[family] : 1U;
-}
-
 static unsigned put(char *d, unsigned n, unsigned cap, const char *s)
 {
     while (*s && n + 1U < cap) d[n++] = *s++;

@@ -23,10 +23,15 @@ that something is fast enough on the device.
   that voice**, and anything shared that it reads must already be settled
   before the split (section 3).
 - **Memory.** Flash has room (the app is about 177 KB of a 0x8F000-byte app
-  area). RAM and the `.pool` section do not: about 47 KB of 73 KB RAM, and
-  the pool about 346 KB of 368 KB after the hall's 16 KB. Tables that never
-  change belong in `static const` (flash). Buffers belong in the pool, but
-  only if they are needed.
+  area). RAM and the `.pool` section do not: RAM is 52 KB of 73 KB. The pool
+  was 346 KB of 368 KB at 0.7.0; 0.7.1's sixteen voices add about 15.5 KB,
+  bringing it near 362 KB. The CI build prints the real figures
+  (`hawk-target-build`, "RAM .data+.bss ... pool ..."), so read them after
+  any change to a static buffer. Tables that never change belong in
+  `static const` (flash). Buffers belong in the pool, but only if they are
+  needed. That is why the delay lines come in two lengths (eight of 2048 for
+  the low notes, eight of 1024), why the bodies are 416 samples and why the
+  hall's lines are int16.
 
 ## 2. The routine
 
@@ -141,14 +146,23 @@ Rules that keep the two cores identical, bit for bit:
 
 ## 4. Adding a model or an excitation
 
-1. **Profile** (`INST_PROFILE` in `orch_engine.c`): add a row and an enum
-   entry in `orch_part.h`. Give the family in `orch_instrument_family` and
-   default ADSR in `orch_instrument_adsr` (`orch_part.c`).
+1. **Profile.** Append the enum entry at the end of the list in
+   `orch_part.h`. Never insert it in the middle: saved parts and scenes store
+   the instrument number. Then add a row to `INST_PROFILE` in
+   `orch_engine.c`, a seat to `SEAT` in `orch_stage.c`, a short name
+   (8 characters at most) in `inst_short` in `orch_ui.c`, its family in
+   `orch_instrument_family`, its place in the family's score order in
+   `MEMBERS`/`MEMBER_COUNT`, and its default ADSR in `orch_instrument_adsr`
+   (all three in `orch_part.c`). `test_new_instruments` checks that every
+   instrument belongs to exactly one family. A body below 106 Hz needs a
+   larger `BODY_SIZE`.
 2. **Note-on** (`voice_start`): everything fixed for the note. That means the
    loop length and its loss (`len_q16`, `loop_gain_q23`), any oscillator
    increment (with `div_pow2`, not a 64-bit divide), and constants such as
    `bow_speed`/`bow_fmax`. Reset the lines on a new note (`c_len = 0`,
-   `c_amp = 0`) but not on a legato handover.
+   `c_amp = 0`) but not on a legato handover. The note's loop decides the
+   line (`need_long`): use `v->dmask`, not a fixed size, wherever the line is
+   read, written or clamped.
 3. **Slow modulation** goes into `voice_control`. Write it as "n samples
    on": advance phases by `inc * n`, and count down counters by `n`. If it
    moves pitch or loudness, fold it into the end of `len` or into the gain

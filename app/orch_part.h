@@ -29,7 +29,16 @@ enum orch_instrument {
     ORCH_INST_TRUMPET, ORCH_INST_FRENCH_HORN,
     ORCH_INST_TROMBONE, ORCH_INST_TUBA,
     ORCH_INST_MARIMBA, ORCH_INST_XYLOPHONE, ORCH_INST_TIMPANI,
-    ORCH_INST_CHOIR, ORCH_INST_COUNT
+    ORCH_INST_CHOIR,
+    /* 0.7.1, appended so saved parts and scenes keep their numbers; the
+     * family and its order come from orch_instrument_family and
+     * orch_family_member, not from the numbers */
+    ORCH_INST_ENGLISH_HORN, ORCH_INST_BASS_CLARINET, ORCH_INST_CONTRABASSOON,
+    ORCH_INST_ALTO_FLUTE, ORCH_INST_BASS_TROMBONE,
+    ORCH_INST_GLOCKENSPIEL, ORCH_INST_VIBRAPHONE, ORCH_INST_TUBULAR_BELLS,
+    ORCH_INST_CELESTA, ORCH_INST_HARPSICHORD,
+    ORCH_INST_WOMENS_CHOIR, ORCH_INST_MENS_CHOIR,
+    ORCH_INST_COUNT
 };
 
 enum orch_lfo_wave { ORCH_LFO_SINE=0, ORCH_LFO_TRIANGLE, ORCH_LFO_SAW,
@@ -77,5 +86,10 @@ int orch_part_set_lfo(unsigned part, unsigned wave, unsigned destinations,
 const char *orch_family_name(unsigned family);
 unsigned orch_instrument_family(unsigned instrument);
 void orch_instrument_adsr(unsigned instrument, struct orch_adsr *a); /* its defaults */
+/* A family's instruments in score order (high to low, as a score lists
+ * them): how many, the index-th, and where an instrument stands in its own */
+unsigned orch_family_size(unsigned family);
+unsigned orch_family_member(unsigned family, unsigned index);
+unsigned orch_family_index(unsigned instrument);
 
 #endif

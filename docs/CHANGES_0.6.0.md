@@ -1,4 +1,4 @@
-# 0.6.0 – 0.7.0: tuning, mix, adaptive playing, ARP, sequencer, vector panel
+# 0.6.0 – 0.7.1: tuning, mix, adaptive playing, ARP, sequencer, vector panel
 
 Written 25 November 2026 on `beta/0.6.0-refine`, branched from
 `beta/0.5.0-orchestra-merge`. One commit a topic; every number below is a host
@@ -261,6 +261,45 @@ changes from one sample to the next. So:
 - **Not done:** pre-rendered noise tables. Noise is 2.5 % of the work, and a
   table would loop audibly. The body resonator is kept per voice so voices
   stay independent of each other.
+
+## 0.7.1: thirty instruments, sixteen voices
+
+- **Twelve new instruments**, 30 in all. Each family is listed in score order;
+  PRESETS and program change walk it in that order.
+  - Strings: violin, viola, cello, double bass, harp, **harpsichord** (a
+    bright quill pluck).
+  - Woodwinds: piccolo, flute, **alto flute**, oboe, **English horn**,
+    clarinet, **bass clarinet**, bassoon, **contrabassoon**.
+  - Brass: trumpet, horn, trombone, **bass trombone**, tuba.
+  - Mallets: **glockenspiel**, **celesta**, xylophone, **vibraphone**,
+    marimba, **tubular bells**, timpani.
+  - Choir: choir, **women's choir**, **men's choir**.
+
+  They are appended to the numbering, so saved parts and scenes keep their
+  instruments. Each has a profile, default ADSR, a seat on the stage and a
+  short name. Tested: in tune at a note of their range (0.4 %), the struck
+  ones still ring a second after the hit, and every instrument at velocity
+  127 across C2..C7 stays under full scale. The velocity tables were
+  re-measured (`tests/run_velocity_model.sh`).
+- **Scenes:** CINEMA has the celesta, BAROQUE the harpsichord as continuo,
+  WIND CHOIR the English horn, BRASS FAN the bass trombone, and AMBIENT the
+  vibraphone.
+- **Sixteen voices** (was eight). At 2048 samples each, sixteen lines would
+  not fit the pool, and only low notes need that length. So voices 0..7 have
+  2048-sample lines (down to 21.5 Hz) and voices 8..15 have 1024 (down to
+  43 Hz, with a whole tone of bend to spare). A note takes a voice whose line
+  holds it, and higher notes try the short ones first, so the long ones stay
+  free for the bass. Bodies are 416 samples (the lowest is 401). The hall's
+  string lines are int16 (−8 KB). Tested: eight parts of double basses on E1
+  get the eight long voices and stay in tune; with violins above, all sixteen
+  sound. The share is 1.36 / n up to 16. The second core's job carries a
+  16-bit voice mask.
+- **Memory**, from the build's symbol sizes: voices and lines 66.9 KB (was
+  about 43 KB), the hall 8 KB (was 16). That puts the pool about 15.5 KB
+  higher, near 362 KB of 368 KB, which the CI build prints.
+- **CPU:** with sixteen voices sounding the voice work doubles. Per voice it is
+  unchanged (`tests/run_bench.sh`: 20.0 ns in FULL ORCH, 21.2 ns in CINEMA,
+  30.2 ns in AMBIENT). Not measured on the FM-1.
 
 ## Not done, still open
 
