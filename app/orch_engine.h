@@ -12,6 +12,7 @@
 #define ORCH_SEQ_STEPS 16U
 #define ORCH_STEP_NOTES 4U
 #define ORCH_SAMPLE_RATE 44100U
+#define ORCH_DEFAULT_BPM 128U   /* until a MIDI clock or the playing says otherwise */
 
 /* chance: percent the step plays (0 means always, so older data plays). */
 struct orch_step_note { uint8_t note, velocity, gate_percent, chance; };
@@ -43,7 +44,8 @@ unsigned orch_note_count(unsigned part);
 
 /* Sequencer (16 steps, four notes per step, per-note gate percentage). */
 void orch_seq_set_tempo(uint16_t bpm);
-unsigned orch_seq_tempo(void);
+unsigned orch_seq_tempo(void);       /* the orchestra's tempo, wherever it came from */
+unsigned orch_tempo_from_clock(void); /* 1 while a MIDI clock sets it */
 unsigned orch_seq_enabled(void);
 void orch_seq_set_enabled(unsigned enabled);
 /* Since 0.6.0 every part has its own lane of 16 steps, played on that part.

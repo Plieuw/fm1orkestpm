@@ -33,6 +33,8 @@ static void step_art(int delta)
  * part's ARP/phrase clock (an external MIDI clock still overrides the last). */
 static void apply_tempo(unsigned bpm)
 {
+    /* a MIDI clock always wins: the panel shows its tempo, sets none */
+    if (orch_tempo_from_clock()) { ui.tempo = (uint16_t)orch_seq_tempo(); return; }
     if (bpm < 40U) bpm = 40U;
     if (bpm > 250U) bpm = 250U;
     ui.tempo = (uint16_t)bpm;

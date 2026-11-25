@@ -96,7 +96,7 @@ const char *orch_scene_name(unsigned index)
 
 unsigned orch_scene_bpm(unsigned index)
 {
-    return index < ORCH_SCENE_COUNT ? scenes[index].bpm : 120U;
+    return index < ORCH_SCENE_COUNT ? scenes[index].bpm : 128U;
 }
 
 unsigned orch_scene_seq_part(unsigned index)

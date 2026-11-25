@@ -302,7 +302,7 @@ int main(void)
     press(B_GLO);
     CHECK(orch_ui_page() == 3U);
     turn(E_KNOB3, 3);                     /* 2 BPM a detent, and the accel adds */
-    CHECK(orch_ui_tempo() == 126U);
+    CHECK(orch_ui_tempo() == 134U);
     turn(E_KNOB1, 2);                     /* the shared resonance, 25 -> 35 */
     CHECK(orch_resonance_amount() == 35U);
     turn(E_KNOB2, -5);                    /* semitone transpose from the global page */
@@ -371,7 +371,7 @@ int main(void)
     CHECK(orch_stage_listener_x() == 5);
     turn(E_KNOB4, 1);
     CHECK(orch_stage_listener_depth() == 5U);
-    CHECK(orch_ui_tempo() == 126U);
+    CHECK(orch_ui_tempo() == 134U);
     for (int i = 0; i < 25; ++i) {          /* clamps at the left edge */
         clock_ms += 2000U;
         turn(E_KNOB3, -1);
@@ -415,19 +415,19 @@ int main(void)
      * one step again. The tempo is 2 BPM a detent. */
     clock_ms += 2000U;
     turn(E_KNOB3, 1);
-    CHECK(orch_ui_tempo() == 128U);       /* 126 + 2, alone */
+    CHECK(orch_ui_tempo() == 136U);       /* 134 + 2, alone */
     clock_ms += 50U;
     turn(E_KNOB3, 1);
-    CHECK(orch_ui_tempo() == 132U);       /* 20 a second: x2 */
+    CHECK(orch_ui_tempo() == 140U);       /* 20 a second: x2 */
     clock_ms += 25U;
     turn(E_KNOB3, 1);
-    CHECK(orch_ui_tempo() == 148U);       /* 40 a second: x8 */
+    CHECK(orch_ui_tempo() == 156U);       /* 40 a second: x8 */
     clock_ms += 60U;
     turn(E_KNOB3, 1);
-    CHECK(orch_ui_tempo() == 156U);       /* slowing: x4, not a jump */
+    CHECK(orch_ui_tempo() == 164U);       /* slowing: x4, not a jump */
     clock_ms += 25U;
     turn(E_KNOB3, -1);
-    CHECK(orch_ui_tempo() == 154U);       /* turning back: one detent */
+    CHECK(orch_ui_tempo() == 162U);       /* turning back: one detent */
 
     /* A percentage keeps its 5 % a detent, so slow turning is as fine as it
      * ever was, and a fast turn only doubles that step: the delay mix goes up
@@ -469,24 +469,32 @@ int main(void)
     }
     CHECK(paused == 0);
 
-    /* MIDI moves the transport and the ARP as the panel would: CC89 the
-     * tempo (127 = 250 BPM), CC85 the sequencer, CC18 the ARP gate; the
-     * panel takes them over on its next scan */
+    /* MIDI moves the transport and the ARP as the panel would: CC85 runs
+     * the sequencer, CC18 sets the ARP gate; a MIDI clock sets the tempo
+     * (here 100 BPM, a tick every 1102.5 samples) and the panel shows it */
     {
-        const uint8_t tempo_cc[3] = { 0xB0U, 89U, 127U };
         const uint8_t run_cc[3] = { 0xB0U, 85U, 127U };
         const uint8_t gate_cc[3] = { 0xB0U, 18U, 0U };
-        orch_midi_short_message(tempo_cc, 3U);
+        const uint8_t tick[1] = { 0xF8U };
         orch_midi_short_message(run_cc, 3U);
         orch_midi_short_message(gate_cc, 3U);
-        memset(block, 0, sizeof block);
-        orch_render_q23(block, 128U);
+        uint32_t samples = 0U, next = 0U;
+        for (unsigned b = 0; b < 1400U; ++b) {          /* four seconds */
+            while (next <= samples) {
+                orch_midi_short_message(tick, 1U);
+                next += (b & 1U) ? 1102U : 1103U;
+            }
+            memset(block, 0, sizeof block);
+            orch_render_q23(block, 128U);
+            samples += 128U;
+        }
         clock_ms += 1000U;
         orch_ui_control();
-        CHECK(orch_ui_tempo() == 250U);
+        CHECK(orch_tempo_from_clock() == 1U);
+        CHECK(orch_ui_tempo() >= 99U && orch_ui_tempo() <= 101U);
         struct orch_perf_config pc;
         orch_perf_get_config(0U, &pc);
-        CHECK(pc.bpm == 250U);
+        CHECK(pc.bpm == orch_ui_tempo());
         CHECK(pc.gate == 5U);
         CHECK(orch_seq_enabled() == 1U);
         const uint8_t stop_cc[3] = { 0xB0U, 85U, 0U };

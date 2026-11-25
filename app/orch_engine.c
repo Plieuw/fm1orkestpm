@@ -16,6 +16,7 @@
 #include "orch_performance.h"
 #include "orch_resonance.h"
 #include "orch_cc.h"
+#include "orch_fx.h"
 
 #ifndef FM1_AUDIO_DATA
 #define FM1_AUDIO_DATA __attribute__((section(".pool")))
@@ -128,7 +129,7 @@ static uint32_t seq_off_at[ORCH_PARTS][ORCH_STEP_NOTES];
 static uint32_t age_counter, sample_counter, step_start;
 
 static void seq_learn_input(unsigned part, unsigned note, unsigned velocity);
-static volatile uint16_t tempo = 120U;
+static volatile uint16_t tempo = ORCH_DEFAULT_BPM;
 static volatile uint8_t seq_enabled, seq_stop_pending, seq_part;
 static uint8_t seq_started, current_step;
 static uint32_t rng = 0x6d2b79f5U;
@@ -907,6 +908,102 @@ void orch_note_event(unsigned ch, unsigned note, unsigned velocity)
 }
 void orch_reset_notes(void) { enqueue(0U, 0U, 0U, 2U); }
 
+/* ------------------------------------------------------------- the tempo
+ *
+ * One tempo for the whole orchestra: the sequencer, every ARP, the delay.
+ * Where it comes from, in order:
+ *   1. MIDI clock: while ticks arrive (half a second without one ends it),
+ *      the tempo is the clock's, measured over each beat of 24 ticks;
+ *   2. otherwise the playing: the time between the notes played in (chords
+ *      counted once, the ARP's and the sequencer's own notes not at all) is
+ *      folded into the beat's octave, and when two in a row agree within
+ *      12 % the tempo moves a quarter of the way there. It follows, it does
+ *      not jump: rubato bends it a little, a steady line takes it along;
+ *   3. at power on, and until either says otherwise, ORCH_DEFAULT_BPM.
+ * The panel's TEMPO sets it too when no clock runs, and shows wherever it
+ * went; while a clock runs the panel shows the clock's and cannot move it. */
+static uint32_t clock_last, clock_beat_start, clock_age;
+static uint8_t clock_ticks, clock_alive;
+static uint32_t follow_last;      /* sample of the last onset, 0 = none */
+static uint32_t follow_prev_q4;   /* the previous interval's tempo, Q4 */
+static uint32_t follow_q4;        /* the followed tempo, Q4 */
+
+static void tempo_reset(void)
+{
+    clock_last = clock_beat_start = clock_age = 0U;
+    clock_ticks = clock_alive = 0U;
+    follow_last = follow_prev_q4 = 0U;
+    follow_q4 = (uint32_t)tempo << 4;
+}
+
+static void tempo_apply(unsigned bpm)
+{
+    if (bpm < 40U) bpm = 40U;
+    if (bpm > 250U) bpm = 250U;
+    if (bpm == tempo) return;
+    tempo = (uint16_t)bpm;
+    orch_perf_set_tempo(bpm);
+    orch_fx_set_tempo(bpm);
+}
+
+static void tempo_clock_tick(void)
+{
+    const uint32_t now = sample_counter;
+    clock_age = 0U;
+    if (!clock_alive) {
+        clock_alive = 1U;
+        clock_ticks = 0U;
+        clock_beat_start = now;
+    }
+    clock_last = now;
+    if (++clock_ticks >= 24U) {
+        const uint32_t span = now - clock_beat_start;   /* one beat */
+        clock_ticks = 0U;
+        clock_beat_start = now;
+        if (span >= 10584U && span <= 66150U) {         /* 250..40 BPM */
+            const unsigned bpm = (2646000U + span / 2U) / span;
+            /* a new tempo is taken at once; a beat's jitter (the clock is
+             * read once a block) is halved away */
+            const unsigned d = bpm > tempo ? bpm - tempo : tempo - bpm;
+            tempo_apply(d > 3U ? bpm : (tempo + bpm + 1U) / 2U);
+            follow_q4 = (uint32_t)tempo << 4;
+        }
+    }
+}
+
+/* once per sample: the clock ends half a second after its last tick */
+static void tempo_tick(void)
+{
+    if (clock_alive && ++clock_age > ORCH_SAMPLE_RATE / 2U) {
+        clock_alive = 0U;
+        follow_last = follow_prev_q4 = 0U;
+        follow_q4 = (uint32_t)tempo << 4;
+    }
+}
+
+static void tempo_follow_onset(void)
+{
+    if (clock_alive) return;
+    const uint32_t now = sample_counter;
+    if (!follow_last) { follow_last = now; return; }
+    const uint32_t ioi = now - follow_last;
+    if (ioi < ORCH_SAMPLE_RATE / 10U) return;        /* the rest of a chord */
+    follow_last = now;
+    if (ioi > ORCH_SAMPLE_RATE * 2U) { follow_prev_q4 = 0U; return; }   /* a rest */
+    /* the interval as a tempo, folded into the beat's octave around the
+     * current one: eighths and halves read as the same pulse */
+    uint32_t cand = (2646000U * 16U) / ioi;
+    while (cand * 1000U > follow_q4 * 1414U) cand >>= 1;
+    while (cand * 1414U < follow_q4 * 1000U) cand <<= 1;
+    const uint32_t prev = follow_prev_q4;
+    follow_prev_q4 = cand;
+    if (!prev) return;
+    const uint32_t diff = cand > prev ? cand - prev : prev - cand;
+    if (diff * 100U > cand * 12U) return;            /* not yet a pulse */
+    follow_q4 = (uint32_t)((int32_t)follow_q4 + ((int32_t)cand - (int32_t)follow_q4) / 4);
+    tempo_apply((follow_q4 + 8U) >> 4);
+}
+
 void orch_midi_realtime(unsigned status)
 {
     if(status==0xF8U || status==0xFAU || status==0xFBU || status==0xFCU)
@@ -1171,9 +1268,13 @@ static void drain_events(void)
             part_notes_reset();
             orch_perf_reset_notes();
         } else if (e.type == 3U) {
+            if (e.note == 0xF8U) tempo_clock_tick();
             orch_perf_midi_realtime(e.note,sample_counter);
         } else if (e.type == 4U) {
-            orch_perf_set_external_tempo((unsigned)e.note | ((unsigned)e.velocity<<7));
+            /* the platform measured the clock already: take its tempo */
+            const unsigned bpm = (unsigned)e.note | ((unsigned)e.velocity<<7);
+            orch_perf_set_external_tempo(bpm);
+            if (clock_alive) { tempo_apply(bpm); follow_q4 = (uint32_t)tempo << 4; }
         } else if (e.type == 1U) {
             engine_sustain(e.channel, e.velocity);
         } else if (e.type >= 6U && e.type <= 8U) {
@@ -1194,6 +1295,7 @@ static void drain_events(void)
             /* the ears (sequencer, call and response, ARP) hear the played
              * dynamic; the instrument gets the velocity */
             const unsigned played = part != 0xFFU ? orch_cc_dynamic(part, e.velocity) : e.velocity;
+            if (part != 0xFFU && e.velocity) tempo_follow_onset();
             if (part != 0xFFU) seq_learn_input(part, e.note, played);
             if (part != 0xFFU && e.velocity) response_schedule(part,e.note,played);
             if (!orch_perf_note_event_played(part,e.note,e.velocity,played)) {
@@ -1407,7 +1509,8 @@ void orch_init(void)
     part_notes_reset();
     orch_seq_clear_all();
     orch_perf_init();
-    tempo = 120U;
+    tempo = ORCH_DEFAULT_BPM;
+    tempo_reset();
     seq_enabled = seq_started = seq_stop_pending = 0U;
     seq_part = 0U;
     seq_adaptive = 0U;
@@ -1436,10 +1539,14 @@ void orch_init(void)
 
 void orch_seq_set_tempo(uint16_t bpm)
 {
-    if (bpm < 30U) bpm = 30U;
-    if (bpm > 300U) bpm = 300U;
+    if (clock_alive) return;          /* the MIDI clock always has the say */
+    if (bpm < 40U) bpm = 40U;
+    if (bpm > 250U) bpm = 250U;
     tempo = bpm;
+    follow_q4 = (uint32_t)bpm << 4;
 }
+
+unsigned orch_tempo_from_clock(void) { return clock_alive; }
 
 unsigned orch_seq_tempo(void) { return tempo; }
 unsigned orch_seq_enabled(void) { return seq_enabled; }
@@ -1960,6 +2067,7 @@ void orch_render_q23(int32_t *out, unsigned frames)
     for (unsigned f = 0; f < frames; ++f) {
         orch_perf_advance_sample(sample_counter);
         orch_cc_step();
+        tempo_tick();
         drain_performance_events();
         response_tick();
         seq_tick();

@@ -1,4 +1,4 @@
-# MIDI implementation (0.6.5)
+# MIDI implementation (0.6.6)
 
 The engine answers MIDI as a Yamaha XG tone generator does, as far as an
 orchestra of physical models can. Each part listens on its own channel (part 1
@@ -111,13 +111,13 @@ over all 128 values, so every value lands somewhere.
 | 113 | phrase (GE) | 46 zones |
 | 114 | stream logic | OR, AND, XOR, NOR, ALT, S/R |
 | 115 | adaptive span | switch |
-| 116 | MIDI clock | switch |
+| 116 | lock the ARP to the clock's ticks (beat for beat, waiting for the clock); without it the ARP runs at the clock's tempo on its own timing | switch |
 
 ## Sequencer controllers
 
 The transport is shared, so every channel reaches it. The lane mute belongs to
-the channel's part. The panel takes over the tempo and run state on its next
-scan.
+the channel's part. The panel takes over the run state on its next scan.
+There is no tempo controller: the tempo comes from the MIDI clock (below).
 
 | CC | Does | Range |
 | --- | --- | --- |
@@ -125,7 +125,26 @@ scan.
 | 86 | length | 1..16 steps |
 | 87 | this part's lane muted | switch |
 | 88 | adaptive sequencer | switch |
-| 89 | tempo: the sequencer, every ARP, the delay | 40..250 BPM (about 1.65 BPM a value) |
+
+## Tempo
+
+The orchestra has one tempo, shared by the sequencer, every ARP and the
+delay. It comes from three places, in this order:
+
+1. **MIDI clock, always first.** While ticks arrive, the tempo is the
+   clock's, measured beat by beat (24 ticks). A new tempo is taken at once,
+   and small jitter is halved away. Neither the playing nor the panel can
+   move it then; the panel shows the clock's tempo. Half a second without a
+   tick ends the clock, and the tempo stays where the clock left it.
+2. **Otherwise the playing.** The time between the notes played in is
+   folded into the octave of the beat, so eighths and halves count as the
+   same pulse. Chords count once, and the ARP's and the sequencer's own notes
+   do not count. When two intervals in a row agree within 12 %, the tempo
+   moves a quarter of the way towards them. A steady line takes it along;
+   a single stretched note or rubato bends it only a little. A rest of more
+   than 2 s starts over.
+3. **At power on: 128 BPM.** The panel's TEMPO sets it too when no clock
+   runs, and the playing carries on from there.
 
 ## Not (yet) answered
 

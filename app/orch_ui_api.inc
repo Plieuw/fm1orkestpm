@@ -4,7 +4,7 @@ void orch_ui_init(void)
 {
     ui.page = PAGE_HOME;
     ui.part = 0U;
-    ui.tempo = 120U;
+    ui.tempo = ORCH_DEFAULT_BPM;
     ui.seq_on = 0U;
     ui.rec = 0U;
     ui.seq_step = 0U;

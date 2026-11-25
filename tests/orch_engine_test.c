@@ -249,6 +249,68 @@ static int64_t note_energy(unsigned velocity)
     return render_energy(200U);
 }
 
+/* play `n` notes on part 0, one every `samples` (block-rounded) */
+static void play_pulse(unsigned n, unsigned samples)
+{
+    for (unsigned i = 0; i < n; ++i) {
+        midi(0x90U, 60U + (i & 3U), 90U);
+        render(4U);
+        midi(0x80U, 60U + (i & 3U), 0U);
+        render((samples + 64U) / 128U - 4U);
+    }
+}
+
+/* clock ticks at `bpm` for `beats` beats, rendered in between */
+static void clock_for(unsigned bpm, unsigned beats)
+{
+    const uint8_t tick[1] = { 0xF8U };
+    const uint32_t tick_q8 = (uint32_t)((2646000ULL * 256U) / (bpm * 24U));
+    uint32_t next_q8 = 0U, now_q8 = 0U;
+    for (unsigned t = 0; t < beats * 24U; ++t) {
+        orch_midi_short_message(tick, 1U);
+        next_q8 += tick_q8;
+        while (now_q8 < next_q8) { render(1U); now_q8 += 128U << 8; }
+    }
+}
+
+/* The tempo: a MIDI clock always sets it; without one it follows the
+ * playing a little, from 128 BPM; the ARPs go with it. */
+static void test_tempo_follows(void)
+{
+    orch_init();
+    CHECK(orch_seq_tempo() == ORCH_DEFAULT_BPM);
+    play_pulse(14U, 22050U);                   /* crotchets at 120 */
+    CHECK(orch_seq_tempo() >= 119U && orch_seq_tempo() <= 121U);
+    {
+        struct orch_perf_config pc;
+        orch_perf_get_config(3U, &pc);
+        CHECK(pc.bpm == orch_seq_tempo());
+    }
+    play_pulse(8U, 11025U);                    /* quavers: the same pulse */
+    CHECK(orch_seq_tempo() >= 119U && orch_seq_tempo() <= 121U);
+    play_pulse(1U, 30870U);                    /* one stretched note */
+    play_pulse(1U, 22050U);
+    CHECK(orch_seq_tempo() >= 118U && orch_seq_tempo() <= 121U);
+
+    /* the clock always wins: over the playing and over the panel */
+    clock_for(100U, 6U);
+    CHECK(orch_tempo_from_clock() == 1U);
+    CHECK(orch_seq_tempo() >= 99U && orch_seq_tempo() <= 101U);
+    orch_seq_set_tempo(150U);
+    CHECK(orch_seq_tempo() <= 101U);
+    midi(0x90U, 60U, 90U);
+    clock_for(100U, 2U);
+    midi(0x80U, 60U, 0U);
+    CHECK(orch_seq_tempo() >= 99U && orch_seq_tempo() <= 101U);
+    /* half a second without ticks and it is over; the tempo stays */
+    render(200U);
+    CHECK(orch_tempo_from_clock() == 0U);
+    CHECK(orch_seq_tempo() >= 99U && orch_seq_tempo() <= 101U);
+    orch_seq_set_tempo(140U);
+    CHECK(orch_seq_tempo() == 140U);
+    orch_init();
+}
+
 /* The controllers, as a Yamaha XG part answers them (docs/MIDI.md). */
 static void test_midi_controllers(void)
 {
@@ -960,6 +1022,7 @@ int main(void)
     test_sequencer_lanes();
     test_shared_resonance();
     test_midi_controllers();
+    test_tempo_follows();
     test_routing();
     test_eight_part_routing();
     test_repeated_same_pitch_note_off_fifo();

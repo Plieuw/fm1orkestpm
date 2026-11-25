@@ -61,6 +61,7 @@ void orch_perf_init(void);
 void orch_perf_default_config(struct orch_perf_config *config);
 int orch_perf_set_config(unsigned part, const struct orch_perf_config *config);
 int orch_perf_get_config(unsigned part, struct orch_perf_config *config);
+void orch_perf_set_tempo(unsigned bpm);   /* every part's ARP */
 /* Returns non-zero when this note was captured by an enabled performance
  * engine and should not be sent directly to the instrument voices. */
 int orch_perf_note_event(unsigned part, unsigned note, unsigned velocity);

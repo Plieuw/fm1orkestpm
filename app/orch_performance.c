@@ -84,7 +84,7 @@ static uint32_t rnd(perf_part_t *p)
 void orch_perf_default_config(struct orch_perf_config *c)
 {
     if (!c) return;
-    c->bpm=120U; c->arp_enabled=0U; c->phrase_enabled=0U;
+    c->bpm=128U; c->arp_enabled=0U; c->phrase_enabled=0U;
     c->external_clock=0U; c->latch=0U; c->arp_type=0U; c->phrase_ge=0U;
     c->division=4U; c->gate=80U; c->swing=0U; c->logic=ORCH_PERF_OR;
     c->inverse=0U; c->quantize=0U; c->root=0U; c->density=100U;
@@ -624,6 +624,19 @@ int orch_perf_set_config(unsigned part, const struct orch_perf_config *c)
     }
     if(!was && (p->cfg.arp_enabled||p->cfg.phrase_enabled) && p->held_count) p->first_pending=1U;
     return 0;
+}
+
+/* the orchestra's tempo reaches every ARP (orch_engine.c: MIDI clock, else
+ * the playing); the clock-locked ones keep counting the clock's own ticks */
+void orch_perf_set_tempo(unsigned bpm)
+{
+    if(bpm<40U) bpm=40U;
+    if(bpm>250U) bpm=250U;
+    for(unsigned i=0;i<ORCH_PERF_PARTS;++i) {
+        perf_part_t *p=&parts[i];
+        p->cfg.bpm=(uint16_t)bpm;
+        p->clock_inc=((uint32_t)bpm*24U*PERF_Q16)/(60U*ORCH_PERF_SAMPLE_RATE);
+    }
 }
 
 int orch_perf_get_config(unsigned part, struct orch_perf_config *c)

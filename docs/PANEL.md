@@ -71,4 +71,6 @@ the value lighting for a second after its knob moves — so no page needs help
 lines that have to be read. That layout, and the speed of the encoders, are in
 [`PANEL-REFERENCE.md`](PANEL-REFERENCE.md#knobs).
 
-MIDI controllers reach the same settings: see [MIDI.md](MIDI.md).
+MIDI controllers reach the same settings: see [MIDI.md](MIDI.md). The tempo
+knobs set the tempo only while no MIDI clock runs; with a clock they show the
+clock's tempo, and without one the tempo follows the playing (MIDI.md, Tempo).

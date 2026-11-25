@@ -1,4 +1,4 @@
-# 0.6.0 – 0.6.5: tuning, mix, adaptive playing, ARP, sequencer, vector panel
+# 0.6.0 – 0.6.6: tuning, mix, adaptive playing, ARP, sequencer, vector panel
 
 Written 25 November 2026 on `beta/0.6.0-refine`, branched from
 `beta/0.5.0-orchestra-merge`. One commit a topic; every number below is a host
@@ -134,6 +134,18 @@ limiter.
 - Every ARP setting and the sequencer's transport has a controller on the
   free XG numbers (CC16..19, 80..89, 102..116), using all 128 values. The
   panel follows MIDI tempo and run. See [MIDI.md](MIDI.md).
+
+## 0.6.6: the tempo comes from the clock, or from the playing
+
+- The **MIDI clock always takes priority**: it sets the tempo of the
+  sequencer, of every ARP (until now only the ARPs switched to MIDI clock
+  followed it) and of the delay, and the panel shows it. The panel cannot
+  override it.
+- **Without a clock** the tempo follows the playing a little: it moves a
+  quarter of the way towards a pulse when two intervals in a row agree. The
+  details are in [MIDI.md](MIDI.md#tempo).
+- **Power on is 128 BPM** (was 120).
+- CC89 (tempo, 0.6.5) is gone: the clock carries the tempo.
 
 ## Not done, still open
 

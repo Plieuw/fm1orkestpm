@@ -265,21 +265,6 @@ static int arp_cc(unsigned p, unsigned n, unsigned value)
     return 1;
 }
 
-/* the tempo is the whole orchestra's: the sequencer, every ARP, the delay */
-static void set_tempo(unsigned value)
-{
-    const unsigned bpm = 40U + (value * 210U + 63U) / 127U;   /* 40..250 */
-    orch_seq_set_tempo((uint16_t)bpm);
-    orch_fx_set_tempo(bpm);
-    for (unsigned p = 0; p < ORCH_PARTS; ++p) {
-        struct orch_perf_config pc;
-        if (orch_perf_get_config(p, &pc) == 0 && pc.bpm != bpm) {
-            pc.bpm = (uint16_t)bpm;
-            orch_perf_set_config(p, &pc);
-        }
-    }
-}
-
 /* the instruments of a family, in order */
 static unsigned family_instrument(unsigned family, unsigned index, unsigned *count)
 {
@@ -342,7 +327,6 @@ void orch_cc_apply(unsigned p, unsigned n, unsigned value)
     case 85U: orch_seq_set_enabled(value >= 64U); return;
     case 86U: orch_seq_set_length(1U + zone(value, 16U)); return;
     case 88U: orch_seq_set_adaptive(value >= 64U); return;
-    case 89U: set_tempo(value); return;
     default: break;
     }
     if (p >= ORCH_PARTS) return;
