@@ -1,4 +1,4 @@
-# 0.6.0: tuning, mix, adaptive playing, ARP, sequencer, vector panel
+# 0.6.0 / 0.6.1: tuning, mix, adaptive playing, ARP, sequencer, vector panel
 
 Written 25 November 2026 on `beta/0.6.0-refine`, branched from
 `beta/0.5.0-orchestra-merge`. One commit a topic; every number below is a host
@@ -16,11 +16,20 @@ Nothing has been heard on an FM-1.
 - **Loop filter.** A first-order FIR whose coefficient follows the damping
   continuously (0.5.0: three fixed shapes in six steps); its delay is taken off
   the read, so brightness no longer moves the pitch.
-- **Mix.** Gain 2.5/sqrt(n) that glides (~6 ms) instead of dividing by the
-  voice count, which stepped every sounding note when a voice started and left
-  one note at -16 dBFS. Four-piece soft knee from -6 dBFS; measured worst case
-  (eight parts, one octave, velocity 127) 18.3 M -> 7.2 M. One voice now peaks
-  2.1 M, eight parts at velocity 100 6.0 M. Check: `test_gain_staging`.
+- **Mix (0.6.1).** No limiter and no knee: every sounding voice gets an
+  equal share of full scale, 1/n, so n voices — each at most full scale on its
+  own — can never clip together. The share glides when the count changes
+  (down in ~1.5 ms, back up over ~25 ms) instead of stepping as 0.5.0's
+  division did. A larger share (1.5/n) was measured and rejected: a lone
+  double bass C2 at velocity 127 bowed itself to full scale. One voice peaks
+  around 0.78 M (-21 dBFS), eight parts 0.97 M: there is headroom by design,
+  and MASTER sets the level. (0.6.0 had 2.5/sqrt(n) with a soft knee.)
+- **Even across instruments (0.6.1).** The mallets' strike burst now scales
+  with the loop length as the bow force does; high mallet notes were far
+  louder than everything else (timpani C7 13.6 M, marimba C6 6.8 M against
+  3–5 M for the rest, measured at gain 1). Now every instrument alone at
+  velocity 127, C2..C7, peaks at most 5.2 M. Check: `test_gain_staging`
+  (all 18 instruments x 6 octaves, and the full orchestra, under full scale).
 
 ## Adaptive playing
 

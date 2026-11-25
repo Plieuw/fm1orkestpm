@@ -192,23 +192,30 @@ static int32_t peak_of(unsigned blocks)
     return top;
 }
 
-/* Gain staging: one held note uses the range (0.5.0 left it at -16 dBFS),
- * the whole orchestra stays under full scale. */
+/* Even mix: every voice an equal share of full scale (1 / n), with no limiter.
+ * Every instrument alone at velocity 127 across C2..C7, and eight parts
+ * together, stay under full scale; the share does not step the level. */
 static void test_gain_staging(void)
 {
-    orch_init();
-    midi(0x90U, 60U, 100U);
-    peak_of(400U);
-    const int32_t one = peak_of(300U);
-    CHECK(one > 1500000);
+    int32_t loudest = 0;
+    for (unsigned inst = 0; inst < ORCH_INST_COUNT; ++inst) {
+        for (unsigned note = 36U; note <= 96U; note += 12U) {
+            orch_init();
+            orch_engine_set_instrument(0U, inst);
+            orch_engine_set_player_cap(0U, 1U);
+            midi(0x90U, note, 127U);
+            const int32_t p = peak_of(500U);
+            if (p > loudest) loudest = p;
+        }
+    }
+    CHECK(loudest < 8388607);
     orch_init();
     for (unsigned p = 0; p < 8U; ++p) {
         orch_engine_set_player_cap(p, 1U);
         midi(0x90U | p, 55U + 3U * p, 127U);
     }
     const int32_t all = peak_of(700U);
-    CHECK(all > one);
-    CHECK(all < 8388607);
+    CHECK(all > 0 && all < 8000000);
     orch_init();
 }
 

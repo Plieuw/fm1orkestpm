@@ -877,7 +877,8 @@ static void voice_start(unsigned part, unsigned note, unsigned velocity,
         v->struck = 1U;
         v->strike_left = (uint16_t)(((family == ORCH_FAM_MALLETS) ? 260U : 180U) *
                                     ORCH_SAMPLE_RATE / 1000U);
-        const int32_t amp = (int32_t)velocity * 160 + (int32_t)prof.accent * 60;
+        int32_t amp = (int32_t)velocity * 160 + (int32_t)prof.accent * 60;
+        if (v->bow_gain < 256U) amp = (amp * (int32_t)v->bow_gain) >> 8;  /* as above */
         for (unsigned n = 0; n < 64U && n < DELAY_SIZE; ++n)
             v->delay[n] = (int16_t)clamp16((noise16() * amp) >> 8);
         if (v->strike_left > 512U) v->strike_left = 512U;
@@ -1341,36 +1342,33 @@ unsigned orch_test_seq_adapt_note(unsigned part, unsigned note)
 }
 #endif
 
-/* Mix gain by the number of voices sounding, Q12: 2.5 / sqrt(n). Voices are
- * not in phase, so their sum grows like sqrt(n), not n; 0.5.0 divided by n,
- * which left one note at about -16 dBFS and eight at -20 (measured peaks
- * 1.3 M and 0.8 M of Q23's 8.39 M) and, since the divisor jumped when a
- * voice started, stepped the level of the notes already sounding. The 2.5
- * brings one held note to about -8 dBFS; the soft knee below catches the
- * rare moments when eight voices do line up. */
+/* Mix gain by the number of voices sounding, Q12: 1 / n. The headroom is
+ * shared out evenly: every sounding voice gets exactly an equal share of full
+ * scale. A voice cannot exceed full scale on its own (its waveguide is int16
+ * and its envelope, level and velocity gains are at most unity), so n voices
+ * at 1 / n cannot exceed it together: no limiter, no knee, nothing bends the
+ * waveform. A larger share was tried and measured: at 1.5 / n a lone double
+ * bass C2 at velocity 127 bowed itself to full scale within a second (the
+ * friction model's peak varies from note to note, 5.0..5.6 M and more), so
+ * any share above 1 / n would need a limiter after all. (0.6.0 had
+ * 2.5 / sqrt(n) and a soft knee.) The level is turned up with MASTER.
+ *
+ * When the count changes the gain glides: down within about 1.5 ms (a new
+ * voice takes its share quickly, so the sum stays within the bound) and up
+ * over about 25 ms (a voice ending lets the others grow back gently). */
 static const uint16_t MIX_GAIN_Q12[ORCH_MAX_VOICES + 1U] = {
-    0U, 10240U, 7240U, 5912U, 5120U, 4580U, 4180U, 3870U, 3620U
+    0U, 4096U, 2048U, 1365U, 1024U, 819U, 683U, 585U, 512U
 };
-static int32_t mix_gain_q12 = 10240;   /* follows the table, smoothly */
+static int32_t mix_gain_q12 = 4096;
 
-/* A soft knee in four straight pieces, so it needs no divide: unity up to
- * 4.2 M (-6 dBFS), then a half, a quarter, an eighth and a sixteenth of what
- * goes over, which takes the measured worst case — eight parts in one octave
- * at velocity 127, 18.3 M before the knee — to 7.2 M, still under full scale. */
-#define MIX_KNEE 4200000
-static int32_t soft_limit(int32_t x)
+/* Integer saturation only, for the arithmetic's sake: at 1 / n the sum stays
+ * within full scale (the expression gain can lift a voice a few percent over
+ * unity, so the clamp stays as a guard). */
+static int32_t clamp_q23(int32_t x)
 {
-    const int32_t sign = x < 0 ? -1 : 1;
-    int32_t a = x < 0 ? -x : x;
-    if (a > MIX_KNEE) {
-        int32_t over = a - MIX_KNEE;
-        if (over <= 2000000) a = MIX_KNEE + (over >> 1);
-        else if (over <= 6000000) a = MIX_KNEE + 1000000 + ((over - 2000000) >> 2);
-        else if (over <= 14000000) a = MIX_KNEE + 2000000 + ((over - 6000000) >> 3);
-        else a = MIX_KNEE + 3000000 + ((over - 14000000) >> 4);
-        if (a > Q23_MAX) a = Q23_MAX;
-    }
-    return sign * a;
+    if (x > Q23_MAX) return Q23_MAX;
+    if (x < Q23_MIN) return Q23_MIN;
+    return x;
 }
 
 void orch_init(void)
@@ -1737,8 +1735,15 @@ static unsigned voice_tick(voice_t *v)
     /* excitation: scaled in Q16 so the products stay in 32 bits */
     if (v->strike_left) {
         --v->strike_left;
+        /* A short loop passes the burst through its excitation point many
+         * times while it lasts, so the same burst rang a high mallet note far
+         * louder than a low one (measured with an even 1/n mix: timpani C7
+         * 13.6 M, marimba C6 6.8 M, a cello 3-4 M). The burst scales with the
+         * loop's length as the bow force does (bow_gain, 400 samples = 1.0,
+         * at least 0.25). */
         const int32_t burst = (noise16() * (int32_t)v->velocity) >> 8;
-        loop += ((burst >> 1) * excitation_gain_q15) >> 15;
+        const int32_t scaled = v->bow_gain < 256U ? (burst * (int32_t)v->bow_gain) >> 8 : burst;
+        loop += ((scaled >> 1) * excitation_gain_q15) >> 15;
     }
     if (v->gate && v->excite != EXC_STRIKE) {
         const int32_t noise = noise16();
@@ -1938,11 +1943,14 @@ void orch_render_q23(int32_t *out, unsigned frames)
          * gap a sample), so a voice starting does not step the others */
         if (active) {
             const int32_t want = (int32_t)MIX_GAIN_Q12[active <= ORCH_MAX_VOICES ? active : ORCH_MAX_VOICES];
-            mix_gain_q12 += (want - mix_gain_q12 + (want > mix_gain_q12 ? 255 : -255)) / 256;
+            if (want < mix_gain_q12)       /* a voice came in: ~1.5 ms */
+                mix_gain_q12 += (want - mix_gain_q12 - 63) / 64;
+            else if (want > mix_gain_q12)  /* a voice ended: ~25 ms */
+                mix_gain_q12 += (want - mix_gain_q12 + 1023) / 1024;
         }
         /* a 64-bit multiply and a shift: no divide on the PI32v2 */
-        int32_t l = soft_limit((int32_t)(((int64_t)left * mix_gain_q12) >> 12));
-        int32_t r = soft_limit((int32_t)(((int64_t)right * mix_gain_q12) >> 12));
+        int32_t l = clamp_q23((int32_t)(((int64_t)left * mix_gain_q12) >> 12));
+        int32_t r = clamp_q23((int32_t)(((int64_t)right * mix_gain_q12) >> 12));
         out[f * 2U] = (int32_t)l;
         out[f * 2U + 1U] = (int32_t)r;
         ++sample_counter;
