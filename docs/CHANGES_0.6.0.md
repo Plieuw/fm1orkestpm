@@ -1,4 +1,4 @@
-# 0.6.0 – 0.6.3: tuning, mix, adaptive playing, ARP, sequencer, vector panel
+# 0.6.0 – 0.6.4: tuning, mix, adaptive playing, ARP, sequencer, vector panel
 
 Written 25 November 2026 on `beta/0.6.0-refine`, branched from
 `beta/0.5.0-orchestra-merge`. One commit a topic; every number below is a host
@@ -99,6 +99,27 @@ limiter.
 - Record: the amount is appended to the OR60 record with its own checksum, so
   0.6.2 saves still load (at 25).
 - Cost: eight interpolated reads per sample, 16 KB of pool.
+
+## 0.6.4: MIDI as Yamaha does it, and the headroom used
+
+- **Velocity** is now an even line in dB: the line runs over 32 dB (velocity 1 measures −34.5 dB from 127) with the same
+  step everywhere (measured within 0.2 dB from 8 to 127, averaged over all 18
+  instruments). In 0.6.3 the velocities from 1 to 16 spanned 35 dB and were
+  nearly silent, while the top half spanned only 10 dB.
+- **Controllers** follow Yamaha XG: CC1 vibrato, CC2 breath, CC7 and CC11 on
+  the GM2 curve, CC10, CC67, CC74, pitch bend with RPN 0, bank select and
+  program change, the relative sound controllers CC71..78, the sends CC91,
+  CC93 and CC94, and CC121 with XG's reset. The whole map is in
+  [MIDI.md](MIDI.md). Setting controllers change the same settings the panel
+  turns, so the panel shows them and SAVE keeps them.
+- **Mix**: the share is now 1.36 / n (a lone voice stays at unity). Each share
+  is sized by what one voice measurably reaches (5.6 M at most), no longer by
+  full scale. Eight voices in phase stay below 7.6 M. The full orchestra at
+  127 with CC7 fully open peaks at 3.7 M (2.7 M in 0.6.3). Eight double
+  basses on one C2 at 127 stay under full scale; that is a test. Still no
+  limiter.
+- XG powers on at volume 100 (−4.2 dB), and so does this engine now. With
+  CC7 at 127 it is as loud as before or louder. MASTER has +12 dB besides.
 
 ## Not done, still open
 

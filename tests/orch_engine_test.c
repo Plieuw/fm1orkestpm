@@ -5,6 +5,7 @@
 #include "orch_engine.h"
 #include "orch_stage.h"
 #include "orch_resonance.h"
+#include "orch_cc.h"
 
 static unsigned failures;
 static int32_t block[256];
@@ -51,6 +52,13 @@ static void midi(unsigned status, unsigned d1, unsigned d2)
 {
     const uint8_t m[3] = { (uint8_t)status, (uint8_t)d1, (uint8_t)d2 };
     orch_midi_short_message(m, 3U);
+}
+
+/* CC7 fully open on every channel (XG powers on at 100): the gain bounds
+ * are held at the loudest a controller can make it */
+static void full_volume(void)
+{
+    for (unsigned ch = 0; ch < 16U; ++ch) midi(0xB0U | ch, 7U, 127U);
 }
 
 /* Only part 0 listens, on MIDI channel 1, with the given family. */
@@ -202,6 +210,7 @@ static void test_gain_staging(void)
     for (unsigned inst = 0; inst < ORCH_INST_COUNT; ++inst) {
         for (unsigned note = 36U; note <= 96U; note += 12U) {
             orch_init();
+            full_volume();
             orch_engine_set_instrument(0U, inst);
             orch_engine_set_player_cap(0U, 1U);
             midi(0x90U, note, 127U);
@@ -211,12 +220,140 @@ static void test_gain_staging(void)
     }
     CHECK(loudest < 8388607);
     orch_init();
+    full_volume();
     for (unsigned p = 0; p < 8U; ++p) {
         orch_engine_set_player_cap(p, 1U);
         midi(0x90U | p, 55U + 3U * p, 127U);
     }
     const int32_t all = peak_of(700U);
     CHECK(all > 0 && all < 8000000);
+    /* the worst there is for the 1.36 / n share: all eight parts double
+     * basses on the same C2 at 127, fully open */
+    orch_init();
+    full_volume();
+    for (unsigned p = 0; p < 8U; ++p) {
+        orch_engine_set_instrument(p, ORCH_INST_DOUBLE_BASS);
+        orch_engine_set_player_cap(p, 1U);
+        midi(0x90U | p, 36U, 127U);
+    }
+    const int32_t unison = peak_of(700U);
+    CHECK(unison > 0 && unison < 8388607);
+    orch_init();
+}
+
+static int64_t note_energy(unsigned velocity)
+{
+    orch_init();
+    orch_engine_set_player_cap(0U, 1U);
+    midi(0x90U, 60U, velocity);
+    return render_energy(200U);
+}
+
+/* The controllers, as a Yamaha XG part answers them (docs/MIDI.md). */
+static void test_midi_controllers(void)
+{
+    /* velocity: every step counts. 1 is soft but there (about -33 dB of
+     * 127, not -63 as in 0.6.3), 64 sits in between, and it only rises */
+    const int64_t e1 = note_energy(1U), e64 = note_energy(64U), e127 = note_energy(127U);
+    CHECK(e1 > 0 && e1 * 10 > e64 / 10 && e1 * 20 < e127);
+    CHECK(e64 * 3 < e127 && e64 * 8 > e127);
+    int64_t last = 0;
+    for (unsigned v = 8U; v <= 127U; v += 17U) {
+        const int64_t e = note_energy(v);
+        CHECK(e > last);
+        last = e;
+    }
+
+    /* CC11 expression on the GM2 curve: 64 is about -12 dB, 0 silent (the
+     * shared strings off, or they would ring on) */
+    orch_init();
+    orch_resonance_set_amount(0U);
+    midi(0x90U, 60U, 100U);
+    render(100U);
+    const int64_t open = render_energy(40U);
+    midi(0xB0U, 11U, 64U);
+    render(4U);
+    const int64_t half = render_energy(40U);
+    CHECK(half * 3 < open && half * 6 > open);
+    midi(0xB0U, 11U, 0U);
+    render(12U);
+    CHECK(render_energy(10U) == 0);
+    /* CC121 brings the expression back */
+    midi(0xB0U, 121U, 0U);
+    render(1U);
+    CHECK(orch_cc_value(0U, 11U) == 127U);
+
+    /* CC2 breath: quieter and darker at 0, never silent */
+    orch_init();
+    orch_resonance_set_amount(0U);
+    midi(0xB0U, 2U, 0U);
+    midi(0x90U, 60U, 100U);
+    render(100U);
+    const int64_t soft = render_energy(40U);
+    CHECK(soft > 0 && soft * 8 < open);
+
+    /* CC10: 0 is hard left, 127 hard right */
+    orch_init();
+    orch_resonance_set_amount(0U);
+    midi(0xB0U, 10U, 0U);
+    midi(0x90U, 60U, 100U);
+    render(60U);
+    CHECK(side_energy(20U, 1U) == 0 && side_energy(20U, 0U) > 0);
+
+    /* pitch bend: +2 semitones by default, RPN 0 sets 12 */
+    orch_init();
+    midi(0xE0U, 127U, 127U);
+    render(10U);
+    CHECK(orch_cc_bend_q16[0] > 58300U && orch_cc_bend_q16[0] < 58480U);
+    midi(0xB0U, 101U, 0U);
+    midi(0xB0U, 100U, 0U);
+    midi(0xB0U, 6U, 12U);
+    render(10U);
+    CHECK(orch_cc_bend_range(0U) == 12U);
+    CHECK(orch_cc_bend_q16[0] > 32700U && orch_cc_bend_q16[0] < 32830U);
+    midi(0xE0U, 0U, 64U);                      /* centre */
+    render(10U);
+    CHECK(orch_cc_bend_q16[0] == 65536U);
+
+    /* CC1 is vibrato: the wheel alone runs the LFO */
+    orch_init();
+    midi(0xB0U, 1U, 127U);
+    render(2U);
+    CHECK(orch_cc_mod[0] == 100U);
+
+    /* bank select + program change: bank 3 is brass, program 1 its second */
+    orch_init();
+    midi(0xB0U, 0U, 3U);
+    {
+        const uint8_t pc[2] = { 0xC0U, 1U };
+        orch_midi_short_message(pc, 2U);
+    }
+    render(1U);
+    CHECK(orch_part_get(0U)->instrument == ORCH_INST_FRENCH_HORN);
+
+    /* the sound controllers are relative, as on XG: 64 is the instrument's
+     * own attack, 0 the shortest, 127 the longest */
+    {
+        struct orch_adsr d;
+        orch_instrument_adsr(ORCH_INST_FRENCH_HORN, &d);
+        midi(0xB0U, 73U, 64U);
+        render(1U);
+        CHECK(orch_part_get(0U)->adsr.attack_ms == d.attack_ms);
+        midi(0xB0U, 73U, 0U);
+        render(1U);
+        CHECK(orch_part_get(0U)->adsr.attack_ms == 1U);
+        midi(0xB0U, 73U, 127U);
+        render(1U);
+        CHECK(orch_part_get(0U)->adsr.attack_ms == 4000U);
+    }
+    /* CC71 is the shared resonance, 64 its default */
+    midi(0xB0U, 71U, 64U);
+    render(1U);
+    CHECK(orch_resonance_amount() == 25U);
+    midi(0xB0U, 71U, 127U);
+    render(1U);
+    CHECK(orch_resonance_amount() == 100U);
+    orch_resonance_set_amount(25U);
     orch_init();
 }
 
@@ -312,6 +449,7 @@ static void test_shared_resonance(void)
     CHECK(g3_on - g3_off > 2 * (gs3_on > gs3_off ? gs3_on - gs3_off : 0));
 
     orch_init();
+    full_volume();
     orch_resonance_set_amount(100U);
     for (unsigned p = 0; p < 8U; ++p) {
         orch_engine_set_player_cap(p, 1U);
@@ -784,6 +922,7 @@ int main(void)
     test_gain_staging();
     test_sequencer_lanes();
     test_shared_resonance();
+    test_midi_controllers();
     test_routing();
     test_eight_part_routing();
     test_repeated_same_pitch_note_off_fifo();

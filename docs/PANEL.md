@@ -70,3 +70,5 @@ are the page's menu — a small knob, its label under it and the value under tha
 the value lighting for a second after its knob moves — so no page needs help
 lines that have to be read. That layout, and the speed of the encoders, are in
 [`PANEL-REFERENCE.md`](PANEL-REFERENCE.md#knobs).
+
+MIDI controllers reach the same settings: see [MIDI.md](MIDI.md).

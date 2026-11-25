@@ -75,5 +75,7 @@ int orch_part_set_lfo(unsigned part, unsigned wave, unsigned destinations,
                       unsigned sync_division, unsigned delay_ms, unsigned fade_ms);
 
 const char *orch_family_name(unsigned family);
+unsigned orch_instrument_family(unsigned instrument);
+void orch_instrument_adsr(unsigned instrument, struct orch_adsr *a); /* its defaults */
 
 #endif

@@ -3,7 +3,7 @@
 
 static struct orch_part parts[ORCH_PARTS];
 
-static unsigned instrument_family(unsigned instrument)
+unsigned orch_instrument_family(unsigned instrument)
 {
     if (instrument <= ORCH_INST_HARP) return ORCH_FAM_STRINGS;
     if (instrument <= ORCH_INST_BASSOON) return ORCH_FAM_WOODWINDS;
@@ -12,7 +12,7 @@ static unsigned instrument_family(unsigned instrument)
     return ORCH_FAM_CHOIR;
 }
 
-static void instrument_adsr(unsigned instrument, struct orch_adsr *a)
+void orch_instrument_adsr(unsigned instrument, struct orch_adsr *a)
 {
     /* Instrument defaults in milliseconds and percent; scenes may override. */
     a->attack_ms = 32U; a->decay_ms = 180U;
@@ -119,7 +119,7 @@ void orch_parts_init(void)
         part->enabled = 1U;
         part->articulation = ORCH_ART_AUTO;
         part->player_cap = 2U;
-        instrument_adsr(part->instrument, &part->adsr);
+        orch_instrument_adsr(part->instrument, &part->adsr);
         part->lfo.wave = ORCH_LFO_SINE;
         part->lfo.destinations = 0U;
         part->lfo.depth = 0U;
@@ -153,7 +153,7 @@ int orch_part_configure(unsigned part, unsigned family, uint16_t channels)
     if (part >= ORCH_PARTS || family >= ORCH_FAM_COUNT) return -1;
     parts[part].family = (uint8_t)family;
     parts[part].instrument = (uint8_t)default_instrument(family);
-    instrument_adsr(parts[part].instrument, &parts[part].adsr);
+    orch_instrument_adsr(parts[part].instrument, &parts[part].adsr);
     parts[part].channels = channels;
     parts[part].enabled = channels ? 1U : 0U;
     orch_adaptive_reset_phrase(&parts[part].adaptive);
@@ -166,8 +166,8 @@ int orch_part_set_instrument(unsigned part, unsigned instrument)
 {
     if (part >= ORCH_PARTS || instrument >= ORCH_INST_COUNT) return -1;
     parts[part].instrument = (uint8_t)instrument;
-    parts[part].family = (uint8_t)instrument_family(instrument);
-    instrument_adsr(instrument, &parts[part].adsr);
+    parts[part].family = (uint8_t)orch_instrument_family(instrument);
+    orch_instrument_adsr(instrument, &parts[part].adsr);
     orch_adaptive_reset_phrase(&parts[part].adaptive);
     orch_divisi_init(&parts[part].divisi);
     orch_divisi_set_instrument(&parts[part].divisi, parts[part].instrument);

@@ -29,7 +29,7 @@ fi
 
 SRC="web/emu/emu.c web/emu/string.c app/fm1_app.c app/orch_engine.c app/orch_fx.c
      app/orch_adaptive.c app/orch_divisi.c app/orch_part.c app/orch_stage.c app/orch_ui.c
-     app/orch_performance.c app/orch_scenes.c app/orch_resonance.c"
+     app/orch_performance.c app/orch_scenes.c app/orch_resonance.c app/orch_cc.c"
 
 EXPORTS="emu_init emu_tick emu_render emu_button emu_key emu_turn emu_knob
          emu_battery emu_note emu_fb emu_audio emu_flash emu_leds emu_frames

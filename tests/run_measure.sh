@@ -16,5 +16,5 @@ fi
 $CC -std=c11 -O2 -DFM1_HOST_TEST -I"$CORE/include" -I"$ROOT/app" \
     "$ROOT/tests/measure.c" "$ROOT/app/orch_engine.c" "$ROOT/app/orch_adaptive.c" \
     "$ROOT/app/orch_divisi.c" "$ROOT/app/orch_part.c" "$ROOT/app/orch_stage.c" \
-    "$ROOT/app/orch_performance.c" "$ROOT/app/orch_resonance.c" -o "$OUT/measure" -lm
+    "$ROOT/app/orch_performance.c" "$ROOT/app/orch_resonance.c" "$ROOT/app/orch_cc.c" "$ROOT/app/orch_fx.c" -o "$OUT/measure" -lm
 exec "$OUT/measure" "$@"

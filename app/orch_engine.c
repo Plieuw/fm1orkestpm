@@ -15,6 +15,7 @@
 #include "orch_engine.h"
 #include "orch_performance.h"
 #include "orch_resonance.h"
+#include "orch_cc.h"
 
 #ifndef FM1_AUDIO_DATA
 #define FM1_AUDIO_DATA __attribute__((section(".pool")))
@@ -934,9 +935,14 @@ void orch_midi_short_message(const uint8_t *m, unsigned bytes)
     else if (kind == 0xb0U && bytes >= 3U) {
         if (m[1] == 64U)
             enqueue(ch, 0U, m[2] >= 64U, 1U);
-        else if (m[1] == 120U || m[1] == 123U)
+        else if (m[1] == 120U || m[1] >= 123U)   /* sound off, notes off, modes */
             enqueue(ch, 0U, 0U, 5U);
-    }
+        else
+            enqueue(ch, m[1], m[2], 6U);   /* the rest: orch_cc.c */
+    } else if (kind == 0xc0U)
+        enqueue(ch, 0U, m[1], 7U);         /* program change */
+    else if (kind == 0xe0U && bytes >= 3U)
+        enqueue(ch, m[1], m[2], 8U);       /* pitch bend, LSB then MSB */
 }
 
 /* The note-on path: interpret, plan divisi, realize the players. */
@@ -1167,6 +1173,15 @@ static void drain_events(void)
             orch_perf_set_external_tempo((unsigned)e.note | ((unsigned)e.velocity<<7));
         } else if (e.type == 1U) {
             engine_sustain(e.channel, e.velocity);
+        } else if (e.type >= 6U && e.type <= 8U) {
+            /* a part's controllers; the global ones (resonance, effects)
+             * answer even a channel no part listens to */
+            const unsigned part = orch_part_for_channel(e.channel);
+            if (e.type == 8U)
+                orch_cc_apply(part, ORCH_CC_BEND,
+                              (unsigned)e.note | ((unsigned)e.velocity << 7));
+            else
+                orch_cc_apply(part, e.type == 7U ? ORCH_CC_PROGRAM : e.note, e.velocity);
         } else if (e.type == 5U) {
             sustain[e.channel] = 0U;
             for (unsigned n = 0; n < 128U; ++n)
@@ -1343,26 +1358,28 @@ unsigned orch_test_seq_adapt_note(unsigned part, unsigned note)
 }
 #endif
 
-/* Mix gain by the number of voices sounding, Q12: 1 / n. The headroom is
- * shared out evenly: every sounding voice gets exactly an equal share of full
- * scale. A voice cannot exceed full scale on its own (its waveguide is int16
- * and its envelope, level and velocity gains are at most unity), so n voices
- * at 1 / n cannot exceed it together: no limiter, no knee, nothing bends the
- * waveform. A larger share was tried and measured: at 1.5 / n a lone double
- * bass C2 at velocity 127 bowed itself to full scale within a second (the
- * friction model's peak varies from note to note, 5.0..5.6 M and more), so
- * any share above 1 / n would need a limiter after all. (0.6.0 had
- * 2.5 / sqrt(n) and a soft knee.) The level is turned up with MASTER.
+/* Mix gain by the number of voices sounding, Q12: 1.36 / n, never above
+ * unity. The headroom is shared out evenly: every sounding voice gets an
+ * equal share. The share is sized by what one voice measurably reaches, not
+ * by full scale: the loudest voice there is (a double bass C2 bowed at
+ * velocity 127, whose friction peak varies from note to note) reaches
+ * 5.0..5.6 M of the 8.39 M full scale, so n voices at 1.36 / n reach at most
+ * n x 5.6 M x 1.36 / n = 7.6 M, all in phase, which separate notes never are.
+ * No limiter, no knee, nothing bends the waveform. (0.6.1/0.6.2 used 1 / n,
+ * which sized every share for a voice at full scale and left the full
+ * orchestra near 3 M; a lone voice stays at unity, since 1.5 x on one double
+ * bass reached full scale; 0.6.0 had 2.5 / sqrt(n) and a soft knee.)
+ * tests/orch_engine_test.c test_gain_staging holds the bound.
  *
  * When the count changes the gain glides: down within about 1.5 ms (a new
  * voice takes its share quickly, so the sum stays within the bound) and up
  * over about 25 ms (a voice ending lets the others grow back gently). */
 static const uint16_t MIX_GAIN_Q12[ORCH_MAX_VOICES + 1U] = {
-    0U, 4096U, 2048U, 1365U, 1024U, 819U, 683U, 585U, 512U
+    0U, 4096U, 2785U, 1857U, 1393U, 1114U, 928U, 796U, 696U
 };
 static int32_t mix_gain_q12 = 4096;
 
-/* Integer saturation only, for the arithmetic's sake: at 1 / n the sum stays
+/* Integer saturation only, for the arithmetic's sake: at 1.36 / n the sum stays
  * within full scale (the expression gain can lift a voice a few percent over
  * unity, so the clamp stays as a guard). */
 static int32_t clamp_q23(int32_t x)
@@ -1375,6 +1392,7 @@ static int32_t clamp_q23(int32_t x)
 void orch_init(void)
 {
     orch_resonance_clear();
+    orch_cc_init();
     mix_gain_q12 = (int32_t)MIX_GAIN_Q12[1];
     for (unsigned i = 0; i < ORCH_MAX_VOICES; ++i) voice_stop(i);
     event_read = event_write = 0U;
@@ -1593,6 +1611,13 @@ static unsigned voice_tick(voice_t *v)
         --v->glide_left;
         len = v->len_q16;
     }
+    /* pitch bend (orch_cc.c): the loop's length by the part's ratio */
+    if (orch_cc_bend_q16[v->part] != 65536U) {
+        uint64_t bent = ((uint64_t)len * orch_cc_bend_q16[v->part]) >> 16;
+        if (bent > ((uint64_t)(DELAY_SIZE - 8U) << 16)) bent = (uint64_t)(DELAY_SIZE - 8U) << 16;
+        if (bent < (16U << 16)) bent = 16U << 16;
+        len = (uint32_t)bent;
+    }
     /* Phrase-shaped sustain expression, about 0.14-0.30 Hz. A smooth
      * triangle-derived sine avoids abrupt corners and runs only while the
      * note is sustaining/releasing. Its depth is instrument-family specific. */
@@ -1610,7 +1635,10 @@ static unsigned voice_tick(voice_t *v)
 
     /* General LFO runs independently of the legacy expressive vibrato. */
     {
-        if (lfo && lfo_destinations && v->lfo_depth) {
+        /* the modulation wheel (CC1) is vibrato on the part's own LFO, as
+         * on a Yamaha: it runs the LFO even where the part has none set */
+        const unsigned wheel = orch_cc_mod[v->part];
+        if (lfo && ((lfo_destinations && v->lfo_depth) || wheel)) {
             if (v->lfo_delay_left) --v->lfo_delay_left;
             else {
                 const uint32_t old_phase = v->lfo_phase;
@@ -1626,8 +1654,11 @@ static unsigned voice_tick(voice_t *v)
                 int32_t value = lfo_wave_value(lfo->wave, v->lfo_phase, &v->lfo_hold);
                 value = (value * (int32_t)v->lfo_fade_gain) >> 15;
                 v->lfo_value = (int16_t)value;
-                if (lfo->destinations & ORCH_LFO_PITCH) {
-                    const int32_t cents = ((int32_t)v->lfo_depth * 50) / 100;
+                const int32_t pitch_depth =
+                    ((lfo->destinations & ORCH_LFO_PITCH) ? (int32_t)v->lfo_depth : 0) +
+                    (int32_t)wheel;
+                if (pitch_depth) {
+                    const int32_t cents = (pitch_depth * 50) / 100;
                     const int32_t delta = (int32_t)(((int64_t)len * cents * 38 * value) >> 31);
                     const int32_t modulated = (int32_t)len + delta;
                     if (modulated > 16) len = (uint32_t)modulated;
@@ -1675,6 +1706,8 @@ static unsigned voice_tick(voice_t *v)
     const int32_t expression_gain_q15 = 32767 + v->expr_q15;
     int32_t excitation_gain_q15 =
         (env_excitation_q15 * (expression_gain_q15 >> 1)) >> 14;
+    /* CC1/CC2 dynamics: how hard the part is bowed or blown (orch_cc.c) */
+    excitation_gain_q15 = (excitation_gain_q15 * orch_cc_excite_q15[v->part]) >> 15;
     if (v->legato_transition_left) {
         const uint32_t total = v->legato_transition_total ? v->legato_transition_total : 1U;
         const uint32_t left = v->legato_transition_left;
@@ -1697,6 +1730,7 @@ static unsigned voice_tick(voice_t *v)
      * damp_q8 is 1.0 dark .. 6.0 bright, in 1/256 steps. */
     int32_t damp_q8 = (int32_t)(v->damp ? v->damp : 2U) << 8;
     damp_q8 += (transient_q15 >> 5) + (v->excite_follow >> 6);
+    damp_q8 += orch_cc_bright_q8[v->part];               /* CC74 */
     if (lfo_destinations & ORCH_LFO_BRIGHTNESS) {
         const int bounded_depth = v->lfo_depth > 24U ? 24 : (int)v->lfo_depth;
         damp_q8 += ((int32_t)v->lfo_value * bounded_depth) / (12 * 128);
@@ -1913,6 +1947,7 @@ void orch_render_q23(int32_t *out, unsigned frames)
     drain_events();
     for (unsigned f = 0; f < frames; ++f) {
         orch_perf_advance_sample(sample_counter);
+        orch_cc_step();
         drain_performance_events();
         response_tick();
         seq_tick();
@@ -1937,9 +1972,13 @@ void orch_render_q23(int32_t *out, unsigned frames)
                     amp = (amp * gain) >> 15;
                 }
             }
-            const int32_t g = (amp * (int32_t)v->velocity) >> 7;
-            left += g * (int32_t)v->pan_l;
-            right += g * (int32_t)v->pan_r;
+            /* velocity on an even dB line (orch_cc_tables.inc), then the
+             * part's volume x expression x dynamics */
+            int32_t g = (amp * (int32_t)orch_cc_velocity_q12(v->velocity)) >> 12;
+            g = (int32_t)(((int64_t)g * orch_cc_gain_q15[v->part]) >> 15);
+            /* CC10: a balance on the seat the stage gave the part */
+            left += g * (((int32_t)v->pan_l * orch_cc_pan_l_q15[v->part]) >> 15);
+            right += g * (((int32_t)v->pan_r * orch_cc_pan_r_q15[v->part]) >> 15);
         }
         /* the gain glides to its new value over about 6 ms (1/256 of the
          * gap a sample), so a voice starting does not step the others */
