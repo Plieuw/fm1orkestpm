@@ -35,15 +35,18 @@ void orch_hawk_init(void)
 }
 
 /* HAWK synth_render() replacement: output is interleaved L/R signed Q15.
- * master_q12 is HAWK's MASTER pot (0..4096, its square law, main.c), which
- * HAWK's own synth applied in synth_render(); the panel's level light reads
- * what leaves after it, as on the FM1 Core build. No 64-bit divide: the gain
- * is a multiply and a shift. */
+ * master_q12 is HAWK's MASTER pot (0..4088, its square law, main.c). Since
+ * 0.6.1 it spans up to +12 dB: the orchestra shares full scale evenly (1/n)
+ * and leaves headroom, so the pot's middle (about 1022) is unity and fully
+ * open is x4. Over full scale the output saturates; that is the player's
+ * choice at the top of the pot, there is no limiter. The panel's level light
+ * reads what leaves after it. No 64-bit divide: a multiply and a shift. */
 void orch_hawk_render_q15(int32_t *output, uint32_t frames, uint32_t master_q12)
 {
     uint32_t offset = 0U;
     if (!output) return;
     if (master_q12 > 4096U) master_q12 = 4096U;
+    const int64_t gain_q12 = (int64_t)master_q12 * 4;     /* 0 .. x4 */
 
     while (offset < frames) {
         uint32_t count = frames - offset;
@@ -54,7 +57,10 @@ void orch_hawk_render_q15(int32_t *output, uint32_t frames, uint32_t master_q12)
         orch_fx_process(q23_scratch, count);
         for (uint32_t i = 0U; i < count * 2U; ++i) {
             /* Q23 x Q12 in 64 bits, then back to Q23: a multiply, no divide */
-            q23_scratch[i] = (int32_t)(((int64_t)q23_scratch[i] * (int32_t)master_q12) >> 12);
+            int64_t v = ((int64_t)q23_scratch[i] * gain_q12) >> 12;
+            if (v > 8388607) v = 8388607;
+            if (v < -8388608) v = -8388608;
+            q23_scratch[i] = (int32_t)v;
             output[offset * 2U + i] = q23_to_q15(q23_scratch[i]);
         }
         orch_level_take(q23_scratch, count * 2U);

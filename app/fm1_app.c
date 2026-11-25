@@ -58,8 +58,12 @@ FM1_AUDIO_CODE int fm1_app_render(int32_t *output,unsigned frames) {
     orch_fx_process(output,frames);
     const uint32_t gain = orch_ui_master_q23;
     if (gain != (1UL << 23)) {
-        for (unsigned i = 0; i < 2U * frames; ++i)
-            output[i] = (int32_t)(((int64_t)output[i] * (int32_t)gain) >> 23);
+        for (unsigned i = 0; i < 2U * frames; ++i) {
+            int64_t v = ((int64_t)output[i] * (int64_t)gain) >> 23;
+            if (v > 8388607) v = 8388607;      /* over full scale: saturate */
+            if (v < -8388608) v = -8388608;
+            output[i] = (int32_t)v;
+        }
     }
     /* what leaves the instrument, for the light the panel draws over it */
     orch_level_take(output, 2U * frames);

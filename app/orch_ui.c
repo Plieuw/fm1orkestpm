@@ -114,6 +114,7 @@ struct save_record {
     uint32_t check;
 };
 
+#define MASTER_MAX_Q23 (4UL << 23)   /* +12 dB at the top of the knob */
 volatile uint32_t orch_ui_master_q23 = UNITY_Q23;
 
 static struct {

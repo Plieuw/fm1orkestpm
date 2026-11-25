@@ -11,8 +11,9 @@
 
 struct fm1_controls;
 
-/* Master output gain in Q23 (1 << 23 is unity), written by the control task
- * and read by the renderer. */
+/* Master output gain in Q23 (1 << 23 is unity, the knob's middle; up to
+ * 4 << 23, +12 dB, fully open), written by the control task and read by the
+ * renderer, which saturates what goes over full scale. */
 extern volatile uint32_t orch_ui_master_q23;
 
 void orch_ui_init(void);       /* engine must already be initialised */

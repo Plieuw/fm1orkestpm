@@ -269,10 +269,13 @@ void orch_ui_handle(const struct fm1_controls *controls)
         const uint32_t k = controls->knob;
         const uint32_t full = 1023U * 1023U;
         ui.knob = (uint16_t)k;
-        /* k^2 * 2^23 / 1023^2 without a 64-bit divide (none on the PI32v2):
-         * 2^23 / 1023^2 = 8.0157 = 8 + 33/2048 */
-        uint32_t g = k * k * 8U + (k * k * 33U) / 2048U;
-        if (g > UNITY_Q23) g = UNITY_Q23;
+        /* Up to +12 dB (0.6.1): the mix shares full scale evenly (1/n) and
+         * leaves headroom, so the knob can lift it four times. Square law:
+         * the middle of the knob is unity, fully open is x4, and whether it
+         * clips up there is the player's choice. k^2 * 4 * 2^23 / 1023^2
+         * without a 64-bit divide: 32.063 = 32 + 129/2048. */
+        uint32_t g = k * k * 32U + (k * k * 129U) / 2048U;
+        if (g > MASTER_MAX_Q23) g = MASTER_MAX_Q23;
         (void)full;
         orch_ui_master_q23 = g;
     }

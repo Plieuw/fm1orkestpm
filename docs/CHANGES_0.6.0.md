@@ -24,6 +24,9 @@ Nothing has been heard on an FM-1.
   double bass C2 at velocity 127 bowed itself to full scale. One voice peaks
   around 0.78 M (-21 dBFS), eight parts 0.97 M: there is headroom by design,
   and MASTER sets the level. (0.6.0 had 2.5/sqrt(n) with a soft knee.)
+- **MASTER up to +12 dB (0.6.2).** The knob's middle is unity, fully open x4,
+  so the even mix's headroom can be turned into level. Over full scale the
+  output saturates: the player decides, at the top of the knob.
 - **Even across instruments (0.6.1).** The mallets' strike burst now scales
   with the loop length as the bow force does; high mallet notes were far
   louder than everything else (timpani C7 13.6 M, marimba C6 6.8 M against

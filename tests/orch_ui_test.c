@@ -309,7 +309,11 @@ int main(void)
     CHECK(orch_ui_transpose() == 0U);
     feed.knob = 1023U;
     orch_ui_handle(&feed);
-    CHECK(orch_ui_master_q23 == (1UL << 23));
+    CHECK(orch_ui_master_q23 == (4UL << 23));          /* fully open: +12 dB */
+    feed.knob = 512U;
+    orch_ui_handle(&feed);
+    CHECK(orch_ui_master_q23 > (1UL << 23) * 97U / 100U &&
+          orch_ui_master_q23 < (1UL << 23) * 103U / 100U);   /* the middle: unity */
     feed.knob = 0U;
     orch_ui_handle(&feed);
     CHECK(orch_ui_master_q23 == 0U);

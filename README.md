@@ -2,7 +2,7 @@
 
 Polyphonic physical-modeling firmware for the M-VAVE FM1 (JieLi WL82 / AC791N, PI32v2).
 
-## Status: 0.6.1-beta
+## Status: 0.6.2-beta
 
 0.6.0 tunes the waveguides (up to +26 cents off in the high register before),
 shares the mix evenly over the voices (1/n, no limiter), reworks the adaptive playing, the ARP and the sequencer (a lane per

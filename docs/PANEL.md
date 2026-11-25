@@ -50,7 +50,7 @@ lit by its voices; the selected part's desk is framed.
 | `SEQ` | open the SEQUENCE page |
 | `PLAY` | start/stop the sequencer on the selected part |
 | `REC` | arm the keys for step recording (SEQUENCE page only) |
-| panel knob | master level. On the HAWK firmware build the MASTER pot is applied after the engine and the panel's own level stays at unity |
+| panel knob | master level, square law: the middle is unity, fully open +12 dB (x4); above full scale the output saturates (there is no limiter). On the HAWK firmware build the MASTER pot does this after the engine and the panel's own level stays at unity |
 
 There is no panic control (the 0.3.x line removed it on purpose). A MIDI
 all-notes-off (CC 120/123) or a scene recall clears the voices.
