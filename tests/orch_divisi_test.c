@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <string.h>
 #include "orch_divisi.h"
+#include "orch_part.h"
 
 static unsigned failures;
 
@@ -107,6 +108,34 @@ static void test_release_frees_player(void)
     CHECK(p.assignment[0] == 0U && p.assignment[1] == 0U);
 }
 
+/* The plan's pan is the player's place on the stage: one player stands on the
+ * section's centre, more players fan out evenly around it. */
+static void test_section_placement(void)
+{
+    struct orch_divisi_state d;
+    struct orch_divisi_plan p;
+    const uint8_t notes[4] = { 55U, 60U, 64U, 67U };
+    const uint32_t ids[4] = { 1U, 2U, 3U, 4U };
+    /* the choir sits in the middle of the stage: one player is the centre */
+    orch_divisi_init(&d);
+    orch_divisi_set_instrument(&d, ORCH_INST_CHOIR);
+
+    orch_divisi_plan(&d, notes, ids, 1U, 1U, 4U, &p);
+    CHECK(p.pan[0] == 128U);
+
+    orch_divisi_init(&d);
+    orch_divisi_set_instrument(&d, ORCH_INST_CHOIR);
+    orch_divisi_plan(&d, notes, ids, 2U, 2U, 4U, &p);
+    CHECK(p.pan[0] < 128U && p.pan[1] > 128U);
+    CHECK((unsigned)(128U - p.pan[0]) == (unsigned)(p.pan[1] - 128U));
+
+    orch_divisi_init(&d);
+    orch_divisi_set_instrument(&d, ORCH_INST_CHOIR);
+    orch_divisi_plan(&d, notes, ids, 4U, 4U, 4U, &p);
+    CHECK(p.pan[0] < p.pan[1] && p.pan[1] < p.pan[2] && p.pan[2] < p.pan[3]);
+    CHECK(p.pan[0] < 128U && p.pan[3] > 128U);
+}
+
 int main(void)
 {
     test_empty();
@@ -115,6 +144,7 @@ int main(void)
     test_chord_distribution();
     test_stability();
     test_release_frees_player();
+    test_section_placement();
     if (failures) { printf("%u divisi test(s) failed\n", failures); return 1; }
     printf("orch_divisi: all checks passed\n");
     return 0;

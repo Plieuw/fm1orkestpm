@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <string.h>
 #include "orch_engine.h"
+#include "orch_stage.h"
 
 static unsigned failures;
 static int32_t block[256];
@@ -26,6 +27,21 @@ static int64_t render_energy(unsigned blocks)
         memset(block, 0, sizeof block);
         orch_render_q23(block, 128U);
         for (unsigned i = 0; i < 256U; ++i) energy += block[i] < 0 ? -block[i] : block[i];
+    }
+    return energy;
+}
+
+/* one side of the stereo block, summed over a few blocks */
+static int64_t side_energy(unsigned blocks, unsigned right)
+{
+    int64_t energy = 0;
+    for (unsigned b = 0; b < blocks; ++b) {
+        memset(block, 0, sizeof block);
+        orch_render_q23(block, 128U);
+        for (unsigned i = 0; i < 256U; i += 2U) {
+            const int64_t v = block[i + right];
+            energy += v < 0 ? -v : v;
+        }
     }
     return energy;
 }
@@ -528,6 +544,45 @@ static void test_articulation(void)
     orch_init();
 }
 
+/* The pan comes from the seat of the instrument, not from a fixed pattern:
+ * a violin stands on the left, the timpani on the right, and moving the
+ * listener moves the whole image. */
+static void test_seating_stereo(void)
+{
+    solo_part(ORCH_FAM_STRINGS);
+    orch_stage_reset();
+    CHECK(orch_engine_set_instrument(0U, ORCH_INST_VIOLIN) == 0);
+    midi(0x90U, 60U, 100U);
+    const int64_t vl = side_energy(20U, 0U);
+    const int64_t vr = side_energy(20U, 1U);
+    CHECK(vl > 0 && vr > 0);
+    CHECK(vl > vr + vr / 4);            /* a violin is clearly on the left */
+
+    solo_part(ORCH_FAM_MALLETS);
+    orch_stage_reset();
+    CHECK(orch_engine_set_instrument(0U, ORCH_INST_TIMPANI) == 0);
+    midi(0x90U, 45U, 100U);
+    const int64_t tl = side_energy(20U, 0U);
+    const int64_t tr = side_energy(20U, 1U);
+    CHECK(tl > 0 && tr > 0);
+    CHECK(tr > tl + tl / 4);            /* the timpani is on the right */
+
+    /* the listener crossing to the right pulls the violins towards the right
+     * channel: less left than from the conductor's seat */
+    solo_part(ORCH_FAM_STRINGS);
+    orch_stage_reset();
+    CHECK(orch_engine_set_instrument(0U, ORCH_INST_VIOLIN) == 0);
+    midi(0x90U, 60U, 100U);
+    const int64_t left_seat = side_energy(20U, 0U);
+    orch_reset_notes();
+    render(1U);
+    orch_stage_set_listener(100, 0);
+    midi(0x90U, 60U, 100U);
+    CHECK(side_energy(20U, 0U) < left_seat);
+    orch_stage_reset();
+    orch_init();
+}
+
 int main(void)
 {
     test_instrument_level_compensation_bounds();
@@ -551,6 +606,7 @@ int main(void)
     test_strings_are_not_dc();
     test_articulation();
     test_assignable_lfo();
+    test_seating_stereo();
     if (failures) { printf("%u engine test(s) failed\n", failures); return 1; }
     printf("orch_engine: all checks passed\n");
     return 0;

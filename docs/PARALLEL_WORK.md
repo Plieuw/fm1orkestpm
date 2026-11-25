@@ -15,6 +15,15 @@ work mergeable and stop one agent from undoing another's measured fixes.
 | `beta/0.3.3-dsp-roadmap` | 0.3.2 plus 32-bit round-trip gain conversion and shared DSP brainstorm/implementation roadmap |
 | `beta/0.3.4-panel-integration` | FM1 Core app adapter, local key-to-note input, MIDI callback, RGB565 panel UI and safe control-task part edits |
 | `feature/0.3.5-hawk-chua-arp-karma` | New per-part ARP/phrase scheduler based on the stable HAWK CHUA main branch; panel page, MIDI clock handling and host tests |
+| `beta/0.3.1-build-and-host-checks` | 0.3.0 content plus the friction bow, host tests and CI; the panel (`app/orch_ui.c` and the parts it includes), the orchestra seating with the movable listener, the master FX chain and the knob cells. The panel lived here until 0.4.0, below |
+| `beta/0.4.0-podium-light` | 0.3.1 at `9ad7151` plus the photographed hall, the light over the boards that follows the output, the level in the panel's live signature and `tests/run_panel_bench.sh`; the panel lives here now |
+| `beta/0.3.2-roundtrip-loss`, `beta/0.3.2-roundtrip-loss-integration` | per-round-trip waveguide loss and the low/high-register regression test |
+| `beta/0.3.3-dsp-roadmap` | 0.3.2 plus the 32-bit round-trip gain and the shared DSP brainstorm |
+| `beta/0.3.4-panel-integration` | FM1 Core adapter, keys and MIDI, and a small RGB565 status panel drawn inside `app/fm1_app.c` |
+| `feature/0.3.5-hawk-chua-arp-karma` | per-part ARP/phrase engine (`app/orch_performance.c`) on the 0.3.4 panel, with a performance page in `app/fm1_app.c` |
+| `feature/0.3.6-performance-controls` | 0.3.5 plus a phrase-detail page and `docs/BUILD_FIRMWARE.md` |
+| `feature/0.3.7-hawk-build-and-web-installer` | build and web-installer alignment |
+| `feature/0.3.8-hawk-runtime-bridge` | `runtime/hawk/orch_hawk_bridge.c` and the HAWK runtime overlay scripts |
 
 Rules:
 
@@ -31,6 +40,90 @@ Rules:
   identical while the history is not, and the next agent will trust the
   history.
 
+## Handover: 0.4.0 (24 November 2026)
+
+`beta/0.4.0-podium-light` was made from the tip of
+`beta/0.3.1-build-and-host-checks` (`9ad7151`), so its history is that branch's
+and everything below about 0.3.1 is its history too. What 0.4.0 adds:
+
+1. **The hall is a photograph.** `tools/panel_photo.py` reduces two frames to a
+   sixteen-colour palette and, per row, the runs of one colour; the panel draws
+   them as `fm1_screen_fill` calls, about 2 700 for the whole page instead of
+   63 000. The frames are committed in `tools/panel_photo/`, so
+   `sh tools/panel_photo/regen.sh` rebuilds the include byte for byte.
+2. **The lights step in a band.** `--band 0:46` means the two frames differ
+   only above the boards, so a step repaints that band (586 / 1 211 fills) and
+   not the hall, every 2.4 s while a part sounds.
+3. **The light over the boards follows the performance.** `app/orch_level.inc`
+   takes the peak of every block the audio callback finishes and weights it by
+   the voices that are sounding, because the renderer keeps its mix at one level
+   whatever the polyphony (measured: one voice peaks 4.5 M of Q23's 8.39 M,
+   eight 3.7 M). The level is 0..24 with three steps a voice, so the full
+   orchestra of eight voices is 24 and a single held note (two players) is six;
+   it falls through the tail, so a release is not a blackout. A repaint is five
+   fills, at most every 50 ms — 100 a second at the very most.
+4. **The level is tested, not only measured.** `tests/orch_level_test.c` holds the
+   keys and watches the light: eight voices reach 24, one held string is six, and
+   a struck timpani dies to nought while the part's note count stays at one — the
+   gate never moves, so the fall can only come from the sound.
+5. **The bench.** `tests/run_panel_bench.sh` now prints the light's half second
+   (`sound 0.5s`), the eight-voice orchestra (`orchestra`), the level at each
+   point, and the per-page fill counts: five pages 20 653, STAGE 2 683, one
+   knob turn 554, its fade 197, and 268 fills for the light's half second.
+
+## Handover: where this branch stands (24 November 2026)
+
+`beta/0.3.1-build-and-host-checks`, HEAD `3c8fea8` plus the documentation
+commits that follow it. What was done in this round:
+
+1. **Orchestra seating** (`app/orch_stage.c`). The pan of a voice comes from the
+   seat of its instrument's section, seen from the audience, not from one fixed
+   pattern for the four parts. `orch_stage_place(instrument, section_pan)`
+   combines the section's seat with the player's place inside it; the divisi
+   planner (`app/orch_divisi.c`) calls it, so MIDI, the arpeggiator and the
+   sequencer all land in the same place. `app/orch_engine.c` was not touched:
+   the pan arrives ready-made in the divisi plan.
+2. **Movable listener** (`KNOB3` left/right, `KNOB4` depth on the STAGE page),
+   5 % a detent with at most 10 when flicked, clamped, saved in the flash
+   record after the FX block with its own FNV-1a checksum.
+3. **The hall theme**: the STAGE page draws a concert hall (shell, wooden floor,
+   curtains, section blocks, audience row with the lit listener seat), the title
+   bar is the curtain's colour with a curtain rail under it, and the ARP,
+   SEQUENCE and FX pages put their header on a band of wood while the CONSOLE's
+   settings sit in a one pixel wooden frame. Pages are named **STAGE**, **ARP**,
+   **SEQUENCE**, **CONSOLE**, **FX**.
+4. **The panel source is one translation unit split into parts**: `app/orch_ui.c`
+   (state, font, strings) includes `orch_ui_view.inc`, `orch_ui_pages.inc`,
+   `orch_ui_state.inc` and `orch_ui_api.inc`. Nothing else is compiled, so
+   `-Iapp` and the existing source lists stay enough. The reason is practical:
+   the publishing route here truncates a single upload above roughly 330 lines,
+   and commits `7b4b379` and `7f2e5dd` contain a half-transferred `orch_ui.c`;
+   `9fdcb94` is the repair that made the file whole again. Keep the parts small
+   if you edit them, or merge them back once you can upload a long file.
+5. **Preview**: `tests/panel_preview.c` writes five pages (`parts`, `arp`, `seq`,
+   `fx`, `glo`) and `tools/panel_png.py` turns them into PNGs. Look at them; the
+   theme cannot be checked any other way here.
+
+State of the checks when handing over: eight suites green
+(`orch_adaptive`, `orch_divisi`, `orch_stage`, `orch_engine`, `orch_arp`,
+`orch_ui`, `orch_fx`, `orch_level`), every `app/*.c` clean under
+`-std=c11 -O2 -Wall -Wextra -Werror`, and a fresh clone of the branch identical
+to the working tree (the only unpublished files are the rendered `docs/*.png`,
+which are output of the preview and deliberately not committed).
+
+Open work, none of it started: port this panel to the 0.3.10 line (it has no
+`app/orch_ui.c`), decide whether the performance and phrase pages become two
+more `PAGE_*` values here, and put the performance settings in the flash record
+if they should survive a power cycle.
+
+**Publishing from this environment**: there are no git credentials, so
+`git push` fails with `could not read Username for 'https://github.com'`.
+Commits go through the GitHub integration (`GITHUB_COMMIT_MULTIPLE_FILES`),
+which creates real commits on the branch; every upsert carries the whole file,
+so a file longer than a few hundred lines is at risk of being truncated. Verify
+after publishing with a fresh clone: `diff -rq --exclude=.git` against the
+working tree, then the compile and the test run below.
+
 ## What 0.3.1 is, precisely
 
 `beta/0.3.1-build-and-host-checks` was created from commit `4173e50` of the
@@ -38,17 +131,103 @@ Rules:
 (`eeda2ab`, `3fa6354`) and the repairs were applied to the files by hand and
 then verified with `git diff` against `origin/beta/0.3.0-instrument-waveguides`:
 
-- `app/orch_engine.c` — identical except the rosin excitation and the DC
-  blocker. Every other line, including the voice-stealing comparison, the
-  `glide_left` reset and the 32-bit `vib_depth`, comes from the 0.3.0 line.
+- `app/orch_engine.c` — the 0.3.0 engine plus the friction bow. Every other
+  line, including the voice-stealing comparison, the `glide_left` reset and the
+  32-bit `vib_depth`, comes from the 0.3.0 line.
 - `docs/ARCHITECTURE.md` and `docs/INSTRUMENT_WAVEGUIDES.md` — the 0.3.0 text,
-  with the bow bullet corrected and the measurements added.
+  with the bow sections corrected and the measurements added.
 - The added tests, `tests/run_tests.sh`, the workflow that runs them and the
   README status section exist only here; the workflow compiles every `app/*.c`
   and then runs the suites, so it is a superset of the 0.3.0 workflow.
 
 Re-run that diff before claiming this branch matches 0.3.0. If the 0.3.0 tip
 moves again, diff against it rather than assuming.
+
+## 0.3.1 panel: knobs, cells, the hall and the second panel
+
+This branch carries the FM-1 panel in `app/orch_ui.c` (5x7 font, five pages,
+the flash record, the FX page). Seven things about it changed and the next
+agent needs to know them:
+
+1. **The four knobs have a cell at the bottom of the screen.** Each cell is a
+   small drawn knob, the parameter name under it and its value under that; the
+   value lights for a second after its knob moves. The cell contents change
+   with the page (players/voices/listener/depth on STAGE, rate/octaves/gate/
+   mode on ARP, the selected step's velocity/gate/tempo/clear on SEQUENCE,
+   scale/transpose/tempo/panic on CONSOLE, the selected effect's mix/two
+   parameters/power on FX). It replaces the old "K1 ... K2 ..." help lines.
+2. **A fast turn goes faster: x1, x2, x4, x8.** `enc_accel()` gives the factor
+   from the detents a second in the same direction (x1 under 12 a second, x2
+   under 24, x4 under 40, x8 above), lets it fall by halves as the hand slows,
+   and starts again at x1 when the direction changes. Two calls in the same
+   millisecond are taken unscaled, so the host tests stay deterministic.
+3. **One detent is one menu step.** A choice (part, family, instrument, arp
+   mode, effect, scale, sequencer step) moves exactly one place per detent, so
+   a quick turn cannot skip an entry. The ranges take the accelerated count,
+   except the percentages (FX mix and its two parameters, arp gate, step
+   velocity and gate, the listener's left/right and depth): those keep the 5 %
+   a detent they always had and a fast turn only doubles that step. The tempo
+   and the transpose take the full x8.
+4. **The encoder order in the docs was wrong and is corrected.** The board's
+   matrix is `0 SELECT, 1 ALGORITHM, 2 KNOB1, 3 KNOB2, 4 KNOB3, 5 KNOB4,
+   6 PRESETS` (measured on hardware by HAWK CHUA's `firmware/src/panel.c`, and
+   the order `app/orch_ui.c` already used). `docs/PANEL.md` had PRESETS at 2
+   and KNOB1..4 at 3..6; do not restore that.
+5. **The pan is the orchestra's, not the part's.** Do not reintroduce a fixed
+   pan per part number. `app/orch_stage.c` is the single source: the seat of an
+   instrument, the spread of a section's players, and the listener's seat and
+   depth, which narrows the image (never the level). The listener is stored in
+   its own record block with its own checksum.
+6. **One palette, chosen for contrast.** Curtain burgundy (`C_TITLE`), wood
+   (`C_WOOD`, `C_ROW`, `C_SEL`, `C_STEP`), warm stone shell (`C_SHELL`). The
+   rule to keep: the readings stay white, green or orange; a tint may sit
+   behind a header band or a selected row, never behind a value field.
+7. **The panel is one translation unit in five files.** `app/orch_ui.c` holds
+   the state, the font and the strings and includes `orch_ui_view.inc`
+   (cells, strip, stage), `orch_ui_pages.inc` (the five pages, the title, the
+   page signature), `orch_ui_state.inc` (edits, sequencer, flash, note map,
+   leds, knob speed) and `orch_ui_api.inc` (the entry points). Add code to the
+   part it belongs to; do not add a sixth file for one function.
+
+### The second panel in 0.3.5 and 0.3.6
+
+`feature/0.3.5-hawk-chua-arp-karma` and `feature/0.3.6-performance-controls`
+forked from `beta/0.3.4-panel-integration`, not from this branch, so they carry
+a **second, independent panel**: a 3x5 glyph font and `panel_*()` drawing
+functions inside `app/fm1_app.c`, with the page cycle on button bit 13 and a
+performance and a phrase-detail page. Their tree has no `app/orch_ui.c`, no
+`app/orch_fx.c`, no `app/orch_stage.c`, no `tests/orch_ui_test.c`, no
+`tests/orch_fx_test.c`, no `tests/orch_stage_test.c`, no
+`tests/panel_preview.c` and no `tools/panel_png.py`; a diff against 0.3.1 shows
+them as deletions only because 0.3.4 predates them. They add
+`tests/orch_engine_test.c` and `tests/orch_performance_test.c` instead.
+
+Whoever merges them should:
+
+- **Keep one panel, not two.** `app/orch_ui.c` (with its four parts) is the one
+  with the five pages, the flash record, the FX page, the knob cells and the
+  hall; add the performance and phrase-detail pages to it as two more `PAGE_*`
+  values. Do not leave the 3x5 font and the `panel_*()` drawing in
+  `app/fm1_app.c` beside it.
+- **Keep the measured control map.** The performance pages in their
+  `docs/FM1_PANEL.md` are written against raw button bits (0-3 parts, 4 panic,
+  13 pages) and encoders 1-4 (instrument, divisi, articulation, part), which
+  does not match the measured panel; 0 OCT-, 1 OCT+, 2 FX, 3 SCL, 4 ENV,
+  5 LFO, 6 EDIT, 7 GLO, 8 HOME, 9 SAVE, 10 ARP, 11 SEQ, 12 PLAY, 13 REC, and
+  the encoders above. Put their arp and phrase controls on these labels before
+  merging, and write down any job that has no label.
+- **Do not lose the FX or the stage.** Their `app/fm1_app.c` has no
+  `orch_fx_init()` or `orch_fx_process()` call and no stage or listener code;
+  taking that file wholesale silently drops the master FX chain and puts every
+  part back on a fixed pan. `fm1_app.c` on this branch is a 60-line adapter and
+  should stay that way: audio, MIDI and a call into `orch_ui_*`.
+- **Keep both test sets.** `tests/run_tests.sh` lists the eight suites here;
+  after the merge it must also run `orch_engine_test` and
+  `orch_performance_test`, and still run `orch_ui`, `orch_fx`, `orch_stage`
+  and `orch_arp`.
+- **Check the save record.** The performance settings are not in this
+  branch's flash record; either append them with their own checksum (as the FX
+  and the listener blocks do) or keep them out and say so in `docs/PANEL.md`.
 
 ## Measured facts (do not re-break these)
 
@@ -65,12 +244,22 @@ These were found by measurement on host renders, not by ear:
    accumulates noise until it clips; the clipped noise then sits on the second
    harmonic (110 Hz measured at 221 Hz). Keep a loss floor of at least one
    step.
-4. **A linear friction force fed back from the string output pumps DC.** On
-   this engine it produced DC 2.74 M against a 2.97 M peak and no pitch at
-   all. Strings are driven by rosin noise; the Helmholtz friction model is
-   still not ported. Do not restore the feedback without a measurement that
-   shows f0/DC well above one.
-5. **The second harmonic being stronger than the fundamental is normal** for
+4. **A friction force fed back into a near-lossless loop pumps DC unless its
+   mean is removed.** Measured without that: DC 2.74 M against a 2.97 M peak
+   and no pitch at all. The bowed strings therefore subtract a running mean of
+   the force before injecting it, and the loop itself is never filtered,
+   because a filter inside the loop shifts the pitch. With the mean removed
+   the same model measures 110.0/262.5/668.2 Hz at r 0.95–0.99 and DC 3–28 k.
+5. **Bow force must scale with the string.** A short string has a lower
+   mechanical impedance, so a force that is right for A2 turns E5 into noise.
+   The force is scaled by the loop length (a 400-sample A2 string is the
+   reference).
+6. **Soft playing is a light, faster stroke, not a slow drag.** Below the
+   minimum bow force the string stops oscillating and only hisses; that is why
+   pp on the low strings was periodic only after the bow speed was raised for
+   low velocities. The note also starts with a 10 ms rosin bite, without which
+   the model swells for nearly a second.
+7. **The second harmonic being stronger than the fundamental is normal** for
    bowed strings and reeds. Measure pitch with autocorrelation, not by taking
    the spectral maximum, or you will "discover" octave errors that are not
    there.
@@ -171,3 +360,15 @@ conversion plus channel-aware note/realtime/panic hooks. The bridge is not yet
 wired into HAWK's ISR or key/MIDI path; that requires a coordinated change to
 avoid the old synth and the orchestral engine both receiving notes. The 12-voice
 ceiling remains unmeasured on PI32v2. See `docs/HAWK_RUNTIME_PORT.md`.
+The commands, with a matching FM1 Core checkout beside this repository:
+
+```sh
+FM1_CORE=../fm1-core sh tests/run_tests.sh          # eight suites
+cc -std=c11 -O2 -Wall -Wextra -Werror -DFM1_HOST_TEST \
+   -I../fm1-core/include -Iapp -c app/orch_ui.c -o /tmp/ui.o
+cc -std=c11 -O2 -DFM1_HOST_TEST -I../fm1-core/include -Iapp \
+   tests/panel_preview.c app/orch_ui.c app/orch_engine.c app/orch_fx.c \
+   app/orch_adaptive.c app/orch_divisi.c app/orch_part.c app/orch_stage.c \
+   -o /tmp/panel_preview -lm && /tmp/panel_preview /tmp/p
+python3 tools/panel_png.py /tmp/p-parts.ppm /tmp/p-parts.png
+```

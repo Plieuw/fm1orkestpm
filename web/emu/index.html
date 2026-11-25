@@ -1,0 +1,72 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+<!-- The FM-1 orchestral engine in a browser, laid out like HAWK CHUA's browser
+     emulator (Plieuw/hawk-chua, web/emu): the firmware's 240x240 panel, the
+     seven encoders, the fourteen buttons and a keyboard, plus four desks for
+     the sections of the orchestra. Every pixel is drawn by app/orch_ui.c; the
+     wiring is in ui.js, the look in hardware.css. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FM-1 ORKEST — play in the browser</title>
+<meta name="description" content="The FM-1 orchestral engine in the browser: the firmware's own panel and sound, compiled to WebAssembly.">
+<link rel="stylesheet" href="hardware.css">
+</head>
+<body>
+
+<header>
+  <h1>FM-1 ORKEST</h1>
+  <p>The orchestral FM-1 engine in your browser — the same code, compiled to WebAssembly.</p>
+  <nav>
+    <a href="https://github.com/Plieuw/fm1orkestpm/blob/beta/0.3.1-build-and-host-checks/docs/PANEL.md">Panel</a>
+    <a href="https://github.com/Plieuw/fm1orkestpm">Source</a>
+  </nav>
+</header>
+
+<div class="dev" id="dev">
+  <div class="top">
+    <div class="screen"><canvas id="lcd" width="240" height="240"></canvas></div>
+    <div class="encs">
+      <div id="enc3"></div>
+      <div id="enc4"></div>
+    </div>
+  </div>
+
+  <div class="btns" id="btns"></div>
+  <div class="kb" id="kb"></div>
+  <div class="desks" id="desks"></div>
+</div>
+
+<div class="bar">
+  <label>Volume <input type="range" id="vol" min="0" max="1023" value="1023"></label>
+  <button id="panic" title="Release every sounding voice">Panic</button>
+  <span id="msg">loading build/emu/orch.wasm …</span>
+</div>
+
+<div class="help">
+  <p><b>Play</b>: click the keys, or use the computer keyboard — <kbd>A</kbd>
+  <kbd>W</kbd> <kbd>S</kbd> <kbd>E</kbd> <kbd>D</kbd> … <kbd>'</kbd>, from F3
+  upward. A MIDI keyboard does not reach the page; this build has no MIDI in.</p>
+
+  <p><b>Encoders</b>: drag them up or down, scroll on them, or use the
+  <kbd>‹</kbd> <kbd>›</kbd> buttons. <b>Buttons</b>: hold them, as on the
+  instrument — the panel reads a button while it is down, not a click.</p>
+
+  <p><b>The orchestra</b>: the panel's STAGE page seats four parts in the hall,
+  and the four desks under the keyboard are those parts — each lights with the
+  voices it is sounding. KNOB 3 and KNOB 4 move the listener through the room.</p>
+
+  <p>SAVE keeps the settings in this browser. Every pixel on the screen is drawn
+  by <code>app/orch_ui.c</code>, and every sample by the engine: nothing here is
+  a mock-up.</p>
+</div>
+
+<div id="start">
+  <button id="go">▶ Start sound</button>
+  <p>Browsers start audio only after a click. The panel already runs.</p>
+</div>
+
+<script type="module" src="ui.js"></script>
+</body>
+</html>

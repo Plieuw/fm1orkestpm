@@ -2,61 +2,74 @@
 
 Polyphonic physical-modeling firmware for the M-VAVE FM1 (JieLi WL82 / AC791N, PI32v2).
 
+## Status: 0.5.0-beta — the two lines merged
+
+`beta/0.5.0-orchestra-merge` is the first branch that carries all the work of
+this repository at once:
+
+- the **engine of the 0.3.x feature line** (`feature/shared-eight-voice-allocator`
+  and everything below it): eight parts on one shared pool of eight waveguide
+  voices, per-part ADSR and LFO, connected legato, register-aware loudness, the
+  ARP/phrase engine (31 ARP types, 46 generated phrases, stream logic, MIDI
+  clock), the adaptive 16-step sequencer and call/response, eight factory
+  scenes, the HAWK/Felucca runtime overlay and the boot/flash safety checks;
+- the **panel of the 0.4.0 line** (`beta/0.4.0-podium-light`): the photographed
+  hall, the orchestra seating and the movable listener, the light over the
+  boards, the four-parameter FX chain and the browser build;
+- the **Helmholtz friction bow** of 0.3.1/0.4.0, ported into the 0.3.x engine.
+
+The panel now has seven pages: **STAGE**, **ARP**, **SEQUENCE**, **CONSOLE**,
+**FX**, **ENVELOPE** and **LFO**. See [docs/PANEL.md](docs/PANEL.md) and
+[docs/MERGE_0.5.0.md](docs/MERGE_0.5.0.md).
+
+**Nothing here has been heard on an FM-1.** The host suites pass and CI builds
+a PI32v2 package through the pinned HAWK CHUA runtime (see below); that proves
+it compiles, links and fits, not that it plays. Flash it only with a recovery
+route at hand (OCT- + OCT+ held 5 s enters UBOOT, as in HAWK CHUA).
+
 ## Direction
 
-- One selected instrument shares a dynamic polyphonic voice pool; no fixed voice per instrument.
-- MIDI input is channel-aware (1-16) and all accepted channels share the same pool.
-- Polyphonic step-pattern API: up to four simultaneous notes per step, with per-note gate percentages and internal tempo.
-- Physical-modeling-first synthesis. The first prototype is a digital-waveguide string voice.
-- No audio-thread allocation, locks, file access, or display calls.
-
-## Status: 0.3.5-beta, host-validated only
-
-**Nothing here has run on hardware.** Every source compiles with `-Werror`
-against the FM1 Core headers and the host tests pass; no `.fwsc` is built or
-claimed. 0.3.1 repaired the 0.3.0 sources, which did not compile (a truncated
-`orch_engine.c` and a byte-wide field holding Q15 friction values), and added
-the host tests and CI run that were missing.
-
-The repository began as a license-only project. The first implementation targets the public FM1 Core platform API in https://github.com/rgrvmusic/fm1-core. That platform provides the FM1 board/audio layer and renderer hook; it is not copied into this repository. Building requires a matching FM1 Core checkout and the JieLi PI32v2 2.5.3 toolchain.
-
-The FM1 uses JieLi WL82/AC791N. Himalia firmware targets a different MCU, so Himalia is a musical/DSP reference, not directly flashable code.
-
-## First beta scope
-
-- 12 provisional waveguide voices (not a measured maximum), shared pool.
-- Up to four instrument parts with their own channels, family, instrument, articulation and divisi state.
-- 18 instrument profiles (violin, viola, cello, bass, harp, flute, piccolo, clarinet, oboe, bassoon, trumpet, horn, trombone, tuba, marimba, xylophone, timpani, choir) with body/bore resonators.
-- MIDI Note On/Off, velocity and sustain pedal.
-- 16-step polyphonic sequencer pattern, up to four notes per step, with per-note gate and internal tempo.
-- Per-part ARP and generated-phrase engine: 31 ARP patterns, 46 phrase profiles, ten subdivisions, internal/external clock, groove, latch and stream logic. See [docs/HAWK_CHUA_PERFORMANCE_PORT.md](docs/HAWK_CHUA_PERFORMANCE_PORT.md).
-- Fixed-point synthesis, one waveguide per player, stereo Q23 output.
-
-The 12-voice ceiling is provisional and must be measured on real FM1 hardware. The goal is the highest stable polyphony that fits the audio interrupt budget. The 0.3.4 branch adds local key input, panel controls and an RGB565 status screen; see [docs/FM1_PANEL.md](docs/FM1_PANEL.md). The 0.3.5 feature branch adds the ARP/phrase performance page and per-part playback controls. The 0.3.6 feature branch adds a second phrase-detail page for density, octave range, cluster, repeat, accent, inverse and root settings. See [docs/FM1_PANEL.md](docs/FM1_PANEL.md) and [docs/BUILD_FIRMWARE.md](docs/BUILD_FIRMWARE.md) for control and target-build details.
+- Eight parts, one MIDI channel each (1-8), sharing one pool of eight voices.
+- Physical-modeling-first synthesis: one digital waveguide per player.
+- No audio-thread allocation, locks, file access or display calls.
+- Fixed-point only; no 64-bit divides (the PI32v2 has none).
 
 ## Host tests
 
 No toolchain and no hardware needed:
 
 ```sh
-FM1_CORE=../fm1-core sh tests/run_tests.sh
+FM1_CORE=../fm1-core sh tests/run_tests.sh          # eight suites
+FM1_CORE=../fm1-core sh tests/run_panel_bench.sh    # the panel's drawing cost
+FM1_CORE=../fm1-core sh tests/run_measure.sh        # pitch, DC, harmonics
 ```
 
-Covers adaptive classification and velocity reaction, divisi distribution and
-stability, channel routing, per-instrument selection, release, sustain, panic,
-sequencer gates, the Q23 range, ARP capture/release, phrase generation and a DC regression guard on the bowed strings.
-The host workflow also compiles the FM1 app adapter and panel code against the
-FM1 Core API headers.
-CI compiles every source with `-Werror` and runs the same script.
+Suites: `orch_adaptive`, `orch_divisi`, `orch_performance`, `orch_stage`,
+`orch_engine`, `orch_ui`, `orch_fx`, `orch_level`. CI compiles every source
+with `-Werror` and runs them.
 
-## Build and web installer
+## The firmware build
 
-The intended release system is the same as stable HAWK CHUA: JieLi PI32v2
-target build, AC79 SDK inputs, .fwsc plus OTA loader, WebMIDI/SysEx browser
-installer, GitHub Actions release artifacts and GitHub Pages. The current
-repository still contains application modules and a host-tested FM1 Core
-adapter only; it does not yet contain the complete target runtime, boot/startup,
-hardware layer or OTA loader needed by HAWK's build script. See
-[docs/BUILD_FIRMWARE.md](docs/BUILD_FIRMWARE.md) for the integration plan and
-exact status. No .fwsc or browser installer is claimed yet.
+The FM-1 firmware is built from a pinned HAWK CHUA / Felucca checkout
+(`Plieuw/hawk-chua` at `e750df6`) with this repository overlaid on it:
 
+```sh
+python3 tools/prepare_hawk_runtime.py /path/to/clean/hawk-chua
+cd /path/to/clean/hawk-chua && ./build.sh      # JieLi toolchain + AC79 SDK
+```
+
+The overlay replaces HAWK's synth, keyboard path and screen with the orchestral
+engine (`runtime/hawk/orch_hawk_bridge.c`) and this panel
+(`runtime/hawk/orch_hawk_panel.c`), and keeps HAWK's boot, watchdog, USB/TRS
+MIDI, flash storage, OTA update entry and UBOOT combination. The GitHub Actions
+job `hawk-target-build` does all of this and uploads `felucca.bin`, the `.fwsc`
+package and their checksums as an artifact. See
+[docs/BUILD_FIRMWARE.md](docs/BUILD_FIRMWARE.md).
+
+## The browser build
+
+`web/emu/` compiles the same app, engine and panel to WebAssembly; see
+[docs/WEB.md](docs/WEB.md).
+
+The FM1 Core platform, HAWK CHUA and the JieLi SDK retain their own licenses.
+This project's GPL-3.0 license remains in force for original application code.

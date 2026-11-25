@@ -37,7 +37,6 @@ int orch_engine_set_adsr(unsigned part, unsigned attack_ms, unsigned decay_ms,
 int orch_engine_set_lfo(unsigned part, unsigned wave, unsigned destinations,
                         unsigned depth, unsigned rate_millihz,
                         unsigned sync_division, unsigned delay_ms, unsigned fade_ms);
-int orch_engine_set_voice_ceiling(unsigned part, unsigned voices);
 unsigned orch_voices_of_part(unsigned part);
 unsigned orch_note_count(unsigned part);
 
@@ -52,6 +51,9 @@ void orch_seq_set_adaptive(unsigned enabled);
 /* Optional cross-part call/response; disabled by default. Interval is semitones. */
 void orch_call_response_configure(unsigned enabled, unsigned leader,
                                   unsigned follower, int interval);
+
+/* The step the sequencer is on, or 0xFF when it is stopped. */
+unsigned orch_seq_position(void);
 
 unsigned orch_active_voices(void);
 

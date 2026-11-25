@@ -49,6 +49,10 @@ jobs:
           grep -q 'orch_hawk_init' hawk-chua/firmware/src/main.c
       - name: Run host tests
         run: FM1_CORE="$PWD/fm1-core" sh tests/run_tests.sh
+      - name: Measurements
+        run: |
+          FM1_CORE="$PWD/fm1-core" sh tests/run_measure.sh
+          FM1_CORE="$PWD/fm1-core" sh tests/run_measure.sh repeat
       - name: Verify OTA boot-area protection
         run: python3 tools/check_boot_safety.py "$PWD/hawk-chua"
 

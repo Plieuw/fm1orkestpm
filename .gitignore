@@ -1,0 +1,2 @@
+# Build output: the firmware package, the browser module and the host tools.
+build/

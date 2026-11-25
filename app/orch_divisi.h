@@ -23,12 +23,18 @@ struct orch_divisi_plan {
 
 struct orch_divisi_state {
     uint8_t players;
+    uint8_t instrument;                    /* the section this part sits in */
     uint8_t note_of_player[ORCH_DIVISI_MAX];
     uint32_t id_of_player[ORCH_DIVISI_MAX];
     uint8_t assigned[ORCH_DIVISI_MAX];
 };
 
 void orch_divisi_init(struct orch_divisi_state *d);
+
+/* The pan of the plan is the player's place on the stage, and that place
+ * depends on the part's instrument (orch_stage.c), so the part manager sets it
+ * whenever the instrument changes and after every init. */
+void orch_divisi_set_instrument(struct orch_divisi_state *d, unsigned instrument);
 
 /* notes[] and ids[] are the part's sounding notes (any order); density is
  * the intent's wanted player count, player_cap the part's ceiling. */
