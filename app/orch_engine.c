@@ -247,6 +247,20 @@ static const uint32_t RATIO_A[12] = {
     92682U, 98209U, 104048U, 110245U, 116802U, 123743U
 };
 
+/* 2^shift / d without a 64-bit divide (the PI32v2 has no __udivdi3): shift and
+ * subtract, 48 steps, note-on only. */
+static uint32_t div_pow2(unsigned shift, uint32_t d)
+{
+    if (!d) d = 1U;
+    uint64_t rem = 0U;
+    uint32_t q = 0U;
+    for (int bit = (int)shift; bit >= 0; --bit) {
+        rem = (rem << 1) | (bit == (int)shift ? 1U : 0U);
+        if (rem >= d) { rem -= d; if (bit < 32) q |= 1U << bit; }
+    }
+    return q;
+}
+
 /* Loop length in Q16 samples for a MIDI note. */
 static uint32_t note_len_q16(unsigned note)
 {
@@ -840,9 +854,7 @@ static void voice_start(unsigned part, unsigned note, unsigned velocity,
      * half-period bores). 0.5.0 divided by the whole samples only, which
      * pulled every wind, brass and choir note to SR/whole: +23 c at E5,
      * measured. Note-on only, so the 64-bit divide is not in the sample loop. */
-    v->excite_inc = ip->half_period
-        ? (uint32_t)((1ULL << 47) / (target ? target : 1U))
-        : (uint32_t)((1ULL << 48) / (target ? target : 1U));
+    v->excite_inc = div_pow2(ip->half_period ? 47U : 48U, target);
 
     /* a stroke ends by itself; a pluck rings with the gate already closed */
     v->stroke_left = prof.stroke_ms
