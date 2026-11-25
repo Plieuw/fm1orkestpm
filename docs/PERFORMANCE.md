@@ -24,8 +24,10 @@ that something is fast enough on the device.
   before the split (section 3).
 - **Memory.** Flash has room (the app is about 177 KB of a 0x8F000-byte app
   area). RAM and the `.pool` section do not: RAM is 52 KB of 73 KB. The pool
-  was 346 KB of 368 KB at 0.7.0; 0.7.1's sixteen voices add about 15.5 KB,
-  bringing it near 362 KB. The CI build prints the real figures
+  was 346 KB of 368 KB at 0.7.0. The HAWK build fails with less than 8 KB of
+  the pool or 4 KB of RAM free (`tools/build.py`). 0.7.1's sixteen voices
+  left 6.6 KB of the pool, so the hall's lines live in RAM. The CI build
+  prints the real figures
   (`hawk-target-build`, "RAM .data+.bss ... pool ..."), so read them after
   any change to a static buffer. Tables that never change belong in
   `static const` (flash). Buffers belong in the pool, but only if they are

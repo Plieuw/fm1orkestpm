@@ -294,9 +294,10 @@ changes from one sample to the next. So:
   get the eight long voices and stay in tune; with violins above, all sixteen
   sound. The share is 1.36 / n up to 16. The second core's job carries a
   16-bit voice mask.
-- **Memory**, from the build's symbol sizes: voices and lines 66.9 KB (was
-  about 43 KB), the hall 8 KB (was 16). That puts the pool about 15.5 KB
-  higher, near 362 KB of 368 KB, which the CI build prints.
+- **Memory:** voices and lines take 66.9 KB of the pool (was about 43 KB). The
+  HAWK build wants at least 8 KB of the pool free, and the first build left
+  6.6 KB, so the hall's 8 KB of lines (int16 now, was 16 KB) moved into
+  ordinary RAM. RAM keeps over 13 KB free; the CI build prints the figures.
 - **CPU:** with sixteen voices sounding the voice work doubles. Per voice it is
   unchanged (`tests/run_bench.sh`: 20.0 ns in FULL ORCH, 21.2 ns in CINEMA,
   30.2 ns in AMBIENT). Not measured on the FM-1.

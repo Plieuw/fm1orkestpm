@@ -30,7 +30,9 @@ static const uint8_t RES_PAN_L[ORCH_RESONATORS] = {
 /* the strings' lines, int16 holding the signal / 256 (0.7.1: half the
  * pool, 8 KB, for the sixteen voices); a string's quietest ring is then
  * 2^-15 of full scale, -90 dB, below anything it adds to */
-static int16_t res_buf[ORCH_RESONATORS][RES_SIZE] FM1_AUDIO_DATA;
+/* in ordinary RAM, not the pool: the HAWK build wants 8 KB of the pool
+ * free and sixteen voices leave 6.6 KB; RAM has 21 KB (0.7.1 CI figures) */
+static int16_t res_buf[ORCH_RESONATORS][RES_SIZE];
 static int32_t res_lp[ORCH_RESONATORS];
 static uint32_t res_follow[ORCH_RESONATORS];
 static uint32_t res_w;
