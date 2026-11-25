@@ -5,7 +5,7 @@
  * the panel is allowed to read the output — the lamps follow which parts sound,
  * which is a different thing and comes from the engine's voices. */
 #define LEVEL_EIGHT 8U               /* a full orchestra: four parts, two each */
-#define LEVEL_TOP 650000L            /* that orchestra's steady peak, measured (0.5.0) */
+#define LEVEL_TOP 2400000L           /* a held string's steady peak after the 0.6.0 mix gain, measured */
 
 static volatile uint8_t output_level;
 static volatile uint8_t level_size;  /* the orchestra's size, kept for the tail */

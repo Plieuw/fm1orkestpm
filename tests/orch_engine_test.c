@@ -178,6 +178,40 @@ static void test_high_register_tuning(void)
     CHECK(c4 > 168.56 * 0.997 && c4 < 168.56 * 1.003);
 }
 
+static int32_t peak_of(unsigned blocks)
+{
+    int32_t top = 0;
+    for (unsigned b = 0; b < blocks; ++b) {
+        memset(block, 0, sizeof block);
+        orch_render_q23(block, 128U);
+        for (unsigned i = 0; i < 256U; ++i) {
+            const int32_t a = block[i] < 0 ? -block[i] : block[i];
+            if (a > top) top = a;
+        }
+    }
+    return top;
+}
+
+/* Gain staging: one held note uses the range (0.5.0 left it at -16 dBFS),
+ * the whole orchestra stays under full scale. */
+static void test_gain_staging(void)
+{
+    orch_init();
+    midi(0x90U, 60U, 100U);
+    peak_of(400U);
+    const int32_t one = peak_of(300U);
+    CHECK(one > 1500000);
+    orch_init();
+    for (unsigned p = 0; p < 8U; ++p) {
+        orch_engine_set_player_cap(p, 1U);
+        midi(0x90U | p, 55U + 3U * p, 127U);
+    }
+    const int32_t all = peak_of(700U);
+    CHECK(all > one);
+    CHECK(all < 8388607);
+    orch_init();
+}
+
 static void test_routing(void)
 {
     orch_init();
@@ -636,6 +670,7 @@ int main(void)
     test_round_trip_loss();
     test_string_pitch_autocorrelation();
     test_high_register_tuning();
+    test_gain_staging();
     test_routing();
     test_eight_part_routing();
     test_repeated_same_pitch_note_off_fifo();

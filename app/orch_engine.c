@@ -1294,8 +1294,41 @@ unsigned orch_test_seq_adapt_note(unsigned part, unsigned note)
 }
 #endif
 
+/* Mix gain by the number of voices sounding, Q12: 2.5 / sqrt(n). Voices are
+ * not in phase, so their sum grows like sqrt(n), not n; 0.5.0 divided by n,
+ * which left one note at about -16 dBFS and eight at -20 (measured peaks
+ * 1.3 M and 0.8 M of Q23's 8.39 M) and, since the divisor jumped when a
+ * voice started, stepped the level of the notes already sounding. The 2.5
+ * brings one held note to about -8 dBFS; the soft knee below catches the
+ * rare moments when eight voices do line up. */
+static const uint16_t MIX_GAIN_Q12[ORCH_MAX_VOICES + 1U] = {
+    0U, 10240U, 7240U, 5912U, 5120U, 4580U, 4180U, 3870U, 3620U
+};
+static int32_t mix_gain_q12 = 10240;   /* follows the table, smoothly */
+
+/* A soft knee in four straight pieces, so it needs no divide: unity up to
+ * 4.2 M (-6 dBFS), then a half, a quarter, an eighth and a sixteenth of what
+ * goes over, which takes the measured worst case — eight parts in one octave
+ * at velocity 127, 18.3 M before the knee — to 7.2 M, still under full scale. */
+#define MIX_KNEE 4200000
+static int32_t soft_limit(int32_t x)
+{
+    const int32_t sign = x < 0 ? -1 : 1;
+    int32_t a = x < 0 ? -x : x;
+    if (a > MIX_KNEE) {
+        int32_t over = a - MIX_KNEE;
+        if (over <= 2000000) a = MIX_KNEE + (over >> 1);
+        else if (over <= 6000000) a = MIX_KNEE + 1000000 + ((over - 2000000) >> 2);
+        else if (over <= 14000000) a = MIX_KNEE + 2000000 + ((over - 6000000) >> 3);
+        else a = MIX_KNEE + 3000000 + ((over - 14000000) >> 4);
+        if (a > Q23_MAX) a = Q23_MAX;
+    }
+    return sign * a;
+}
+
 void orch_init(void)
 {
+    mix_gain_q12 = (int32_t)MIX_GAIN_Q12[1];
     for (unsigned i = 0; i < ORCH_MAX_VOICES; ++i) voice_stop(i);
     event_read = event_write = 0U;
     for (unsigned c = 0; c < ORCH_MIDI_CHANNELS; ++c) sustain[c] = 0U;
@@ -1800,24 +1833,6 @@ static unsigned voice_tick(voice_t *v)
     return lfo_destinations;
 }
 
-/* Division by the small active-voice count is common on every sample.
- * Keep the divisors constant at compile time so the target compiler can use
- * reciprocal multiplies instead of a general integer divide helper. */
-static int32_t divide_voice_sum(int32_t value, unsigned voices_active)
-{
-    switch (voices_active) {
-    case 1U: return value;
-    case 2U: return value / 2;
-    case 3U: return value / 3;
-    case 4U: return value / 4;
-    case 5U: return value / 5;
-    case 6U: return value / 6;
-    case 7U: return value / 7;
-    case 8U: return value / 8;
-    default: return 0;
-    }
-}
-
 void orch_render_q23(int32_t *out, unsigned frames)
 {
     if (!out) return;
@@ -1852,12 +1867,15 @@ void orch_render_q23(int32_t *out, unsigned frames)
             left += g * (int32_t)v->pan_l;
             right += g * (int32_t)v->pan_r;
         }
-        int32_t l = active ? divide_voice_sum(left, active) : 0;
-        int32_t r = active ? divide_voice_sum(right, active) : 0;
-        if (l > Q23_MAX) l = Q23_MAX;
-        if (l < Q23_MIN) l = Q23_MIN;
-        if (r > Q23_MAX) r = Q23_MAX;
-        if (r < Q23_MIN) r = Q23_MIN;
+        /* the gain glides to its new value over about 6 ms (1/256 of the
+         * gap a sample), so a voice starting does not step the others */
+        if (active) {
+            const int32_t want = (int32_t)MIX_GAIN_Q12[active <= ORCH_MAX_VOICES ? active : ORCH_MAX_VOICES];
+            mix_gain_q12 += (want - mix_gain_q12 + (want > mix_gain_q12 ? 255 : -255)) / 256;
+        }
+        /* a 64-bit multiply and a shift: no divide on the PI32v2 */
+        int32_t l = soft_limit((int32_t)(((int64_t)left * mix_gain_q12) >> 12));
+        int32_t r = soft_limit((int32_t)(((int64_t)right * mix_gain_q12) >> 12));
         out[f * 2U] = (int32_t)l;
         out[f * 2U + 1U] = (int32_t)r;
         ++sample_counter;
