@@ -16,7 +16,7 @@ if [ ! -f "$CORE/include/fm1.h" ]; then
 fi
 
 status=0
-ENGINE="$ROOT/app/orch_adaptive.c $ROOT/app/orch_divisi.c $ROOT/app/orch_part.c $ROOT/app/orch_stage.c $ROOT/app/orch_performance.c $ROOT/app/orch_engine.c"
+ENGINE="$ROOT/app/orch_resonance.c $ROOT/app/orch_adaptive.c $ROOT/app/orch_divisi.c $ROOT/app/orch_part.c $ROOT/app/orch_stage.c $ROOT/app/orch_performance.c $ROOT/app/orch_engine.c"
 PANEL="$ENGINE $ROOT/app/orch_fx.c $ROOT/app/orch_scenes.c $ROOT/app/orch_ui.c"
 for test in orch_adaptive orch_divisi orch_performance orch_stage orch_engine orch_ui orch_fx orch_level; do
     case "$test" in

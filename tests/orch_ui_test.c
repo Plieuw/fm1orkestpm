@@ -10,6 +10,7 @@
 #include "orch_fx.h"
 #include "orch_part.h"
 #include "orch_performance.h"
+#include "orch_resonance.h"
 #include "orch_scenes.h"
 #include "orch_stage.h"
 #include "orch_ui.h"
@@ -302,6 +303,8 @@ int main(void)
     CHECK(orch_ui_page() == 3U);
     turn(E_KNOB3, 3);                     /* 2 BPM a detent, and the accel adds */
     CHECK(orch_ui_tempo() == 126U);
+    turn(E_KNOB1, 2);                     /* the shared resonance, 25 -> 35 */
+    CHECK(orch_resonance_amount() == 35U);
     turn(E_KNOB2, -5);                    /* semitone transpose from the global page */
     CHECK(orch_ui_transpose() == (unsigned)-5);
     CHECK(orch_ui_map_note(60) == 55);
@@ -385,6 +388,7 @@ int main(void)
     /* the FX block travels in the record: a fresh panel load brings it back */
     orch_fx_set_enabled(ORCH_FX_DELAY, 0U);
     orch_fx_set_mix(ORCH_FX_DELAY, 10U);
+    orch_resonance_set_amount(0U);       /* the load must bring 35 back */
     orch_ui_init();
     orch_ui_control();       /* prime the scan timer after the re-init */
     CHECK(orch_fx_enabled(ORCH_FX_DELAY) == 1U);
@@ -392,6 +396,7 @@ int main(void)
     CHECK(orch_fx_param(ORCH_FX_DELAY, 0U) == 45U);
     CHECK(orch_fx_param(ORCH_FX_DELAY, 1U) == 45U);
     CHECK(orch_fx_param(ORCH_FX_DELAY, 2U) == 10U);
+    CHECK(orch_resonance_amount() == 35U);    /* its own appended block */
     /* and the listener's seat travels in its own block of the same record */
     CHECK(orch_stage_listener_x() == -100);
     CHECK(orch_stage_listener_depth() == 5U);

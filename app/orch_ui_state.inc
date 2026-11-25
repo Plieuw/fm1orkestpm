@@ -322,6 +322,8 @@ static void save_state(void)
     r->listener_x = (int8_t)orch_stage_listener_x();
     r->listener_depth = (uint8_t)orch_stage_listener_depth();
     r->check = record_check(r);
+    r->resonance = (uint8_t)orch_resonance_amount();
+    r->res_check = fnv(&r->resonance, 4U);
 
     if (fm1_flash_size() < sizeof *r) return;
     if (fm1_flash_erase(0U) != FM1_FLASH_OK) return;
@@ -384,6 +386,8 @@ static void load_state(void)
             orch_fx_set_param(s, i, r->fx_p[s][i]);
     }
     orch_stage_set_listener((int)r->listener_x, (int)r->listener_depth);
+    if (r->res_check == fnv(&r->resonance, 4U))
+        orch_resonance_set_amount(r->resonance);
     apply_tempo(r->tempo);
     ui.seq_on = r->seq_on ? 1U : 0U;
     orch_seq_set_part(ui.part);

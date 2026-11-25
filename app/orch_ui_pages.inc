@@ -104,7 +104,7 @@ static void page_knobs(void)
         break;
     }
     case PAGE_GLO:
-        cell_text(0, "SCALE", scale_name(ui.scale), ui.scale * 33U, ui.scale != 0U);
+        cell_number(0, "RESON", (int)orch_resonance_amount(), 0, 100);
         cell_number(1, "TRANSP", ui.transpose, -24, 24);
         cell_number(2, "TEMPO", (int)ui.tempo, 40, 250);
         cell_text(3, "SCENE", orch_scene_name(ui.scene),

@@ -2,12 +2,13 @@
 
 Polyphonic physical-modeling firmware for the M-VAVE FM1 (JieLi WL82 / AC791N, PI32v2).
 
-## Status: 0.6.2-beta
+## Status: 0.6.3-beta
 
 0.6.0 tunes the waveguides (up to +26 cents off in the high register before),
 shares the mix evenly over the voices (1/n, no limiter), reworks the adaptive playing, the ARP and the sequencer (a lane per
 part), and draws the panel with anti-aliased vectors, the stage as a seating
-plan. See [docs/CHANGES_0.6.0.md](docs/CHANGES_0.6.0.md). Below: how 0.5.0
+plan. 0.6.3 adds a shared sympathetic resonance: eight open strings the
+whole orchestra rings, set by RESON on the CONSOLE page. See [docs/CHANGES_0.6.0.md](docs/CHANGES_0.6.0.md). Below: how 0.5.0
 brought the two lines together.
 
 ### 0.5.0 — the two lines merged

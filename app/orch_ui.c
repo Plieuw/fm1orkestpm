@@ -38,6 +38,7 @@
 #include "orch_level.h"
 #include "orch_part.h"
 #include "orch_performance.h"
+#include "orch_resonance.h"
 #include "orch_scenes.h"
 #include "orch_stage.h"
 #include "orch_ui.h"
@@ -112,6 +113,11 @@ struct save_record {
     uint8_t listener_depth;
     uint8_t pad[2];
     uint32_t check;
+    /* 0.6.3, appended with its own checksum so an "OR60" record of 0.6.0..2
+     * still loads: the orchestra's shared resonance */
+    uint8_t resonance;
+    uint8_t pad2[3];
+    uint32_t res_check;
 };
 
 #define MASTER_MAX_Q23 (4UL << 23)   /* +12 dB at the top of the knob */

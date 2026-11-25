@@ -1,4 +1,4 @@
-# 0.6.0 / 0.6.1: tuning, mix, adaptive playing, ARP, sequencer, vector panel
+# 0.6.0 – 0.6.3: tuning, mix, adaptive playing, ARP, sequencer, vector panel
 
 Written 25 November 2026 on `beta/0.6.0-refine`, branched from
 `beta/0.5.0-orchestra-merge`. One commit a topic; every number below is a host
@@ -80,6 +80,25 @@ Nothing has been heard on an FM-1.
   four new fields; `struct orch_step_note` has `chance`; `orch_seq_set_part()`
   chooses the lane being edited; new `orch_seq_clear_all`, `orch_seq_set_length`,
   `orch_seq_set_lane_muted`.
+
+## 0.6.3: shared resonance
+
+The orchestra now shares one sympathetic body (`app/orch_resonance.c`): eight
+"open strings" at G2 C3 D3 G3 A3 D4 A4 E5 (the strings' open strings), each a
+tuned loop (0 to +2 cents on a sine sweep) with a T60 of 2.5 s at G2 falling to
+1.6 s at E5, fed by the whole mix and panned as the orchestra sits (low strings
+right, high left). A note on one of their pitches leaves them ringing after it;
+a note between them barely does: at resonance 100, the tail after a 1 s G3
+carries about twice the energy it has without (+98 %), after a G#3 only +11 %. The ring is added on top of the dry sound (never a
+crossfade), inside the headroom of the even 1/n mix: the full orchestra at
+velocity 127 with resonance 100 peaks near 3 M of the 8.4 M full scale. Still no
+limiter.
+
+- Panel: CONSOLE `KNOB1` is now RESON, 0..100, default 25 (0 bypasses it).
+  The scale stays on `ALGORITHM` and the `SCL` button.
+- Record: the amount is appended to the OR60 record with its own checksum, so
+  0.6.2 saves still load (at 25).
+- Cost: eight interpolated reads per sample, 16 KB of pool.
 
 ## Not done, still open
 

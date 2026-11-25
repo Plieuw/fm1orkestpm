@@ -4,6 +4,7 @@
 #include <string.h>
 #include "orch_engine.h"
 #include "orch_stage.h"
+#include "orch_resonance.h"
 
 static unsigned failures;
 static int32_t block[256];
@@ -276,6 +277,49 @@ static void test_sequencer_lanes(void)
     }
     CHECK(played > 12U && played < 52U);
     orch_seq_set_enabled(0U);
+    orch_init();
+}
+
+/* Energy of the tail after a held note: 0.3..0.9 s after its release. */
+static int64_t tail_after(unsigned note, unsigned amount)
+{
+    orch_init();
+    orch_resonance_set_amount(amount);
+    midi(0x90U, note, 110U);
+    render(350U);                             /* 1 s */
+    midi(0x80U, note, 0U);
+    render(100U);
+    int64_t e = 0;
+    for (unsigned b = 0; b < 200U; ++b) {
+        memset(block, 0, sizeof block);
+        orch_render_q23(block, 128U);
+        for (unsigned i = 0; i < 256U; ++i) e += block[i] < 0 ? -block[i] : block[i];
+    }
+    return e;
+}
+
+/* The shared resonance: a note on one of its strings (G3) leaves them ringing
+ * after it, a note between them (G#3) much less; at 0 it is bypassed; and the
+ * full orchestra at velocity 127 with the most resonance stays under full
+ * scale, with no limiter. */
+static void test_shared_resonance(void)
+{
+    const int64_t g3_off = tail_after(55U, 0U);
+    const int64_t g3_on = tail_after(55U, 100U);
+    const int64_t gs3_off = tail_after(56U, 0U);
+    const int64_t gs3_on = tail_after(56U, 100U);
+    CHECK(g3_on > g3_off);
+    CHECK(g3_on - g3_off > 2 * (gs3_on > gs3_off ? gs3_on - gs3_off : 0));
+
+    orch_init();
+    orch_resonance_set_amount(100U);
+    for (unsigned p = 0; p < 8U; ++p) {
+        orch_engine_set_player_cap(p, 1U);
+        midi(0x90U | p, 43U + 7U * (p & 3U), 127U);
+    }
+    const int32_t all = peak_of(700U);
+    CHECK(all > 0 && all < 8388607);
+    orch_resonance_set_amount(25U);
     orch_init();
 }
 
@@ -739,6 +783,7 @@ int main(void)
     test_high_register_tuning();
     test_gain_staging();
     test_sequencer_lanes();
+    test_shared_resonance();
     test_routing();
     test_eight_part_routing();
     test_repeated_same_pitch_note_off_fifo();

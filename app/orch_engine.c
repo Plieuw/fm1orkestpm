@@ -14,6 +14,7 @@
 #include "fm1.h"
 #include "orch_engine.h"
 #include "orch_performance.h"
+#include "orch_resonance.h"
 
 #ifndef FM1_AUDIO_DATA
 #define FM1_AUDIO_DATA __attribute__((section(".pool")))
@@ -1373,6 +1374,7 @@ static int32_t clamp_q23(int32_t x)
 
 void orch_init(void)
 {
+    orch_resonance_clear();
     mix_gain_q12 = (int32_t)MIX_GAIN_Q12[1];
     for (unsigned i = 0; i < ORCH_MAX_VOICES; ++i) voice_stop(i);
     event_read = event_write = 0U;
@@ -1955,6 +1957,8 @@ void orch_render_q23(int32_t *out, unsigned frames)
         out[f * 2U + 1U] = (int32_t)r;
         ++sample_counter;
     }
+    /* the whole orchestra into its shared strings (orch_resonance.c) */
+    orch_resonance_process(out, frames);
 }
 
 /* ----------------------------------------------------------- inspection */

@@ -172,8 +172,9 @@ void orch_ui_handle(const struct fm1_controls *controls)
                     orch_seq_set_length((unsigned)step_range((int)orch_seq_length(), delta, 1, 16));
                 else seq_touch_slot(0, delta, 0, 0);              /* the note */
                 break;
-            case PAGE_GLO:
-                ui.scale = (uint8_t)step_wrap((int)ui.scale, step, SCALE_COUNT);
+            case PAGE_GLO:   /* the orchestra's shared resonance; the scale is on ALGORITHM and SCL */
+                orch_resonance_set_amount((unsigned)clamp_percent(
+                    (int)orch_resonance_amount() + pct_delta(delta) * 5));
                 break;
             case PAGE_ENV: adsr_edit(delta, 0, 0, 0); break;
             case PAGE_LFO: lfo_edit(pct_delta(delta) * 5, 0, 0, 0); break;

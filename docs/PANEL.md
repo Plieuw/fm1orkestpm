@@ -34,7 +34,7 @@ lit by its voices; the selected part's desk is framed.
 | `KNOB1..4` on STAGE | players, articulation, listener across, listener depth |
 | on ARP | PLAY: type (31), rate (10 divisions), gate, phrase (OFF, GE 1..46) · FEEL: swing, ratchet 1..4, strum 0..40 ms, latch · PHRASE: density, range, cluster, accent · ORDER: by pitch / as played, span fixed / adaptive, clock internal / MIDI, repeat · GROOVE: velocity groove, gate groove, quantise, root |
 | on SEQUENCE | STEP: note, velocity, gate, chance · PATTERN: length 1..16, tempo, this part's lane plays / muted, clear the step |
-| on CONSOLE | scale, transpose, tempo, **factory scene** (recalled as it is chosen) |
+| on CONSOLE | **shared resonance** 0..100 (default 25), transpose, tempo, **factory scene** (recalled as it is chosen); the scale stays on `ALGORITHM` and `SCL` |
 | on FX | mix, the effect's parameters two at a time, on/off |
 | on ENVELOPE | attack, decay, sustain, release |
 | on LFO | depth, rate, wave, destination |
