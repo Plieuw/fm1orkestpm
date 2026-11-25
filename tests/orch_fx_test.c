@@ -88,12 +88,47 @@ static void test_delay(void)
     CHECK(abs32(second) < abs32(first));      /* feedback decays */
     CHECK(first >= Q23_MIN && first <= Q23_MAX);
 
-    /* mix 0 leaves the echo out entirely */
+    /* mix 0 leaves the echo out entirely, once the mix has faded (20 ms):
+     * a mix moves along a line, it does not step */
     orch_fx_set_mix(ORCH_FX_DELAY, 0);
+    memset(big, 0, sizeof big);
+    orch_fx_process(big, 1000U);
     memset(big, 0, sizeof big);
     big[0] = 400000;
     orch_fx_process(big, BIG);
     CHECK(abs32(big[600U * 2U]) < 2000);
+}
+
+/* No click when an effect is switched on or its mix is turned at once: a
+ * steady 1 kHz tone through the chorus at mix 100, switched on mid-tone,
+ * changes from one sample to the next by little more than the tone itself
+ * does (measured 1.0x), where the step to the wet signal jumped 4x. */
+static void test_mix_fades(void)
+{
+    orch_fx_init();
+    only(ORCH_FX_CHORUS);
+    orch_fx_set_enabled(ORCH_FX_CHORUS, 0U);
+    orch_fx_set_mix(ORCH_FX_CHORUS, 100);
+    int32_t last = 0, worst = 0, tone_step = 0;
+    for (unsigned b = 0; b < 40U; ++b) {
+        for (unsigned i = 0; i < 128U; ++i) {
+            const unsigned n = b * 128U + i;
+            /* a triangle of 44 samples (1 kHz), 2 M peak: 182 k a sample */
+            const int32_t ph = (int32_t)(n % 44U);
+            const int32_t v = ph < 22 ? -2000000 + ph * 181818 : 2000000 - (ph - 22) * 181818;
+            big[i * 2U] = big[i * 2U + 1U] = v;
+        }
+        if (b == 20U) orch_fx_set_enabled(ORCH_FX_CHORUS, 1U);
+        orch_fx_process(big, 128U);
+        for (unsigned i = 0; i < 128U; ++i) {
+            const int32_t d = abs32(big[i * 2U] - last);
+            if (b > 0U && b < 20U && d > tone_step) tone_step = d;
+            if (b >= 20U && d > worst) worst = d;
+            last = big[i * 2U];
+        }
+    }
+    CHECK(tone_step > 0);
+    CHECK(worst < tone_step + tone_step / 8);
 }
 
 /* SYNC puts the echo on the beat instead of where the time knob points: at
@@ -267,6 +302,7 @@ int main(void)
     test_bypass();
     test_api();
     test_delay();
+    test_mix_fades();
     test_sync();
     test_reverb();
     test_bounded();

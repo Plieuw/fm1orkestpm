@@ -10,8 +10,8 @@
 int32_t orch_cc_gain_q15[ORCH_PARTS];
 int32_t orch_cc_excite_q15[ORCH_PARTS];
 int32_t orch_cc_bright_q8[ORCH_PARTS];
-uint32_t orch_cc_bend_q16[ORCH_PARTS];
-uint8_t orch_cc_mod[ORCH_PARTS];
+int32_t orch_cc_bend_q16[ORCH_PARTS];
+int32_t orch_cc_mod_q8[ORCH_PARTS];
 int32_t orch_cc_pan_l_q15[ORCH_PARTS], orch_cc_pan_r_q15[ORCH_PARTS];
 
 /* what each part was sent */
@@ -21,11 +21,46 @@ struct cc_part {
     uint16_t bend;
 };
 static struct cc_part cc[ORCH_PARTS];
-/* where the gliding values are going */
-static int32_t gain_to[ORCH_PARTS], excite_to[ORCH_PARTS], bright_to[ORCH_PARTS];
-static int32_t pan_l_to[ORCH_PARTS], pan_r_to[ORCH_PARTS];
-static uint32_t bend_to[ORCH_PARTS];
+/* The playing controllers are interpolated between the values sent, not
+ * stepped: each new value is reached by a straight line that takes as long
+ * as the sender took since its previous message (3..50 ms). A wheel or a
+ * pedal sends a value every few milliseconds, each a step on its 128-value
+ * scale; joined by lines, the steps become the movement the hand made, and
+ * the zipper (a click a message) is gone. A lone jump, a switch or the
+ * first message after a pause, glides over the 50 ms. */
+enum { R_GAIN, R_EXCITE, R_PAN_L, R_PAN_R, R_BEND, R_BRIGHT, R_MOD, R_COUNT };
+static int32_t *const ramp_out[R_COUNT] = {
+    orch_cc_gain_q15, orch_cc_excite_q15, orch_cc_pan_l_q15, orch_cc_pan_r_q15,
+    orch_cc_bend_q16, orch_cc_bright_q8, orch_cc_mod_q8
+};
+static int32_t ramp_to[R_COUNT][ORCH_PARTS];
+/* the position and the step a sample in 1/256 units, so a line of 2205
+ * samples lands where it was going and does not jump the remainder at the
+ * end (whole units would leave up to one unit a sample to make up) */
+static int32_t ramp_acc[R_COUNT][ORCH_PARTS], ramp_step[R_COUNT][ORCH_PARTS];
+static uint16_t ramp_left[R_COUNT][ORCH_PARTS];
+#define RAMP_MIN (ORCH_SAMPLE_RATE * 3U / 1000U)      /* 132 samples */
+#define RAMP_MAX (ORCH_SAMPLE_RATE * 50U / 1000U)     /* 2205 */
+static uint32_t cc_clock;                 /* samples, counted by orch_cc_step */
+static uint32_t last_msg[ORCH_PARTS];     /* when the part last got one */
 static volatile uint8_t gliding;
+
+/* a new target for one value of a part, reached over `len` samples */
+static void ramp_set(unsigned r, unsigned p, int32_t to, uint32_t len)
+{
+    ramp_to[r][p] = to;
+    const int32_t d = to - ramp_out[r][p];
+    if (!d || !len) {
+        ramp_out[r][p] = to;
+        ramp_left[r][p] = 0U;
+        return;
+    }
+    ramp_acc[r][p] = ramp_out[r][p] * 256;
+    ramp_step[r][p] = (d * 256) / (int32_t)len;
+    if (!ramp_step[r][p]) ramp_step[r][p] = d > 0 ? 1 : -1;
+    ramp_left[r][p] = (uint16_t)len;
+    gliding = 1U;
+}
 
 /* 2^(-cents / 1200) in Q16, for -2400..+2400 cents: a longer loop is a lower
  * note, so a bend up shortens it */
@@ -40,28 +75,38 @@ static uint32_t bend_ratio_q16(int32_t cents)
     return octaves >= 0 ? r << octaves : r >> -octaves;
 }
 
-static void retarget(unsigned p)
+/* len: 0 jumps there (a reset), otherwise the ramp's length in samples */
+static void retarget_over(unsigned p, uint32_t len)
 {
     const struct cc_part *c = &cc[p];
     /* volume x expression on the GM2/XG curve, x breath on an even 30 dB */
     uint32_t g = ((uint32_t)LAW_GM2_Q15[c->volume] * LAW_GM2_Q15[c->expression]) >> 15;
     g = (g * LAW30_Q15[c->breath]) >> 15;
     if (c->soft) g = (g * 24576U) >> 15;              /* soft pedal: -2.5 dB */
-    gain_to[p] = (int32_t)g;
+    ramp_set(R_GAIN, p, (int32_t)g, len);
     /* breath is also how hard the string is bowed, the pipe blown: half at
      * 0, full at 127, so the timbre darkens as the level falls */
-    excite_to[p] = 16384 + (int32_t)(((uint32_t)c->breath * 16383U) / 127U);
+    ramp_set(R_EXCITE, p, 16384 + (int32_t)(((uint32_t)c->breath * 16383U) / 127U), len);
     /* CC74, as XG: 64 is the instrument; +-1.5 damping steps at the ends;
      * the soft pedal takes half a step off as well */
-    bright_to[p] = ((int32_t)c->bright - 64) * 6 - (c->soft ? 128 : 0);
+    ramp_set(R_BRIGHT, p, ((int32_t)c->bright - 64) * 6 - (c->soft ? 128 : 0), len);
     /* CC10 as a balance on the part's own seat: 64 leaves it as it sits */
-    pan_l_to[p] = c->pan <= 64U ? 32767 : (int32_t)((127U - c->pan) * 32767U / 63U);
-    pan_r_to[p] = c->pan >= 64U ? 32767 : (int32_t)((uint32_t)c->pan * 32767U / 64U);
+    ramp_set(R_PAN_L, p, c->pan <= 64U ? 32767 : (int32_t)((127U - c->pan) * 32767U / 63U), len);
+    ramp_set(R_PAN_R, p, c->pan >= 64U ? 32767 : (int32_t)((uint32_t)c->pan * 32767U / 64U), len);
     /* pitch bend over the RPN 0 range */
     const int32_t cents = ((int32_t)c->bend - 8192) * (int32_t)c->range * 100 / 8192;
-    bend_to[p] = bend_ratio_q16(cents);
-    orch_cc_mod[p] = (uint8_t)(((uint32_t)c->modulation * 100U + 63U) / 127U);
-    gliding = 1U;
+    ramp_set(R_BEND, p, (int32_t)bend_ratio_q16(cents), len);
+    ramp_set(R_MOD, p, (int32_t)(((uint32_t)c->modulation * 25600U + 63U) / 127U), len);
+}
+
+/* a message arrived: the line lasts as long as the gap since the last one */
+static void retarget(unsigned p)
+{
+    uint32_t len = cc_clock - last_msg[p];
+    last_msg[p] = cc_clock;
+    if (len < RAMP_MIN) len = RAMP_MIN;
+    if (len > RAMP_MAX) len = RAMP_MAX;
+    retarget_over(p, len);
 }
 
 /* the reset values of a Yamaha XG part, CC121 (volume, pan and the bank
@@ -80,6 +125,12 @@ void orch_cc_reset_part(unsigned p)
     retarget(p);
 }
 
+static void reset_now(unsigned p)
+{
+    orch_cc_reset_part(p);
+    retarget_over(p, 0U);
+}
+
 void orch_cc_init(void)
 {
     for (unsigned p = 0; p < ORCH_PARTS; ++p) {
@@ -87,13 +138,8 @@ void orch_cc_init(void)
         cc[p].pan = 64U;
         cc[p].bank = 0U;
         cc[p].range = 2U;         /* XG's pitch bend range */
-        orch_cc_reset_part(p);
-        orch_cc_gain_q15[p] = gain_to[p];
-        orch_cc_excite_q15[p] = excite_to[p];
-        orch_cc_bright_q8[p] = bright_to[p];
-        orch_cc_bend_q16[p] = bend_to[p];
-        orch_cc_pan_l_q15[p] = pan_l_to[p];
-        orch_cc_pan_r_q15[p] = pan_r_to[p];
+        last_msg[p] = cc_clock;
+        reset_now(p);
     }
     gliding = 0U;
 }
@@ -113,33 +159,23 @@ uint16_t orch_cc_velocity_q12(unsigned family, unsigned velocity)
     return VEL_OUT_Q12[family < 5U ? family : 0U][velocity & 127U];
 }
 
-/* 1/128 of the gap a sample, at least one step: about 3 ms */
-static int glide(int32_t *now, int32_t to)
-{
-    const int32_t d = to - *now;
-    if (!d) return 0;
-    *now += d > 0 ? (d + 127) >> 7 : -((-d + 127) >> 7);
-    return 1;
-}
-
-/* Stops when everything has arrived, so still controllers cost one test a
- * sample. */
+/* Once per sample: every value on its way moves one step along its line.
+ * When none is moving this is a counter and one test. */
 void orch_cc_step(void)
 {
+    ++cc_clock;
     if (!gliding) return;
-    int moving = 0;
-    for (unsigned p = 0; p < ORCH_PARTS; ++p) {
-        moving |= glide(&orch_cc_gain_q15[p], gain_to[p]);
-        moving |= glide(&orch_cc_excite_q15[p], excite_to[p]);
-        moving |= glide(&orch_cc_pan_l_q15[p], pan_l_to[p]);
-        moving |= glide(&orch_cc_pan_r_q15[p], pan_r_to[p]);
-        {
-            int32_t b = (int32_t)orch_cc_bend_q16[p];
-            moving |= glide(&b, (int32_t)bend_to[p]);
-            orch_cc_bend_q16[p] = (uint32_t)b;
+    unsigned moving = 0U;
+    for (unsigned r = 0; r < R_COUNT; ++r) {
+        int32_t *out = ramp_out[r];
+        for (unsigned p = 0; p < ORCH_PARTS; ++p) {
+            if (!ramp_left[r][p]) continue;
+            if (--ramp_left[r][p]) {
+                ramp_acc[r][p] += ramp_step[r][p];
+                out[p] = ramp_acc[r][p] / 256;
+                moving = 1U;
+            } else out[p] = ramp_to[r][p];
         }
-        const int32_t d = bright_to[p] - orch_cc_bright_q8[p];
-        if (d) { orch_cc_bright_q8[p] += d > 0 ? 1 : -1; moving = 1; }
     }
     gliding = (uint8_t)moving;
 }

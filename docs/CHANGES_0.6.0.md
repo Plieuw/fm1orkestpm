@@ -1,4 +1,4 @@
-# 0.6.0 – 0.6.7: tuning, mix, adaptive playing, ARP, sequencer, vector panel
+# 0.6.0 – 0.6.8: tuning, mix, adaptive playing, ARP, sequencer, vector panel
 
 Written 25 November 2026 on `beta/0.6.0-refine`, branched from
 `beta/0.5.0-orchestra-merge`. One commit a topic; every number below is a host
@@ -173,6 +173,26 @@ limiter.
     clock or the playing.
 - A test plays every scene: the whole orchestra at velocity 127, CC7 fully
   open, through the scene's own effects. It stays under full scale.
+
+## 0.6.8: no zipper
+
+- **Controllers interpolate between their values.** Each new CC value (and
+  pitch bend) is reached along a line as long as the gap since the previous
+  message (3..50 ms). Until now a 3 ms one-pole took each of the 128 steps
+  almost at once, and fast or slow sweeps were heard as steps. The gain moves
+  at most 1/378 of a message's step per sample (`test_no_zipper`). The lines
+  are computed in 1/256 units, so a 50 ms line lands where it was going.
+- **Effects:** a mix moves along a line, 20 ms from dry to full wet. Switching
+  an effect on or off fades it in or out, and an effect switched off keeps
+  running until it is silent. Chorus and ensemble used to click when switched
+  on: they started from an empty modulation line. That line is now kept
+  written while the chain runs, and after a silence they wait until it is full
+  before fading in. A tone through the chorus switched on mid-note moves no
+  faster than the tone itself (1.0×). With a step instead, it jumped 4×
+  (`test_mix_fades`).
+- **Resonance** (CC71, RESON) moves along a 20 ms line. **MASTER** moves along
+  a line across each block, both in the app and on the HAWK runtime, where the
+  pot's own jitter was a step every callback.
 
 ## Not done, still open
 

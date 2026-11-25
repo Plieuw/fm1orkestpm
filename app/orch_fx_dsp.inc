@@ -122,21 +122,41 @@ static int32_t sync_samples(unsigned percent)
 /* Included by orch_fx.c: the settings and the buffers are above, so this is
  * only the loop that walks the frames. */
 
+/* The mixes as they sound, Q16 (the Q8 mix x 256). A setting is read once a
+ * block, but the mix moves to it along a line, 20 ms from dry to full wet,
+ * so a knob or a CC turned fast, or an effect switched on or off, fades
+ * instead of stepping each block (a click 344 times a second). An effect
+ * switched off keeps running until its mix has faded to nothing. */
+#define MIX_SLEW ((255U << 8) / (ORCH_SAMPLE_RATE / 50U))    /* 20 ms */
+
+static unsigned mix_glide(unsigned slot, uint32_t target)
+{
+    uint32_t m = mix_now[slot];
+    if (m < target) m = target - m > MIX_SLEW ? m + MIX_SLEW : target;
+    else if (m > target) m = m - target > MIX_SLEW ? m - MIX_SLEW : target;
+    mix_now[slot] = m;
+    return m >> 8;
+}
+
 void orch_fx_process(int32_t *stereo, unsigned frames)
 {
     if (!stereo || !frames) return;
     if (reset_pending) clear_state();
 
-    const unsigned chorus_on = fx_on[ORCH_FX_CHORUS];
-    const unsigned ensemble_on = fx_on[ORCH_FX_ENSEMBLE];
-    const unsigned delay_on = fx_on[ORCH_FX_DELAY];
-    const unsigned reverb_on = fx_on[ORCH_FX_REVERB];
-    if (!(chorus_on | ensemble_on | delay_on | reverb_on)) return;
-
-    const unsigned chorus_mix = mix_q8(fx_mix[ORCH_FX_CHORUS]);
-    const unsigned ensemble_mix = mix_q8(fx_mix[ORCH_FX_ENSEMBLE]);
-    const unsigned delay_mix = mix_q8(fx_mix[ORCH_FX_DELAY]);
-    const unsigned reverb_mix = mix_q8(fx_mix[ORCH_FX_REVERB]);
+    uint32_t mix_to[ORCH_FX_SLOT_COUNT];
+    unsigned running = 0U;
+    for (unsigned s = 0; s < ORCH_FX_SLOT_COUNT; ++s) {
+        mix_to[s] = fx_on[s] ? (uint32_t)mix_q8(fx_mix[s]) << 8 : 0U;
+        if (fx_on[s] || mix_now[s]) running |= 1U << s;
+    }
+    /* With every effect off the chain does not run, so the modulation line
+     * is not written: when chorus or ensemble come on they first fill it,
+     * their mix held at nothing, so they never fade in over silence */
+    if (!running) { mod_fill = MOD_SIZE; return; }
+    const unsigned chorus_on = running & (1U << ORCH_FX_CHORUS);
+    const unsigned ensemble_on = running & (1U << ORCH_FX_ENSEMBLE);
+    const unsigned delay_on = running & (1U << ORCH_FX_DELAY);
+    const unsigned reverb_on = running & (1U << ORCH_FX_REVERB);
 
     /* Chorus: speed, sweep, how far the two sides are apart, and how dark the
      * wet path is. SPREAD at 0 sweeps both sides together, at 100 half a cycle
@@ -182,11 +202,21 @@ void orch_fx_process(int32_t *stereo, unsigned frames)
     for (unsigned f = 0; f < frames; ++f) {
         int32_t l = stereo[f * 2U] >> 8;
         int32_t r = stereo[f * 2U + 1U] >> 8;
+        if (mod_fill) --mod_fill;
+        const unsigned chorus_mix =
+            mix_glide(ORCH_FX_CHORUS, mod_fill ? 0U : mix_to[ORCH_FX_CHORUS]);
+        const unsigned ensemble_mix =
+            mix_glide(ORCH_FX_ENSEMBLE, mod_fill ? 0U : mix_to[ORCH_FX_ENSEMBLE]);
+        const unsigned delay_mix = mix_glide(ORCH_FX_DELAY, mix_to[ORCH_FX_DELAY]);
+        const unsigned reverb_mix = mix_glide(ORCH_FX_REVERB, mix_to[ORCH_FX_REVERB]);
         const int32_t dry_l = l, dry_r = r;
 
+        /* the modulation line is written even while chorus and ensemble are
+         * off, so switched on they find the music in it, not silence (the
+         * jump from the signal to an empty line was a click of its own) */
+        mod_l[mod_w] = (int16_t)clamp15(dry_l);
+        mod_r[mod_w] = (int16_t)clamp15(dry_r);
         if (chorus_on || ensemble_on) {
-            mod_l[mod_w] = (int16_t)clamp15(dry_l);
-            mod_r[mod_w] = (int16_t)clamp15(dry_r);
             if (chorus_on) {
                 chorus_phase += chorus_inc;
                 int32_t wl = mod_tap(mod_l, 512, chorus_phase, chorus_depth, 0U);
@@ -211,8 +241,8 @@ void orch_fx_process(int32_t *stereo, unsigned frames)
                 l = crossfade(l, wl / (int32_t)ensemble_taps, ensemble_mix);
                 r = crossfade(r, wr / (int32_t)ensemble_taps, ensemble_mix);
             }
-            mod_w = (mod_w + 1U) & MOD_MASK;
         }
+        mod_w = (mod_w + 1U) & MOD_MASK;
 
         if (delay_on) {
             if (dly_cur < delay_target) ++dly_cur;

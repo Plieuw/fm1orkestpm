@@ -98,6 +98,8 @@ static volatile uint8_t fx_on[ORCH_FX_SLOT_COUNT];
 static volatile uint8_t fx_mix[ORCH_FX_SLOT_COUNT];
 static volatile uint8_t fx_p[ORCH_FX_SLOT_COUNT][ORCH_FX_PARAMS];
 static volatile uint16_t fx_tempo;
+static uint32_t mix_now[ORCH_FX_SLOT_COUNT];   /* the mixes as they sound (orch_fx_dsp.inc) */
+static unsigned mod_fill;                       /* samples until the modulation line is full */
 static volatile uint8_t reset_pending;
 
 /* No libc in the firmware: the JieLi build is freestanding. */
@@ -158,6 +160,8 @@ void orch_fx_init(void)
     }
     for (unsigned s = 0; s < ORCH_FX_SLOT_COUNT; ++s) {
         fx_on[s] = 0U;              /* off until the player asks for it */
+        mix_now[s] = 0U;
+        mod_fill = MOD_SIZE;
         fx_mix[s] = defaults_mix[s];
         for (unsigned i = 0; i < ORCH_FX_PARAMS; ++i) fx_p[s][i] = defaults_p[s][i];
     }

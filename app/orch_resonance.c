@@ -33,6 +33,11 @@ static uint32_t res_follow[ORCH_RESONATORS];
 static uint32_t res_w;
 static volatile uint8_t res_amount = 25U;
 static volatile uint8_t res_clear_pending;
+/* the strings' level as it sounds, Q15: it moves to a new amount along a
+ * line, 20 ms from none to the most, so RESON or CC71 turned fast does not
+ * step each block */
+static int32_t wet_now;
+#define WET_SLEW (16384 / (int32_t)(44100U / 50U) + 1)
 
 static int32_t shr0_64(int64_t x, unsigned bits)
 {
@@ -49,6 +54,7 @@ static void clear_now(void)
         res_follow[k] = 0U;
     }
     res_w = 0U;
+    wet_now = 0;
     res_clear_pending = 0U;
 }
 
@@ -77,11 +83,14 @@ void orch_resonance_process(int32_t *stereo, unsigned frames)
     if (!stereo) return;
     if (res_clear_pending) clear_now();
     const unsigned amount = res_amount;
-    if (!amount) return;
     /* added on top of the dry signal, at most half the bank's side */
-    const int32_t wet = (int32_t)(amount * 16384U / 100U);
+    const int32_t wet_to = (int32_t)(amount * 16384U / 100U);
+    if (!wet_to && !wet_now) return;
 
     for (unsigned f = 0; f < frames; ++f) {
+        if (wet_now < wet_to) wet_now = wet_to - wet_now > WET_SLEW ? wet_now + WET_SLEW : wet_to;
+        else if (wet_now > wet_to) wet_now = wet_now - wet_to > WET_SLEW ? wet_now - WET_SLEW : wet_to;
+        const int32_t wet = wet_now;
         const int32_t in = (stereo[f * 2U] >> 1) + (stereo[f * 2U + 1U] >> 1);
         int64_t sum_l = 0, sum_r = 0;
         for (unsigned k = 0; k < ORCH_RESONATORS; ++k) {

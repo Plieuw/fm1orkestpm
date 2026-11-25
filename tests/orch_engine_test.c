@@ -249,6 +249,38 @@ static int64_t note_energy(unsigned velocity)
     return render_energy(200U);
 }
 
+/* No zipper: a pedal swept from 127 to 0 in 64 messages, one every 10 ms
+ * (441 samples), moves the part's gain along lines between the values. The
+ * largest change from one sample to the next is a fraction of the largest
+ * step between two messages (before 0.6.8 a 3 ms one-pole took each step in
+ * about 130 samples, and the steps of the 128-value scale were heard). */
+static void test_no_zipper(void)
+{
+    orch_init();
+    midi(0xB0U, 11U, 127U);
+    render(30U);
+    int32_t last = orch_cc_gain_q15[0], biggest_sample = 0, biggest_msg = 0;
+    int32_t at_msg = last;
+    unsigned value = 127U;
+    for (unsigned m = 0; m < 64U; ++m) {
+        value = value >= 2U ? value - 2U : 0U;
+        midi(0xB0U, 11U, value);
+        for (unsigned i = 0; i < 441U; ++i) {
+            orch_render_q23(block, 1U);                /* one sample at a time */
+            const int32_t g = orch_cc_gain_q15[0];
+            const int32_t d = g > last ? g - last : last - g;
+            if (d > biggest_sample) biggest_sample = d;
+            last = g;
+        }
+        const int32_t step = at_msg > last ? at_msg - last : last - at_msg;
+        if (step > biggest_msg) biggest_msg = step;
+        at_msg = last;
+    }
+    CHECK(biggest_msg > 0);
+    CHECK(biggest_sample * 200 < biggest_msg);   /* spread over the gap */
+    orch_init();
+}
+
 /* play `n` notes on part 0, one every `samples` (block-rounded) */
 static void play_pulse(unsigned n, unsigned samples)
 {
@@ -334,11 +366,11 @@ static void test_midi_controllers(void)
     render(100U);
     const int64_t open = render_energy(40U);
     midi(0xB0U, 11U, 64U);
-    render(4U);
+    render(20U);                               /* a lone jump glides 50 ms */
     const int64_t half = render_energy(40U);
     CHECK(half * 3 < open && half * 6 > open);
     midi(0xB0U, 11U, 0U);
-    render(12U);
+    render(20U);
     CHECK(render_energy(10U) == 0);
     /* CC121 brings the expression back */
     midi(0xB0U, 121U, 0U);
@@ -366,22 +398,22 @@ static void test_midi_controllers(void)
     orch_init();
     midi(0xE0U, 127U, 127U);
     render(10U);
-    CHECK(orch_cc_bend_q16[0] > 58300U && orch_cc_bend_q16[0] < 58480U);
+    CHECK(orch_cc_bend_q16[0] > 58300 && orch_cc_bend_q16[0] < 58480);
     midi(0xB0U, 101U, 0U);
     midi(0xB0U, 100U, 0U);
     midi(0xB0U, 6U, 12U);
     render(10U);
     CHECK(orch_cc_bend_range(0U) == 12U);
-    CHECK(orch_cc_bend_q16[0] > 32700U && orch_cc_bend_q16[0] < 32830U);
+    CHECK(orch_cc_bend_q16[0] > 32700 && orch_cc_bend_q16[0] < 32830);
     midi(0xE0U, 0U, 64U);                      /* centre */
     render(10U);
-    CHECK(orch_cc_bend_q16[0] == 65536U);
+    CHECK(orch_cc_bend_q16[0] == 65536);
 
     /* CC1 is vibrato: the wheel alone runs the LFO */
     orch_init();
     midi(0xB0U, 1U, 127U);
     render(2U);
-    CHECK(orch_cc_mod[0] == 100U);
+    CHECK((orch_cc_mod_q8[0] >> 8) == 100);
 
     /* bank select + program change: bank 3 is brass, program 1 its second */
     orch_init();
@@ -1023,6 +1055,7 @@ int main(void)
     test_shared_resonance();
     test_midi_controllers();
     test_tempo_follows();
+    test_no_zipper();
     test_routing();
     test_eight_part_routing();
     test_repeated_same_pitch_note_off_fifo();

@@ -46,7 +46,13 @@ void orch_hawk_render_q15(int32_t *output, uint32_t frames, uint32_t master_q12)
     uint32_t offset = 0U;
     if (!output) return;
     if (master_q12 > 4096U) master_q12 = 4096U;
-    const int64_t gain_q12 = (int64_t)master_q12 * 4;     /* 0 .. x4 */
+    /* 0 .. x4, Q12. The pot is read once a callback; the gain moves to it
+     * along a line across the callback, so a turn (or the pot's own
+     * jitter) is a fade, not a step every few milliseconds. */
+    static int32_t gain_now = 4096 * 4 / 4;               /* unity until told */
+    const int32_t gain_to = (int32_t)master_q12 * 4;
+    const int32_t gain_step = frames ? (gain_to - gain_now) / (int32_t)frames : 0;
+    uint32_t done = 0U;
 
     while (offset < frames) {
         uint32_t count = frames - offset;
@@ -56,8 +62,12 @@ void orch_hawk_render_q15(int32_t *output, uint32_t frames, uint32_t master_q12)
         orch_render_q23(q23_scratch, count);
         orch_fx_process(q23_scratch, count);
         for (uint32_t i = 0U; i < count * 2U; ++i) {
+            if (!(i & 1U)) {
+                ++done;
+                gain_now = done == frames ? gain_to : gain_now + gain_step;
+            }
             /* Q23 x Q12 in 64 bits, then back to Q23: a multiply, no divide */
-            int64_t v = ((int64_t)q23_scratch[i] * gain_q12) >> 12;
+            int64_t v = ((int64_t)q23_scratch[i] * gain_now) >> 12;
             if (v > 8388607) v = 8388607;
             if (v < -8388608) v = -8388608;
             q23_scratch[i] = (int32_t)v;

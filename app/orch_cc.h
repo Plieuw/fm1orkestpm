@@ -41,7 +41,9 @@ unsigned orch_cc_dynamic(unsigned part, unsigned velocity);
  * get more than unity, so the multiply wants 64 bits. */
 uint16_t orch_cc_velocity_q12(unsigned family, unsigned velocity);
 
-/* Once per sample: the playing controllers glide to where they were sent. */
+/* Once per sample: the playing controllers move along straight lines between
+ * the values sent, each line as long as the gap between the messages
+ * (3..50 ms), so a sweep sounds as a sweep and not as 128 steps. */
 void orch_cc_step(void);
 
 /* Per part, after the glide:
@@ -49,14 +51,14 @@ void orch_cc_step(void);
  *  excite   Q15: how hard it is bowed or blown (breath)
  *  bright   damping offset in 1/256 steps (CC74, soft pedal)
  *  bend     loop-length ratio Q16 (pitch bend; 65536 = none)
- *  mod      vibrato depth from the modulation wheel, in LFO depth units
+ *  mod      vibrato depth from the modulation wheel, in LFO depth units x 256
  *           (100 = +-50 cents), on top of the part's own LFO
  *  pan      left and right balance Q15 (CC10) */
 extern int32_t orch_cc_gain_q15[ORCH_PARTS];
 extern int32_t orch_cc_excite_q15[ORCH_PARTS];
 extern int32_t orch_cc_bright_q8[ORCH_PARTS];
-extern uint32_t orch_cc_bend_q16[ORCH_PARTS];
-extern uint8_t orch_cc_mod[ORCH_PARTS];
+extern int32_t orch_cc_bend_q16[ORCH_PARTS];
+extern int32_t orch_cc_mod_q8[ORCH_PARTS];      /* LFO depth units x 256 */
 extern int32_t orch_cc_pan_l_q15[ORCH_PARTS], orch_cc_pan_r_q15[ORCH_PARTS];
 
 /* The last value a playing controller received (bend: 0..16383). */

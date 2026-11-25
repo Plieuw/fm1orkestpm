@@ -1731,8 +1731,8 @@ static unsigned voice_tick(voice_t *v)
         len = v->len_q16;
     }
     /* pitch bend (orch_cc.c): the loop's length by the part's ratio */
-    if (orch_cc_bend_q16[v->part] != 65536U) {
-        uint64_t bent = ((uint64_t)len * orch_cc_bend_q16[v->part]) >> 16;
+    if (orch_cc_bend_q16[v->part] != 65536) {
+        uint64_t bent = ((uint64_t)len * (uint32_t)orch_cc_bend_q16[v->part]) >> 16;
         if (bent > ((uint64_t)(DELAY_SIZE - 8U) << 16)) bent = (uint64_t)(DELAY_SIZE - 8U) << 16;
         if (bent < (16U << 16)) bent = 16U << 16;
         len = (uint32_t)bent;
@@ -1756,7 +1756,7 @@ static unsigned voice_tick(voice_t *v)
     {
         /* the modulation wheel (CC1) is vibrato on the part's own LFO, as
          * on a Yamaha: it runs the LFO even where the part has none set */
-        const unsigned wheel = orch_cc_mod[v->part];
+        const unsigned wheel = (unsigned)(orch_cc_mod_q8[v->part] >> 8);
         if (lfo && ((lfo_destinations && v->lfo_depth) || wheel)) {
             if (v->lfo_delay_left) --v->lfo_delay_left;
             else {

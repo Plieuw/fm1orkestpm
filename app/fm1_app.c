@@ -56,14 +56,23 @@ FM1_AUDIO_CODE int fm1_app_render(int32_t *output,unsigned frames) {
     if (!output || frames!=FM1_BLOCK_FRAMES) return -1;
     orch_render_q23(output,frames);
     orch_fx_process(output,frames);
-    const uint32_t gain = orch_ui_master_q23;
-    if (gain != (1UL << 23)) {
-        for (unsigned i = 0; i < 2U * frames; ++i) {
-            int64_t v = ((int64_t)output[i] * (int64_t)gain) >> 23;
-            if (v > 8388607) v = 8388607;      /* over full scale: saturate */
-            if (v < -8388608) v = -8388608;
-            output[i] = (int32_t)v;
+    /* MASTER moves along a line across the block from where it was to where
+     * the knob is now, so a fast turn is a fade and not a step a block */
+    static int32_t gain_now = (int32_t)(1UL << 23);
+    const int32_t gain_to = (int32_t)orch_ui_master_q23;
+    if (gain_to != gain_now || gain_now != (int32_t)(1UL << 23)) {
+        const int32_t step = (gain_to - gain_now) / (int32_t)frames;
+        int32_t gain = gain_now;
+        for (unsigned f = 0; f < frames; ++f) {
+            gain = f + 1U == frames ? gain_to : gain + step;
+            for (unsigned c = 0; c < 2U; ++c) {
+                int64_t v = ((int64_t)output[f * 2U + c] * (int64_t)gain) >> 23;
+                if (v > 8388607) v = 8388607;      /* over full scale: saturate */
+                if (v < -8388608) v = -8388608;
+                output[f * 2U + c] = (int32_t)v;
+            }
         }
+        gain_now = gain_to;
     }
     /* what leaves the instrument, for the light the panel draws over it */
     orch_level_take(output, 2U * frames);

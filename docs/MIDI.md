@@ -1,4 +1,4 @@
-# MIDI implementation (0.6.7)
+# MIDI implementation (0.6.8)
 
 The engine answers MIDI as a Yamaha XG tone generator does, as far as an
 orchestra of physical models can. Each part listens on its own channel (part 1
@@ -10,8 +10,22 @@ and rates on a log scale, and choices in equal zones.
 
 ## Playing controllers
 
-These are per part, take effect immediately and glide over about 3 ms, so a
-fast sweep does not step. They are not saved.
+These are per part and not saved. They are **interpolated between the
+values sent**, never stepped. Each new value is reached along a straight line
+that takes as long as the sender took since its previous message, between 3
+and 50 ms. A wheel or pedal sends a value every few milliseconds, each a step
+on its 128-value scale. Joined by lines, the steps become the movement the
+hand made, with no zipper. A lone jump, such as a switch or the first message
+after a pause, glides over 50 ms.
+
+The settings that act on the sound directly glide too, so turning them fast
+from MIDI or from the panel fades instead of stepping every block:
+
+- the effect mixes, and switching an effect on or off: 20 ms from dry to full
+  wet;
+- the shared resonance (CC71, RESON): 20 ms;
+- MASTER: one line across each audio block;
+- the delay time: it was already pulled one sample at a time.
 
 | Message | Does | Law, reset value |
 | --- | --- | --- |
