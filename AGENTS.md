@@ -36,6 +36,12 @@ anything shared it reads must be settled in the control phase before the
 split. `tests/orch_cores_test.c` holds one core and two to the same output, bit
 for bit; keep it green (and clean under `-fsanitize=thread`).
 
+Before changing anything in the audio path, or adding an instrument model or an
+excitation, read `docs/PERFORMANCE.md`: the measure-profile-classify-verify
+routine (`tests/run_bench.sh`, callgrind, `tests/run_velocity_model.sh`), how a
+voice is split into `voice_control` (once a 32-sample chunk) and `voice_sample`
+(every sample), and the traps already found.
+
 The firmware build is freestanding: no `<string.h>`, no 64-bit divides (the
 PI32v2 has none), no `uint64_t /` anywhere in `app/`. Every `app/orch_*` file
 is copied into the HAWK tree by `tools/prepare_hawk_runtime.py`.
