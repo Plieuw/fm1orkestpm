@@ -360,11 +360,17 @@ static void test_midi_controllers(void)
 
     /* CC11 expression on the GM2 curve: 64 is about -12 dB, 0 silent (the
      * shared strings off, or they would ring on) */
+    /* the same note twice, the second time with expression 64 from 2.3 s:
+     * the same stretch of the note, compared, about a quarter in amplitude */
+    orch_init();
+    orch_resonance_set_amount(0U);
+    midi(0x90U, 60U, 100U);
+    render(120U);
+    const int64_t open = render_energy(40U);
     orch_init();
     orch_resonance_set_amount(0U);
     midi(0x90U, 60U, 100U);
     render(100U);
-    const int64_t open = render_energy(40U);
     midi(0xB0U, 11U, 64U);
     render(20U);                               /* a lone jump glides 50 ms */
     const int64_t half = render_energy(40U);

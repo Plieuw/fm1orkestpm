@@ -2,7 +2,7 @@
 
 Polyphonic physical-modeling firmware for the M-VAVE FM1 (JieLi WL82 / AC791N, PI32v2).
 
-## Status: 0.6.9-beta
+## Status: 0.7.0-beta
 
 0.6.0 tunes the waveguides (up to +26 cents off in the high register before),
 shares the mix evenly over the voices (1/n, no limiter), reworks the adaptive playing, the ARP and the sequencer (a lane per
@@ -14,7 +14,8 @@ the adaptive playing, the ARP and the sequencer, each with its own CCs;
 0.6.6 takes the tempo from the MIDI clock, else from the playing (128 at start);
 0.6.7 retunes the factory scenes and gives each instrument family its own velocity line;
 0.6.8 interpolates every controller, effect mix, resonance and MASTER change (no zipper);
-0.6.9 renders the voices on both of the AC79's cores, bit for bit the same as on one. See [docs/CHANGES_0.6.0.md](docs/CHANGES_0.6.0.md). Below: how 0.5.0
+0.6.9 renders the voices on both of the AC79's cores, bit for bit the same as on one;
+0.7.0 works out what moves slowly once a 32-sample chunk: half the instructions. See [docs/CHANGES_0.6.0.md](docs/CHANGES_0.6.0.md). Below: how 0.5.0
 brought the two lines together.
 
 ### 0.5.0 — the two lines merged

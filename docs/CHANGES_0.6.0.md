@@ -1,4 +1,4 @@
-# 0.6.0 – 0.6.9: tuning, mix, adaptive playing, ARP, sequencer, vector panel
+# 0.6.0 – 0.7.0: tuning, mix, adaptive playing, ARP, sequencer, vector panel
 
 Written 25 November 2026 on `beta/0.6.0-refine`, branched from
 `beta/0.5.0-orchestra-merge`. One commit a topic; every number below is a host
@@ -226,6 +226,41 @@ that gave it work, so it sat idle. Now the engine renders on both:
 
 Not measured: how much time this saves per block on the PI32v2. The split
 is HAWK's proven pattern, but nothing has run on a board.
+
+## 0.7.0: half the work, the same sound
+
+The question was what could be pre-rendered to save CPU, such as the
+transients. The measurement (callgrind, eight voices of FULL ORCH) answered
+first. The transients were cheap: the strike's noise burst and the bow's bite
+together took about 2 %. What cost was recomputing every sample what hardly
+changes from one sample to the next. So:
+
+- **Two rates for a voice.** Once every 32-sample chunk (1378 times a
+  second), `voice_control` works out the glide, bend, vibrato, LFO, phrase
+  expression, tremolo, the excitation's strength, the damping and the
+  loudness compensation. The loop length and the output gain are drawn as
+  straight lines across the chunk, so nothing steps. The waveguide, the
+  excitation, the body, the followers and the envelope stay per sample
+  (`voice_sample`).
+- **Pre-computed per note:** the bow's speed and force, which until now were
+  worked out every sample from the velocity.
+- **The hall's strings in 32-bit arithmetic.** Before, each string did five
+  64-bit products per sample, which the PI32v2 has to build in software. The
+  feedback is split into high and low halves so it stays exact. Their
+  constants are worked out once per block, and the panel's ring meter is
+  updated once per block.
+- **Result on the host:** 39.4 → 19.7 ns per voice-sample in FULL ORCH,
+  40.9 → 24.9 in CINEMA, 52.4 → 34.7 in AMBIENT (`tests/run_bench.sh`). The
+  instruction count is 634 → 386 M; the hall's share is 97 → 68 M. On the
+  PI32v2, where a 64-bit product costs more, the hall should gain more. Not
+  measured on a board.
+- Pitch is unchanged: every family stays within 3 cents at A2, C4 and E5,
+  except the bowed string at E5. That was already 15 cents flat (bow pressure
+  pulls it down) and is now 10 cents flat. One core or two remain the same
+  bit for bit, and still clean under ThreadSanitizer.
+- **Not done:** pre-rendered noise tables. Noise is 2.5 % of the work, and a
+  table would loop audibly. The body resonator is kept per voice so voices
+  stay independent of each other.
 
 ## Not done, still open
 

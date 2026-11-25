@@ -78,6 +78,12 @@ typedef struct {
     uint16_t bow_gain;   /* Q8 force scale, proportional to the string length */
     int16_t pan_l, pan_r;
     uint32_t rng;        /* its own noise, so two cores never share one generator */
+    /* worked out once a chunk (voice_control), used every sample */
+    uint32_t c_len, c_len_end;   /* the read's length, Q16, and where the line goes */
+    int32_t c_len_step;
+    int32_t c_amp, c_amp_end, c_amp_step;   /* the output gain, Q15 x 2^8 */
+    int32_t c_b_q15, c_exc_gain;
+    int32_t bow_speed, bow_fmax;  /* the bow, for this note (voice_start) */
     uint8_t note, channel, part, family, instrument, artic, player, excite, damp;
     uint8_t velocity, gate, active, releasing, struck;
 } voice_t;
@@ -610,7 +616,19 @@ static void voice_start(unsigned part, unsigned note, unsigned velocity,
     v->excite = (uint8_t)excite;
     v->damp = prof.damp > 6U ? 6U : prof.damp;
     v->velocity = (uint8_t)velocity;
+    {
+        /* the bow's speed and force for this note (worked out here once, not
+         * every sample): soft playing is a light, slightly faster stroke;
+         * the force rises with the speed squared, as a player's does */
+        const struct instrument_profile *bp = &INST_PROFILE[instrument < ORCH_INST_COUNT ? instrument : 0U];
+        const int32_t soft = velocity < 64U ? (int32_t)(64U - velocity) * 110 : 0;
+        const int32_t vsq = (int32_t)velocity * (int32_t)velocity;
+        v->bow_speed = ((int32_t)velocity + 12) * 150 + soft;
+        v->bow_fmax = ((int32_t)bp->bow_pressure * (48 + (vsq >> 6))) >> 7;
+    }
     if (!legato_reuse) {
+        v->c_len = 0U;            /* the first chunk starts its lines here */
+        v->c_amp = 0;
         v->level_follow = 0U;
         v->level_gain_q15 = 32767U;
         v->level_update_count = 0U;
@@ -1740,23 +1758,35 @@ static void seq_tick(void)
 /* Return the part's LFO destination mask so the mixer can reuse the same
  * config lookup. This function is the per-sample hot path: resolve the part,
  * LFO and instrument profile once, not separately for each modulation stage. */
-static unsigned voice_tick(voice_t *v)
-{
-    if (!v->active) return 0U;
+/* ------------------------------------------------- a voice, in two rates
+ *
+ * What moves slowly is worked out once a chunk (32 samples, 1378 times a
+ * second): the pitch's glide, bend, vibrato and LFO, the phrase expression,
+ * the tremolo, the excitation's strength and the damping. The loop length
+ * and the output gain are then drawn as straight lines across the chunk, so
+ * no modulation steps; the waveguide, the excitation, the body, the
+ * followers and the envelope run every sample. Before 0.7.0 all of it ran
+ * every sample, about 415 instructions a voice-sample on the host, most of
+ * them recomputing what had hardly changed. */
 
+/* once a chunk of n samples: the slow parts, and the lines for the chunk */
+static void voice_control(voice_t *v, unsigned n)
+{
     const struct orch_part *cfg = orch_part_get(v->part);
     const struct orch_lfo *lfo = cfg ? &cfg->lfo : 0;
-    const struct instrument_profile *ip = &INST_PROFILE[v->instrument];
     const unsigned lfo_destinations = lfo ? lfo->destinations : 0U;
+
+    /* the glide, n samples on */
     uint32_t len = v->len_q16;
     if (v->glide_left) {
+        const uint32_t k = v->glide_left < n ? v->glide_left : n;
         if (v->len_step & 0x80000000U) {
-            const uint32_t step = 0U - v->len_step;
-            v->len_q16 = v->len_q16 > step ? v->len_q16 - step : 16U;
+            const uint32_t step = (0U - v->len_step) * k;
+            v->len_q16 = v->len_q16 > step + 16U ? v->len_q16 - step : 16U;
         } else {
-            v->len_q16 += v->len_step;
+            v->len_q16 += v->len_step * k;
         }
-        --v->glide_left;
+        v->glide_left -= k;
         len = v->len_q16;
     }
     /* pitch bend (orch_cc.c): the loop's length by the part's ratio */
@@ -1766,37 +1796,35 @@ static unsigned voice_tick(voice_t *v)
         if (bent < (16U << 16)) bent = 16U << 16;
         len = (uint32_t)bent;
     }
-    /* Phrase-shaped sustain expression, about 0.14-0.30 Hz. A smooth
-     * triangle-derived sine avoids abrupt corners and runs only while the
-     * note is sustaining/releasing. Its depth is instrument-family specific. */
+    /* phrase-shaped sustain expression, about 0.14-0.30 Hz, while the note
+     * sustains or releases; its depth is the family's */
     if (v->expr_depth && (v->env_stage == 3U || v->env_stage == 4U)) {
-        v->expr_phase += v->expr_inc;
-        {
-            int32_t tri = triangle32(v->expr_phase);
-            const int32_t mag = tri < 0 ? -tri : tri;
-            const int32_t sine = (tri * (49152 - (mag >> 1))) >> 15;
-            v->expr_q15 = (sine * (int32_t)v->expr_depth) >> 15;
-        }
+        v->expr_phase += v->expr_inc * n;
+        int32_t tri = triangle32(v->expr_phase);
+        const int32_t mag = tri < 0 ? -tri : tri;
+        const int32_t sine = (tri * (49152 - (mag >> 1))) >> 15;
+        v->expr_q15 = (sine * (int32_t)v->expr_depth) >> 15;
     } else {
         v->expr_q15 = 0;
     }
 
-    /* General LFO runs independently of the legacy expressive vibrato. */
+    /* the part's LFO; the modulation wheel (CC1) is vibrato on it, as on a
+     * Yamaha, and runs it even where the part has none set */
+    int32_t tremolo_q15 = 32767;
     {
-        /* the modulation wheel (CC1) is vibrato on the part's own LFO, as
-         * on a Yamaha: it runs the LFO even where the part has none set */
         const unsigned wheel = (unsigned)(orch_cc_mod_q8[v->part] >> 8);
         if (lfo && ((lfo_destinations && v->lfo_depth) || wheel)) {
-            if (v->lfo_delay_left) --v->lfo_delay_left;
-            else {
+            if (v->lfo_delay_left) {
+                v->lfo_delay_left = v->lfo_delay_left > n ? v->lfo_delay_left - n : 0U;
+            } else {
                 const uint32_t old_phase = v->lfo_phase;
-                v->lfo_phase += v->lfo_inc;
+                v->lfo_phase += v->lfo_inc * n;
                 if (lfo->wave == ORCH_LFO_SAMPLE_HOLD && v->lfo_phase < old_phase)
                     v->lfo_hold = v->lfo_hold * 1664525U + 1013904223U;
                 if (v->lfo_fade_gain < 32767U) {
                     const uint32_t step = v->lfo_fade_frames
                         ? (32767U / v->lfo_fade_frames) + 1U : 32767U;
-                    v->lfo_fade_gain += step;
+                    v->lfo_fade_gain += step * n;
                     if (v->lfo_fade_gain > 32767U) v->lfo_fade_gain = 32767U;
                 }
                 int32_t value = lfo_wave_value(lfo->wave, v->lfo_phase, &v->lfo_hold);
@@ -1812,6 +1840,10 @@ static unsigned voice_tick(voice_t *v)
                     if (modulated > 16) len = (uint32_t)modulated;
                 }
             }
+            if (lfo_destinations & ORCH_LFO_TREMOLO) {
+                const int32_t depth = (int32_t)v->lfo_depth * 245 / 100;
+                tremolo_q15 = 32767 - ((v->lfo_value + 32768) * depth >> 16);
+            }
         } else {
             v->lfo_value = 0;
         }
@@ -1820,11 +1852,11 @@ static unsigned voice_tick(voice_t *v)
     /* vibrato: delayed, then growing; a triangle on the loop length */
     if (v->vib_depth_max) {
         if (v->vib_delay) {
-            --v->vib_delay;
+            v->vib_delay = v->vib_delay > n ? v->vib_delay - n : 0U;
         } else {
-            v->vib_phase = (uint16_t)(v->vib_phase + v->vib_inc);
+            v->vib_phase = (uint16_t)(v->vib_phase + v->vib_inc * n);
             if (v->vib_depth < v->vib_depth_max) {
-                v->vib_depth += v->vib_ramp;
+                v->vib_depth += v->vib_ramp * n;
                 if (v->vib_depth > v->vib_depth_max) v->vib_depth = v->vib_depth_max;
             }
         }
@@ -1834,18 +1866,8 @@ static unsigned voice_tick(voice_t *v)
         if (modulated > 16) len = (uint32_t)modulated;
     }
 
-    /* Loop damping. A one-pole lowpass applied every sample would eat the
-     * fundamental over a round trip (0.994^200 is 0.28), so the loop uses a
-     * two-tap smoother instead: highs die within a round trip, the
-     * fundamental rings for seconds. More damping = darker and shorter. */
-    /* ADSR also shapes excitation timbre. A rectified follower tracks recent
-     * acoustic energy; the attack contour supplies a short-lived transient. */
-    {
-        int32_t target = v->out < 0 ? -v->out : v->out;
-        if (target > 32767) target = 32767;
-        const int32_t delta = target - v->excite_follow;
-        v->excite_follow += delta >> (delta > 0 ? 2 : 6);
-    }
+    /* the excitation's strength: the envelope, the phrase expression, the
+     * breath controller and a legato handover */
     const int32_t env_q15 = v->env < 0 ? 0 :
         (v->env > ORCH_ENV_MAX ? ORCH_ENV_MAX : v->env);
     const int32_t transient_q15 = (v->env_stage == 1U)
@@ -1854,28 +1876,23 @@ static unsigned voice_tick(voice_t *v)
     const int32_t expression_gain_q15 = 32767 + v->expr_q15;
     int32_t excitation_gain_q15 =
         (env_excitation_q15 * (expression_gain_q15 >> 1)) >> 14;
-    /* CC1/CC2 dynamics: how hard the part is bowed or blown (orch_cc.c) */
     excitation_gain_q15 = (excitation_gain_q15 * orch_cc_excite_q15[v->part]) >> 15;
     if (v->legato_transition_left) {
         const uint32_t total = v->legato_transition_total ? v->legato_transition_total : 1U;
         const uint32_t left = v->legato_transition_left;
         const uint32_t elapsed = total > left ? total - left : 0U;
-        /* 72% -> 100% smooth excitation handover; the slope is precomputed
-         * at note-on so the sample loop needs only a 32-bit multiply. */
+        /* 72% -> 100% smooth excitation handover */
         const int32_t blend = 23593 +
             (int32_t)((elapsed * v->legato_transition_step_q16) >> 16);
         excitation_gain_q15 = (excitation_gain_q15 * blend) >> 15;
-        --v->legato_transition_left;
+        v->legato_transition_left = left > n ? left - n : 0U;
     }
+    v->c_exc_gain = excitation_gain_q15;
+
     /* Loop damping as a first-order FIR, y = x - b (x - x[-1]): DC passes
      * whole, Nyquist at 1 - 2b, and its delay at low frequencies is b
-     * samples. b moves continuously with the profile's damping, the attack
-     * transient, the energy follower and the LFO, where 0.5.0 had six fixed
-     * steps (0, 0.5 or 0.75) that changed the timbre in jumps. (A one-pole
-     * IIR would eat the fundamental over a round trip: measured fact 1 in
-     * docs/PARALLEL_WORK.md; this FIR keeps DC at unity.)
-     *
-     * damp_q8 is 1.0 dark .. 6.0 bright, in 1/256 steps. */
+     * samples. b moves with the profile's damping, the attack transient, the
+     * energy follower, CC74 and the LFO. damp_q8 is 1.0 dark .. 6.0 bright. */
     int32_t damp_q8 = (int32_t)(v->damp ? v->damp : 2U) << 8;
     damp_q8 += (transient_q15 >> 5) + (v->excite_follow >> 6);
     damp_q8 += orch_cc_bright_q8[v->part];               /* CC74 */
@@ -1888,17 +1905,52 @@ static unsigned voice_tick(voice_t *v)
     /* b in Q15: 0.75 at 1.0, 0.5 at 2.0, 0.25 at 3.0, none from 4.0 up */
     int32_t b_q15 = damp_q8 >= 1024 ? 0 : ((1024 - damp_q8) * 32) ;
     if (b_q15 > 24576) b_q15 = 24576;
+    v->c_b_q15 = b_q15;
 
-    /* The read: the loop's length is the note's period (per pass), less the
-     * filter's own delay b, so the pitch stays put while the filter moves.
-     * Linear interpolation between the sample `whole` back and the one before
-     * it. 0.5.0 read the newer neighbour, so the fraction shortened the loop
-     * instead of lengthening it: every note sounded at SR/whole, up to +26 c
-     * at E5 (measured, tests/run_measure.sh). */
+    /* The read's length: the note's period less the filter's own delay b, so
+     * the pitch stays put while the filter moves; a line from where the last
+     * chunk ended to where this one ends */
     {
         const uint32_t comp = (uint32_t)b_q15 << 1;          /* Q16 samples */
         len = len > comp + (4U << 16) ? len - comp : (4U << 16);
     }
+    if (!v->c_len) v->c_len = len;                       /* a new note: no line from nowhere */
+    v->c_len_step = ((int32_t)len - (int32_t)v->c_len) / (int32_t)n;
+    v->c_len_end = len;
+
+    /* the output's gain: the loudness follower's, the phrase expression and
+     * the tremolo, also as a line across the chunk (Q15 x 2^8) */
+    if (v->level_follow > 64U)
+        v->level_gain_q15 = level_compensation_gain(v->velocity, v->level_follow, v->note);
+    {
+        int32_t g = (int32_t)v->level_gain_q15;
+        g = (g * (32767 + v->expr_q15)) >> 15;
+        g = (g * tremolo_q15) >> 15;
+        const int32_t to = g << 8;
+        if (!v->c_amp) v->c_amp = to;
+        v->c_amp_step = (to - v->c_amp) / (int32_t)n;
+        v->c_amp_end = to;
+    }
+}
+
+/* every sample: the waveguide, the excitation, the body, the followers, the
+ * envelope. Returns the output gain for this sample, Q15. */
+static int32_t voice_sample(voice_t *v)
+{
+    const struct instrument_profile *ip = &INST_PROFILE[v->instrument];
+    v->c_len += (uint32_t)v->c_len_step;
+    const uint32_t len = v->c_len;
+    const int32_t b_q15 = v->c_b_q15;
+    const int32_t excitation_gain_q15 = v->c_exc_gain;
+
+    /* the attack's brightness and the damping follow the sound */
+    {
+        int32_t target = v->out < 0 ? -v->out : v->out;
+        if (target > 32767) target = 32767;
+        const int32_t delta = target - v->excite_follow;
+        v->excite_follow += delta >> (delta > 0 ? 2 : 6);
+    }
+
     uint32_t whole = len >> 16;
     if (whole < 4U) whole = 4U;
     if (whole > DELAY_SIZE - 4U) whole = DELAY_SIZE - 4U;
@@ -1950,16 +2002,9 @@ static unsigned voice_tick(voice_t *v)
              *
              * The ADSR/energy excitation gain of the 0.3.14 line scales the
              * whole drive, as it did the rosin noise this replaces. */
-            const int32_t soft = (v->velocity < 64U)
-                                     ? (int32_t)(64U - v->velocity) * 110
-                                     : 0;
-            const int32_t bow = ((int32_t)v->velocity + 12) * 150 + soft;
-            const int32_t vrel = bow - delayed;   /* + = bow leads the string */
+            const int32_t vrel = v->bow_speed - delayed;   /* + = bow leads the string */
             const int32_t mu = friction_q15(vrel);
-            /* bow force rises with bow speed squared, as a player's does */
-            const int32_t vsq = (int32_t)v->velocity * (int32_t)v->velocity;
-            const int32_t fmax = ((int32_t)ip->bow_pressure * (48 + (vsq >> 6))) >> 7;
-            int32_t force = (mu * fmax) >> 15;    /* magnitude */
+            int32_t force = (mu * v->bow_fmax) >> 15;    /* magnitude */
             force = vrel < 0 ? -force : force;    /* direction follows the slip */
             v->exc_dc += (force - v->exc_dc) >> 10;   /* ~7 Hz: the DC term */
             int32_t exc = force - v->exc_dc;
@@ -2021,11 +2066,7 @@ static unsigned voice_tick(voice_t *v)
         v->out = body_out - v->dc;
     }
 
-    /* Gentle per-instrument loudness compensation. The rectified output
-     * follower estimates each model's sustained level; gain moves slowly
-     * toward a common target proportional to MIDI velocity, so velocity
-     * expression is retained. A +/-6 dB bound prevents noise pumping and
-     * leaves the instrument's spectral identity untouched. */
+    /* the loudness follower (its gain is worked out once a chunk) */
     {
         const int32_t magnitude = v->out < 0 ? -v->out : v->out;
         const uint32_t current = v->level_follow;
@@ -2033,12 +2074,6 @@ static unsigned voice_tick(voice_t *v)
             v->level_follow = current + (((uint32_t)magnitude - current) >> 9);
         else
             v->level_follow = current - ((current - (uint32_t)magnitude) >> 12);
-        if (++v->level_update_count >= 16U) {
-            v->level_update_count = 0U;
-            if (v->level_follow > 64U)
-                v->level_gain_q15 =
-                    level_compensation_gain(v->velocity, v->level_follow, v->note);
-        }
     }
 
     /* Four-stage per-voice ADSR. A MIDI note-off can enter release from
@@ -2086,7 +2121,8 @@ static unsigned voice_tick(voice_t *v)
     if (v->stroke_left) {
         if (!--v->stroke_left) v->gate = 0U;
     }
-    return lfo_destinations;
+    v->c_amp += v->c_amp_step;
+    return v->c_amp >> 8;
 }
 
 /* ------------------------------------------------------- the render
@@ -2136,19 +2172,14 @@ static void render_voices(uint32_t mask, unsigned n, unsigned side)
         voice_t *v = &voices[i];
         const unsigned part = v->part < ORCH_PARTS ? v->part : 0U;
         const int32_t vel_q12 = (int32_t)orch_cc_velocity_q12(v->family, v->velocity);
+        voice_control(v, n);
         for (unsigned f = 0; f < n; ++f) {
             if (!v->active) break;
-            const unsigned lfo_destinations = voice_tick(v);
+            const int32_t gain_q15 = voice_sample(v);
             if (!v->active) break;
             ++cnt[f];
             int32_t amp = (v->out * v->env >> 15);
-            amp = (amp * (int32_t)v->level_gain_q15) >> 15;
-            amp = (amp * (32767 + v->expr_q15)) >> 15;
-            if (lfo_destinations & ORCH_LFO_TREMOLO) {
-                const int32_t depth = (int32_t)v->lfo_depth * 245 / 100;
-                const int32_t gain = 32767 - ((v->lfo_value + 32768) * depth >> 16);
-                amp = (amp * gain) >> 15;
-            }
+            amp = (amp * gain_q15) >> 15;
             /* velocity on an even dB line (orch_cc_tables.inc), then the
              * part's volume x expression x dynamics at this sample */
             int32_t g = (int32_t)(((int64_t)amp * vel_q12) >> 12);

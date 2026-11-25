@@ -39,11 +39,6 @@ static volatile uint8_t res_clear_pending;
 static int32_t wet_now;
 #define WET_SLEW (16384 / (int32_t)(44100U / 50U) + 1)
 
-static int32_t shr0_64(int64_t x, unsigned bits)
-{
-    return (int32_t)(x < 0 ? -((-x) >> bits) : x >> bits);
-}
-
 void orch_resonance_clear(void) { res_clear_pending = 1U; }
 
 static void clear_now(void)
@@ -87,47 +82,60 @@ void orch_resonance_process(int32_t *stereo, unsigned frames)
     const int32_t wet_to = (int32_t)(amount * 16384U / 100U);
     if (!wet_to && !wet_now) return;
 
+    /* the strings' constants, worked out once a block: where each reads,
+     * how much of the input it takes, its pan */
+    uint32_t whole[ORCH_RESONATORS], frac[ORCH_RESONATORS];
+    int32_t feed[ORCH_RESONATORS];
+    for (unsigned k = 0; k < ORCH_RESONATORS; ++k) {
+        whole[k] = RES_LEN_Q8[k] >> 8;
+        frac[k] = RES_LEN_Q8[k] & 0xFFU;
+        /* input scaled by (1 - g) * RES_DRIVE: at resonance the loop's gain
+         * is 1 / (1 - g), so a string rings at most RES_DRIVE times what
+         * feeds it, and only for a steady tone on its own pitch */
+        feed[k] = (32768 - (int32_t)RES_FB_Q15[k]) * RES_DRIVE;
+    }
+    int32_t last_y[ORCH_RESONATORS] = { 0 };
+
+    /* All in 32 bits (0.7.0; before, five 64-bit products a string a
+     * sample): the read's fraction on the difference, the feedback split
+     * into its high and low halves so it stays exact. */
     for (unsigned f = 0; f < frames; ++f) {
         if (wet_now < wet_to) wet_now = wet_to - wet_now > WET_SLEW ? wet_now + WET_SLEW : wet_to;
         else if (wet_now > wet_to) wet_now = wet_now - wet_to > WET_SLEW ? wet_now - WET_SLEW : wet_to;
-        const int32_t wet = wet_now;
         const int32_t in = (stereo[f * 2U] >> 1) + (stereo[f * 2U + 1U] >> 1);
-        int64_t sum_l = 0, sum_r = 0;
+        const int32_t in_s = in >> 5;
+        int32_t sum_l = 0, sum_r = 0;
         for (unsigned k = 0; k < ORCH_RESONATORS; ++k) {
             /* the read: `whole` back and the sample before it, by the fraction */
-            const uint32_t len = RES_LEN_Q8[k];
-            const uint32_t whole = len >> 8, frac = len & 0xFFU;
-            const uint32_t i0 = (res_w + RES_SIZE - whole) & RES_MASK;
+            const uint32_t i0 = (res_w + RES_SIZE - whole[k]) & RES_MASK;
             const uint32_t i1 = (i0 + RES_SIZE - 1U) & RES_MASK;
-            const int64_t a = res_buf[k][i0], b = res_buf[k][i1];
-            const int32_t y = (int32_t)((a * (int64_t)(256U - frac) + b * (int64_t)frac) >> 8);
+            const int32_t a = res_buf[k][i0], b = res_buf[k][i1];
+            const int32_t y = a + ((((b - a) >> 2) * (int32_t)frac[k]) >> 6);
             /* a quarter-sample smoother: the strings' highs die first */
-            const int32_t s = y - shr0_64((int64_t)(y - res_lp[k]), 2);
+            const int32_t sm = y - (y - res_lp[k]) / 4;
             res_lp[k] = y;
-            /* input scaled by (1 - g) * RES_DRIVE: at resonance the loop's
-             * gain is 1 / (1 - g), so a string rings at most RES_DRIVE times
-             * what feeds it, and only for a steady tone on its own pitch */
             const int32_t g = (int32_t)RES_FB_Q15[k];
-            const int32_t x = shr0_64((int64_t)in * (32768 - g) * RES_DRIVE, 15) +
-                              shr0_64((int64_t)s * g, 15);
-            res_buf[k][res_w] = x;
-            sum_l += (int64_t)y * RES_PAN_L[k];
-            sum_r += (int64_t)y * (256U - RES_PAN_L[k]);
-            {   /* how hard it rings, for the panel: a slow peak follower */
-                const uint32_t m = (uint32_t)(y < 0 ? -y : y);
-                if (m > res_follow[k]) res_follow[k] = m;
-                else res_follow[k] -= (res_follow[k] >> 11) + 1U;
-                if (res_follow[k] > 0x7FFFFFFFU) res_follow[k] = 0U;
-            }
+            const int32_t fb = (sm >> 15) * g + (((sm & 0x7FFF) * g) >> 15);
+            res_buf[k][res_w] = ((in_s * feed[k]) >> 10) + fb;
+            const int32_t yp = y >> 4;
+            sum_l += yp * (int32_t)RES_PAN_L[k];
+            sum_r += yp * (int32_t)(256U - RES_PAN_L[k]);
+            last_y[k] = y;
         }
         res_w = (res_w + 1U) & RES_MASK;
         /* each string's left and right shares sum to 256 and there are
          * eight, so the bank's side averages the strings; it is added on top
-         * of the dry signal at up to one half, inside the headroom the even
-         * 1/n mix leaves (the full orchestra at 127 and resonance 100 peaks
-         * near 3 M of 8.4 M, see test_shared_resonance) */
-        const int32_t rl = (int32_t)(sum_l >> 11), rr = (int32_t)(sum_r >> 11);
-        stereo[f * 2U] += shr0_64((int64_t)rl * wet, 15);
-        stereo[f * 2U + 1U] += shr0_64((int64_t)rr * wet, 15);
+         * of the dry signal at up to one half, inside the headroom the
+         * 1.36 / n mix leaves */
+        const int32_t rl = sum_l >> 7, rr = sum_r >> 7;
+        stereo[f * 2U] += ((rl >> 8) * wet_now) >> 7;
+        stereo[f * 2U + 1U] += ((rr >> 8) * wet_now) >> 7;
+    }
+    /* how hard each rings, for the panel: a slow peak follower, once a block */
+    for (unsigned k = 0; k < ORCH_RESONATORS; ++k) {
+        const uint32_t m = (uint32_t)(last_y[k] < 0 ? -last_y[k] : last_y[k]);
+        if (m > res_follow[k]) res_follow[k] = m;
+        else res_follow[k] -= (res_follow[k] >> 4) + 1U;
+        if (res_follow[k] > 0x7FFFFFFFU) res_follow[k] = 0U;
     }
 }
